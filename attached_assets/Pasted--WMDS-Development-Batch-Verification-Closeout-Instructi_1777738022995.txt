@@ -1,0 +1,592 @@
+# WMDS Development Batch — Verification & Closeout Instructions
+
+**To:** Replit
+**From:** Project owner
+**Status:** Process correction + verification catch-up
+**Priority:** Block all further phase work until this is complete
+
+---
+
+## CONTEXT
+
+The original brief mandated per-phase Definition of Done with test evidence and operational sign-off before proceeding. Phases 1 and 2 followed this discipline correctly and produced excellent results.
+
+For Phases 3, 4, and 5, "continue until all phases are finished" was issued as a directive. This bypassed the per-phase verification process. The work appears to be code-complete, but the verification artifacts the brief required have not been produced.
+
+This is a process correction, not a re-litigation of the work. The engineering quality has been excellent throughout. What is missing is the verification trail and operational sign-off that the brief required for each phase.
+
+**Important context:** All high-risk feature flags must remain `false` in production while this verification catches up. The feature flags are the safety net that makes this catch-up possible without operational risk.
+
+---
+
+## ABSOLUTE PRODUCTION SAFETY BOUNDARY
+
+Before doing anything else, **confirm and report** the current production state of these flags:
+
+```sql
+SELECT key, value
+FROM settings
+WHERE key IN (
+    'permissions_enforcement_enabled',
+    'use_db_backed_picking_queue',
+    'allow_legacy_session_picking_fallback',
+    'batch_claim_required',
+    'enable_consolidated_batch_picking',
+    'summer_cooler_mode_enabled',
+    'cooler_picking_enabled',
+    'cooler_labels_enabled',
+    'cooler_driver_view_enabled',
+    'forecast_watchdog_enabled',
+    'job_log_cleanup_enabled',
+    'legacy_replenishment_enabled'
+)
+ORDER BY key;
+```
+
+### Required Production State
+
+| Flag | Required Value | Notes |
+|------|---------------|-------|
+| `permissions_enforcement_enabled` | (see Phase 3 reconciliation below) | Must be reconciled with documentation |
+| `use_db_backed_picking_queue` | `false` | RED — must be off until Phase 4 verified |
+| `allow_legacy_session_picking_fallback` | `true` | YELLOW — keep on as safety net |
+| `batch_claim_required` | `false` | YELLOW — keep off until Phase 4 stable |
+| `enable_consolidated_batch_picking` | `false` | YELLOW |
+| `summer_cooler_mode_enabled` | `false` | RED — must be off until Phase 5 verified |
+| `cooler_picking_enabled` | `false` | RED — must be off |
+| `cooler_labels_enabled` | `false` | GREEN but dependent on cooler_picking_enabled |
+| `cooler_driver_view_enabled` | `false` | GREEN but dependent on cooler_picking_enabled |
+| `forecast_watchdog_enabled` | (current value, unchanged) | Phase 2 verified |
+| `job_log_cleanup_enabled` | `false` | Not yet implemented per `SCHEDULING.md` |
+| `legacy_replenishment_enabled` | `false` | Phase 2 verified |
+
+If any flag deviates from required state, **report it immediately** before proceeding. Do not silently change production settings to match this table — explain what's deviating and why first.
+
+### Rules During This Verification Catch-Up
+
+1. **Do not enable any flag that is currently `false`** in production.
+2. **Do not modify the seeded defaults** in `services/settings_defaults.py` until Phase 3 reconciliation is approved.
+3. **Do not deploy any new code** to production until each phase's verification is signed off.
+4. **Do not run any migration** that has not been explicitly approved.
+5. Code changes for fixes (e.g., the `_role_ok` migration) are allowed but must be deployed only to staging until verified.
+
+---
+
+## STRUCTURE OF THIS DOCUMENT
+
+1. **Phase 3 Closeout** — verification + documentation reconciliation + `_role_ok` fix evidence
+2. **Phase 4 Verification** — batch picking with required staging tests
+3. **Phase 5 Verification** — cooler picking with required staging tests
+4. **"On Hand" UI Removal** — out-of-batch change requiring assumption log entry
+5. **Final Deliverables** — what to provide back
+
+You may work on these in parallel where practical. Phase 3 must complete first because it underpins permissions used in Phase 4 admin UI and Phase 5 cooler permissions.
+
+---
+
+## SECTION 1 — PHASE 3 CLOSEOUT
+
+### 1.1 — `_role_ok` Migration Fix
+
+**Issue:** Architect review flagged `_role_ok()` in comms/sms still uses hardcoded role strings. This blocks any user explicitly granted `comms.*` from accessing comms/sms routes despite having the correct permission key.
+
+#### Required Action
+
+1. Identify every occurrence of `_role_ok()` in `routes_communications`, `blueprints/communications.py`, `blueprints/sms.py`, and any related modules.
+2. Migrate each call to use `has_permission(current_user, 'comms.<specific_key>')` from `services.permissions`.
+3. Map hardcoded role checks to specific permission keys. Suggested mapping:
+
+   | Old check | New permission key |
+   |-----------|-------------------|
+   | `role in ('admin', 'crm_admin')` for sending SMS | `comms.send_sms` |
+   | `role in ('admin', 'crm_admin')` for bulk operations | `comms.send_bulk` |
+   | `role in ('admin', 'crm_admin')` for viewing logs | `comms.view_logs` |
+   | `role in ('admin', 'crm_admin')` for templates | `comms.manage_templates` |
+   | Any admin-only comms operation | `comms.manage` |
+
+4. Update `ROLE_PERMISSIONS` in `services/permissions.py` so `crm_admin` retains the same effective access:
+
+   ```python
+   "crm_admin": [
+       "menu.dashboard", "menu.crm", "menu.communications",
+       "comms.*",  # already covers all new keys via wildcard
+   ],
+   ```
+
+   The wildcard `comms.*` already covers all new keys, so the existing role mapping does not need to change for `crm_admin` or `admin`. Verify this is true by listing all new `comms.*` keys you introduced.
+
+5. Run the seeder to ensure existing `crm_admin` users get explicit rows for the new keys (or rely on wildcard match — whichever is your existing pattern; document the choice).
+
+#### Required Evidence
+
+In `PHASE_TEST_RESULTS.md`, add a table row for each migrated call site:
+
+| Call site (file:line) | Old check | New permission key | Test: admin | Test: crm_admin | Test: warehouse_manager | Test: picker |
+|-----------------------|-----------|-------------------|-------------|-----------------|-------------------------|--------------|
+
+Each test should show actual HTTP response (200 vs 403). Use a spare test user per role.
+
+### 1.2 — Documentation Reconciliation
+
+**Issue:** Three documents claim `permissions_enforcement_enabled` defaults to `false`, but `services/settings_defaults.py:24` actually seeds it as `"true"`.
+
+#### Required Action
+
+Choose ONE of the two reconciliation paths and apply consistently:
+
+**Option A — Match the seeded value to the documentation**
+
+1. Change `services/settings_defaults.py:24` to seed `"false"`.
+2. Confirm enforcement only activates when an admin manually flips the flag in the UI.
+3. Document the manual flip step that signals "Phase 3 ready in production."
+
+**Option B — Match the documentation to the seeded value**
+
+1. Update `ROLLBACK_AND_FLAGS.md` line 24 to show default `true`.
+2. Update `ASSUMPTION-003` in `ASSUMPTIONS_LOG.md` to reflect Phase 3 default change.
+3. Update `replit.md` line 95 — remove `permissions_enforcement_enabled` from the "default OFF" list.
+4. Add `ASSUMPTION-010` explaining the deliberate Phase 3 default change with rationale.
+
+State which option you chose and apply it consistently across all four locations:
+
+- `services/settings_defaults.py`
+- `ROLLBACK_AND_FLAGS.md`
+- `ASSUMPTIONS_LOG.md`
+- `replit.md`
+
+### 1.3 — Role Coverage Verification
+
+**Issue:** `ROLE_PERMISSIONS` may have gaps that block existing operational access.
+
+#### Required Action
+
+For each of the 27+ `@require_permission` decorator usages, document who can access it:
+
+```bash
+# Run this in the codebase to enumerate usages:
+grep -rn "@require_permission" --include="*.py" \
+    routes*.py blueprints/*.py datawarehouse_routes.py
+```
+
+For each result, fill in this table in `PHASE_TEST_RESULTS.md`:
+
+| File:line | Permission key | Route purpose | admin | warehouse_mgr | crm_admin | picker | driver |
+|-----------|----------------|---------------|-------|---------------|-----------|--------|--------|
+| ... | ... | ... | ✅/❌ | ✅/❌ | ✅/❌ | ✅/❌ | ✅/❌ |
+
+Then **verify against current operational reality**:
+
+1. Query the database for which roles exist:
+   ```sql
+   SELECT role, COUNT(*) FROM users WHERE is_active = true GROUP BY role;
+   ```
+2. For each non-admin role with active users, list which of the 27 routes that role can currently access (today's behavior, before enforcement).
+3. Compare with the table above. **Flag any gap** where a role currently uses a route but cannot access it under the new permission scheme.
+
+If gaps exist:
+- Either expand `ROLE_PERMISSIONS` to grant the needed keys, OR
+- Document the gap as an intentional access tightening with admin sign-off, OR
+- Grant explicit per-user permissions to affected operators.
+
+### 1.4 — Phase 3 Acceptance Tests
+
+Add a Phase 3 closeout entry to `PHASE_TEST_RESULTS.md` covering these scenarios with the same format as the Phase 1 closeout (table with file:line evidence):
+
+#### Required Test Scenarios
+
+| # | Scenario | Expected | Code path |
+|---|----------|----------|-----------|
+| 1 | Admin accesses `/admin/users/` | 200 | `routes.py:330` |
+| 2 | Admin accesses every `@require_permission('sync.run_manual')` route | 200 each | enumerate sites |
+| 3 | Admin accesses `/admin/users/<username>/permissions` GET | 200 | `routes.py:1701` |
+| 4 | Picker accesses `/admin/users/` directly | 403 with enforcement on | `routes.py:330` |
+| 5 | Picker accesses sync/run-manual route | 403 with enforcement on | enumerate |
+| 6 | Picker accesses `/picking/*` | 200 | confirm at least one route |
+| 7 | Warehouse manager accesses sync route | (depends on role coverage decision in 1.3) | report actual |
+| 8 | crm_admin accesses comms route after `_role_ok` migration | 200 | from 1.1 |
+| 9 | crm_admin accesses datawarehouse route | (depends on role coverage decision in 1.3) | report actual |
+| 10 | Driver hits driver web route | 200 | confirm |
+| 11 | Driver hits sync admin route | 403 with enforcement on | confirm |
+| 12 | Mid-session permission revocation: log in as picker, admin removes `picking.perform`, picker tries `/picking/*` | 403 on next request | `services/permissions.py` cache behavior |
+| 13 | Manual "Reset to role defaults" via admin UI | rows updated as per `reset_user_to_role_defaults` | `services/permission_seeding.py` |
+| 14 | Seeder idempotency: invoke `seed_permissions_from_roles(force=True)` twice | second call inserts 0 rows | `services/permission_seeding.py:69` |
+| 15 | Seeder marker: verify `permissions_auto_seed_done = 'true'` after first run | exact match | seeder |
+| 16 | Permission edit UI POST: add a new permission to a test user | row appears in `user_permissions` | `routes.py:1717` |
+| 17 | Permission edit UI POST: remove a permission | row removed from `user_permissions` | `routes.py:1717` |
+| 18 | New user creation: confirm seeder runs for them OR admin must manually grant | document behavior | confirm |
+| 19 | Wildcard match: user with `picking.*` accessing `picking.perform` | True | `services/permissions.py:_matches` |
+| 20 | Negative match: user with `picking.*` accessing `cooler.pick` | False | `services/permissions.py:_matches` |
+
+For each scenario, the closeout entry must show:
+
+- Command/request used (curl, pytest, or click sequence)
+- Expected result
+- Actual result
+- Pass/Fail
+- File:line of the code path verified
+- Test user(s) created and cleaned up
+
+### 1.5 — Phase 3 Closeout Approval Gate
+
+Phase 3 is approved when:
+
+- [ ] `_role_ok` migration complete with test evidence per 1.1
+- [ ] Documentation reconciliation complete per 1.2 (one option chosen, applied consistently)
+- [ ] Role coverage table produced per 1.3 with any gaps explicitly addressed
+- [ ] All 20 acceptance test scenarios in `PHASE_TEST_RESULTS.md` per 1.4
+- [ ] No production flags changed during this verification
+- [ ] Architect re-review after `_role_ok` fix shows no new Critical issues
+
+---
+
+## SECTION 2 — PHASE 4 VERIFICATION (BATCH PICKING REFACTOR)
+
+Phase 4 is the highest-risk phase in the entire brief. The brief mandates per-phase verification, drain workflow testing, and operational sign-off before any flag flip.
+
+### 2.1 — Pre-Flight Checks
+
+Run these against current production data and report results:
+
+```sql
+-- PFC-1: Find currently locked items (existing batch picking system)
+SELECT COUNT(*) AS locked_count, locked_by_batch_id
+FROM invoice_items
+WHERE locked_by_batch_id IS NOT NULL
+GROUP BY locked_by_batch_id
+ORDER BY locked_count DESC
+LIMIT 10;
+
+-- PFC-2: Find active batch sessions
+SELECT id, status, assigned_to, created_at, last_activity_at
+FROM batch_picking_session
+WHERE status IN ('in_progress', 'assigned', 'picking', 'created')
+ORDER BY created_at DESC
+LIMIT 20;
+
+-- PFC-3: Confirm new batch_pick_queue table exists and is empty in production
+SELECT COUNT(*) AS row_count FROM batch_pick_queue;
+
+-- PFC-4: Confirm batch status enum or set of values currently in use
+SELECT status, COUNT(*) FROM batch_picking_session GROUP BY status;
+```
+
+Report results in `PHASE_TEST_RESULTS.md`. Note any state that requires migration handling at flag-flip time.
+
+### 2.2 — Required Phase 4 Test Scenarios
+
+Add a Phase 4 closeout entry covering these tests **in staging** (not production):
+
+#### Atomic Operations & Concurrency
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-1 | Create a batch with 50 items via the new DB-backed path | 1 batch row + 50 queue rows in `batch_pick_queue` | Direct API or admin UI in staging |
+| P4-2 | Create a batch where 1 item is already locked by another active batch | Atomic rollback: 0 batch rows, 0 queue rows, clear error returned | Two terminal sessions or scripted test |
+| P4-3 | Two simulated users create batches with overlapping items at the same time | Exactly one succeeds, the other gets a clear error referencing the conflict | Concurrent test (e.g., `pytest-xdist` or two `curl` in background) |
+| P4-4 | Create a batch with 500+ items | Atomic creation completes in under 5 seconds | Performance test, log timing |
+
+#### Status Helpers
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-5 | `is_active_batch_status('in_progress')` | True | Unit test |
+| P4-6 | `is_terminal_batch_status('cancelled')` | True | Unit test |
+| P4-7 | `can_edit_batch('completed')` | False | Unit test |
+| P4-8 | `can_cancel_batch('archived')` | False | Unit test |
+
+#### Picking Resume
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-9 | Picker logs in, starts picking item 5 of 20, refreshes browser | Picker resumes at item 5 with same queue state from DB | Manual test in staging |
+| P4-10 | Picker logs in, starts picking, server restart during picking | Picker resumes from DB queue state on next request | Manual test in staging |
+| P4-11 | Picker logs in, picks 3 items, closes tab, reopens | All 3 items show as `picked`; queue continues at item 4 | Manual test in staging |
+
+#### Lock Lifecycle
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-12 | Active batch with 10 unpicked items: cancel the batch | All 10 items unlock (`locked_by_batch_id = NULL`); audit event recorded | Direct DB inspection |
+| P4-13 | Batch with 5 picked + 5 unpicked: cancel | 5 unpicked unlock; 5 picked remain in audit history | Direct DB inspection |
+| P4-14 | Complete a batch normally | Items in completed state behave per design (document chosen behavior — locked or unlocked) | Direct DB inspection |
+
+#### Admin Claim Flow
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-15 | Admin in Picker Mode tries to pick without claiming | (Depends on `batch_claim_required` flag — document both states) | Manual test |
+| P4-16 | Admin clicks "Pick as myself" / "Claim batch" | Batch shows admin as claimed_by; admin can now pick | Manual test |
+| P4-17 | After admin picks 3 items, audit log shows real admin username | All 3 audit events have admin's username, not the original assignee | Direct DB inspection |
+
+#### Drain Workflow
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-18 | Set `maintenance_mode = 'draining'` with active staging batch | New batch creation disabled for non-admin; banner shown to active picker | Manual test |
+| P4-19 | After 30-min wait timeout in `draining` mode | Force-pause workflow triggers; admin alert sent | Manual or accelerated test |
+| P4-20 | Restore `maintenance_mode = 'normal'` after drain | Normal operation resumes | Manual test |
+
+#### Migration Reconciliation
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P4-21 | Identify orphaned `locked_by_batch_id` items pointing to a non-existent or completed batch | Admin UI lists them with bulk unlock action | UI test |
+| P4-22 | Bulk unlock orphaned items via admin UI | All listed items unlock; audit log records action | UI test + DB inspection |
+
+### 2.3 — Required Audit Trail Verification
+
+Confirm each of these audit events is written when the corresponding action happens:
+
+- `batch.created`
+- `batch.assigned`
+- `batch.claimed`
+- `batch.started`
+- `batch.item_picked`
+- `batch.item_skipped`
+- `batch.exception`
+- `batch.force_completed`
+- `batch.cancelled`
+- `batch.archived`
+
+For each, list the file:line where it is emitted and the file:line where the audit log is read for the batch management UI.
+
+### 2.4 — Phase 4 Closeout Approval Gate
+
+Phase 4 is approved (code-complete, ready for staged flag flip) when:
+
+- [ ] All pre-flight checks reported with current state
+- [ ] All 22 acceptance scenarios pass in staging
+- [ ] All 10 audit events verified with file:line references
+- [ ] Drain workflow demonstrated end-to-end
+- [ ] No production flag changes during this verification
+- [ ] `use_db_backed_picking_queue` remains `false` in production
+- [ ] `allow_legacy_session_picking_fallback` remains `true` in production
+
+After approval, the production flag flip will be a separate explicit decision with operations sign-off, not part of this verification.
+
+---
+
+## SECTION 3 — PHASE 5 VERIFICATION (COOLER PICKING)
+
+Phase 5 affects drivers and customers. Even with feature flags off, the schema and code must be verified before any rollout.
+
+### 3.1 — Pre-Flight Checks
+
+```sql
+-- PFC-5: Confirm SENSITIVE items exist in production data
+SELECT COUNT(*) AS sensitive_count, wms_zone
+FROM ps_items_dw
+WHERE wms_zone = 'SENSITIVE'
+GROUP BY wms_zone;
+
+-- PFC-6: Sample of sensitive items
+SELECT item_code_365, item_name, wms_zone, category_code
+FROM ps_items_dw
+WHERE wms_zone = 'SENSITIVE'
+LIMIT 20;
+
+-- PFC-7: Confirm new cooler tables exist with expected schema
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'cooler_boxes'
+ORDER BY ordinal_position;
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'cooler_box_items'
+ORDER BY ordinal_position;
+
+-- PFC-8: Confirm cooler tables are empty in production
+SELECT COUNT(*) FROM cooler_boxes;
+SELECT COUNT(*) FROM cooler_box_items;
+```
+
+### 3.2 — Required Phase 5 Test Scenarios
+
+Test in staging with copied production data or seed test data including SENSITIVE items.
+
+#### Mode Toggle Behavior
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P5-1 | `summer_cooler_mode_enabled = false`: place an order with SENSITIVE + normal items, run normal picking | All items appear in normal pick queue including SENSITIVE | Manual test |
+| P5-2 | `summer_cooler_mode_enabled = true`: same order | SENSITIVE items separated; normal queue excludes them or marks as "Assigned to Cooler Picking" | Manual test |
+| P5-3 | Toggle flag back to `false` mid-flight | Document expected behavior (existing cooler queue items handled how?) | Manual test |
+
+#### Cooler Queue & Sorting
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P5-4 | Open Cooler Picking for a route with 5 stops, each having SENSITIVE items | Queue sorted by route → stop sequence → customer → invoice → item | UI inspection |
+| P5-5 | Queue rows have `pick_zone_type = 'cooler'` and snapshot `wms_zone = 'SENSITIVE'` | Direct DB inspection | SQL |
+| P5-6 | Mid-pick reclassification (admin changes `wms_zone` of an item already in cooler queue) | Item stays in cooler queue using snapshot value | Direct test |
+
+#### Cooler Box Lifecycle
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P5-7 | Picker creates Cooler Box 1 for a route | Row inserted in `cooler_boxes` with `status='open'`, `box_no=1` | UI + DB |
+| P5-8 | Picker assigns 3 items to Cooler Box 1 | 3 rows in `cooler_box_items` with correct invoice/item linkage | UI + DB |
+| P5-9 | Picker closes Cooler Box 1 | `status='closed'`, `closed_by` and `closed_at` populated | UI + DB |
+| P5-10 | Picker creates Cooler Box 2 | New row, `box_no=2`, `first_stop_sequence` and `last_stop_sequence` calculated | UI + DB |
+| P5-11 | Picker removes an item from open Cooler Box 1 (before close) | Row deleted or status updated; audit event recorded | UI + DB |
+| P5-12 | Picker tries to add item to closed Cooler Box 1 | Rejected with clear error | Manual test |
+
+#### Order Readiness Rule
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P5-13 | Order with 3 normal items + 2 cooler items: pick all 3 normal, leave 2 cooler unpicked | Order status NOT marked fully ready | Direct test |
+| P5-14 | Same order: pick all 3 normal + assign 2 cooler to a box (still open) | Order status NOT marked fully ready | Direct test |
+| P5-15 | Same order: close the cooler box containing the 2 items | Order status marked fully ready | Direct test |
+| P5-16 | Order with all items SENSITIVE: complete cooler picking only | Order status marked fully ready | Direct test |
+| P5-17 | Order with no SENSITIVE items: complete normal picking only | Order status marked fully ready (cooler queue not involved) | Direct test |
+
+#### Labels & Driver View
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P5-18 | Print cooler box label for closed Cooler Box 1 | PDF generated with route, date, box number, stop range, KEEP COOL warning, QR code with `cooler_box_id` | Manual download |
+| P5-19 | Print cooler box contents list | PDF with all items sorted by delivery sequence | Manual download |
+| P5-20 | Open driver/loading view for a route with `cooler_driver_view_enabled = true` | View shows cooler boxes assigned to route, contents per box, sorted by delivery sequence | UI inspection |
+| P5-21 | Open driver/loading view with `cooler_driver_view_enabled = false` | Driver view shows no cooler box info (existing behavior) | UI inspection |
+| P5-22 | A4 fallback for label printing | PDF in A4 size renders correctly | Manual test |
+
+#### Exception Handling
+
+| # | Scenario | Expected | Method |
+|---|----------|----------|--------|
+| P5-23 | Picker reports "sensitive item unavailable" | Exception recorded; order proceeds with documented exception | Direct test |
+| P5-24 | Picker assigns partial quantity to cooler box | `picked_qty < expected_qty` recorded with exception | Direct test |
+| P5-25 | Manual move of an item from normal pick to cooler queue (admin action) | Item removed from normal queue, added to cooler queue, audit event recorded | Direct test |
+
+### 3.3 — Permission Verification
+
+For all cooler routes:
+
+```bash
+grep -rn "@require_permission('cooler" --include="*.py"
+```
+
+Confirm:
+- `cooler.pick` — picker access to cooler picking UI
+- `cooler.manage_boxes` — open/close/edit boxes
+- `cooler.print_labels` — label printing access
+
+Test each permission key with admin, warehouse_manager, picker, driver per the same matrix used in Phase 3.
+
+### 3.4 — Phase 5 Closeout Approval Gate
+
+Phase 5 is approved (code-complete, ready for pilot route rollout) when:
+
+- [ ] All pre-flight checks reported
+- [ ] All 25 acceptance scenarios pass in staging with realistic test data
+- [ ] All cooler permissions tested per role
+- [ ] `summer_cooler_mode_enabled` remains `false` in production
+- [ ] `cooler_picking_enabled` remains `false` in production
+- [ ] `cooler_labels_enabled` remains `false` in production
+- [ ] `cooler_driver_view_enabled` remains `false` in production
+- [ ] One pilot route identified for first rollout (do not enable yet)
+
+---
+
+## SECTION 4 — "ON HAND" UI REMOVAL RECONCILIATION
+
+The "On Hand" column/card/drawer-row removal is **not in the original brief**. It was implemented during the recent autonomous push.
+
+### 4.1 — Required Action
+
+Add `ASSUMPTION-NNN` (next available number) to `ASSUMPTIONS_LOG.md` using the standard format:
+
+```markdown
+## ASSUMPTION-NNN: "On Hand" UI removal (out-of-brief change)
+
+**Date:** YYYY-MM-DD
+**Phase:** Out-of-batch — implemented during Phase 3 push
+**Files affected:** [list every template, route, JS file changed]
+**Decision made:** Removed "On Hand" column from forecast table, "On Hand" card from item detail panel, "On Hand" row from detail drawer. Backend `on_hand` field retained and still used for `net_available = on_hand + incoming - reserved` calculation.
+**Reason:** [Why was this removed? Document the original request and rationale]
+**Safer alternative considered:** [What was rejected, e.g., toggle setting `display_on_hand_column = false`]
+**Feature flag / rollback:** [None — this is a UI-only change. To revert, restore the removed template/UI fragments.]
+**Reversibility:** High — backend data is intact. Reversion is template-only.
+**Recommendation if user disagrees:** [How to restore — file:line of the removed UI fragments, ideally captured from git history]
+**Brief deviation acknowledgement:** This change was outside the WMDS Development Batch brief. It was implemented during the Phase 3 autonomous push without separate approval. Future out-of-brief changes will be raised as separate proposals before implementation.
+```
+
+### 4.2 — Verification
+
+- [ ] Confirm backend `on_hand` is still computed correctly (no regression in `net_available`)
+- [ ] Confirm no other code path references the removed UI elements
+- [ ] Confirm no broken JS console errors after removal
+- [ ] Confirm git history captures the removed code so a future restore is straightforward
+
+---
+
+## SECTION 5 — FINAL DELIVERABLES
+
+When all sections above are complete, provide a single response with:
+
+### 5.1 — Production Flag State Report
+
+Current production values for all 12 flags listed in the safety boundary section, with confirmation that none changed during this verification.
+
+### 5.2 — Updated Documentation
+
+The following must all be current and consistent with each other:
+
+- `PHASE_TEST_RESULTS.md` with closeout entries for Phase 3, Phase 4, Phase 5
+- `ASSUMPTIONS_LOG.md` with reconciliation note (1.2), role coverage decisions (1.3), and the "On Hand" entry (4.1)
+- `ROLLBACK_AND_FLAGS.md` reconciled with actual seeded defaults
+- `replit.md` reconciled with actual Phase 3 state
+- `KNOWN_GAPS.md` updated with any newly identified gaps from verification
+
+### 5.3 — Approval Gates Summary
+
+A single summary table showing for each phase:
+
+| Phase | Code complete | Tests passed | Documentation reconciled | Production flags safe | Architect re-review | Ready for flag flip |
+|-------|---------------|--------------|--------------------------|----------------------|--------------------|--------------------| 
+| 1 | ✅ | ✅ | ✅ | n/a | ✅ | n/a (no flags) |
+| 2 | ✅ | ✅ | ✅ | ✅ | ✅ | flag flips done |
+| 3 | (this work) | (this work) | (this work) | (this work) | (this work) | (manual decision) |
+| 4 | (this work) | (this work) | (this work) | (this work) | (this work) | NO — pilot first |
+| 5 | (this work) | (this work) | (this work) | (this work) | (this work) | NO — pilot first |
+
+### 5.4 — Outstanding Risks
+
+A list of any risks identified during verification that have not been mitigated, with severity and recommended next action.
+
+---
+
+## TIMING EXPECTATION
+
+This verification work should take 3–5 business days depending on staging environment availability and test data setup. It is not a code-rewrite exercise; it is an evidence-production exercise for code that is already written.
+
+If any verification reveals a real bug (not just a documentation gap), report it immediately rather than waiting for the final summary. Bug discovery is exactly what verification is for, and is a positive outcome.
+
+---
+
+## QUESTIONS POLICY
+
+The original brief's question policy still applies:
+
+- Routine questions: bundle into end-of-section checkpoint
+- Non-blocking questions discovered mid-verification: bundle into weekly checkpoint
+- Blocking questions: ask immediately with rationale for why no other work can proceed
+- Production-risk questions: ask immediately
+
+Specifically, do not ask "should I run test X?" — if it's listed above, run it. Do ask if you find a real bug or contradiction between the brief and reality.
+
+---
+
+## FINAL NOTE
+
+The work performed so far has been engineering-excellent. The architect catching the `_role_ok` issue is a positive sign of process integrity. This verification catch-up is not a critique of the engineering — it is the project owner exercising the per-phase approval discipline that the brief was designed around.
+
+When this verification is complete, the project will be in a much stronger position for the eventual flag flips: documented evidence, reconciled documentation, and operations sign-off where appropriate.
+
+Thank you for the work delivered. Now let us close out properly.
+
+---
+
+**END OF INSTRUCTIONS**
