@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify
 from functools import wraps
 from datetime import datetime
 from sqlalchemy import func
-from models import Shipment, Invoice, DeliveryEvent, RouteStopInvoice, RouteStop, db
+from models import Shipment, Invoice, DeliveryEvent, RouteStopInvoice, RouteStop, User, db
 from app import db as database
 from services_route_lifecycle import recompute_route_completion
 from delivery_status import normalize_status, TERMINAL_DELIVERY_STATUSES
@@ -18,12 +18,37 @@ driver_api_bp = Blueprint('driver_api', __name__, url_prefix='/api/driver')
 
 
 def driver_id_required(f):
-    """Decorator to require driver ID from x-driver-id header"""
+    """Decorator to require a valid, active driver via x-driver-id header.
+
+    Validates, in order:
+      1. x-driver-id header is present       -> 401 'Missing driver id'
+      2. User with that username exists      -> 401 'Unknown driver'
+      3. User.is_active is True              -> 401 'Account disabled' (code=ACCOUNT_DISABLED)
+      4. User.role == 'driver'               -> 401 'Not a driver account'
+    On success, sets request.driver_id to the header value (unchanged behaviour).
+
+    Note: Still header-only identification — no token / signature / session.
+    Stronger driver auth tracked in KNOWN_GAPS.md ('Driver Auth Hardening').
+    See ASSUMPTION-009 in ASSUMPTIONS_LOG.md for the scoping rationale.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        driver_id = request.headers.get('x-driver-id')
+        driver_id = (request.headers.get('x-driver-id') or '').strip()
         if not driver_id:
+            logger.warning("driver_api auth: missing or blank x-driver-id from %s", request.remote_addr)
             return jsonify({'error': 'Missing driver id'}), 401
+
+        user = User.query.get(driver_id)
+        if user is None:
+            logger.warning("driver_api auth: unknown driver_id=%r from %s", driver_id, request.remote_addr)
+            return jsonify({'error': 'Unknown driver'}), 401
+        if not user.is_active:
+            logger.warning("driver_api auth: disabled account driver_id=%r from %s", driver_id, request.remote_addr)
+            return jsonify({'error': 'Account disabled', 'code': 'ACCOUNT_DISABLED'}), 401
+        if user.role != 'driver':
+            logger.warning("driver_api auth: non-driver role=%r driver_id=%r from %s", user.role, driver_id, request.remote_addr)
+            return jsonify({'error': 'Not a driver account'}), 401
+
         request.driver_id = driver_id
         return f(*args, **kwargs)
     return decorated_function

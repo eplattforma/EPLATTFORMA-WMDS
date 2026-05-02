@@ -93,3 +93,40 @@ Format defined in Section 3 of the brief.
 **Safer alternative considered:** Use a surrogate `user_id` integer. Rejected — would require username PK migration first, which is explicitly out of scope.
 **Feature flag / rollback:** None — table is additive.
 **Reversibility:** High
+
+---
+
+## ASSUMPTION-008: Web login + mid-session `is_active` enforcement is already in place
+
+**Date:** 2026-05-02
+**Phase:** Phase 1 (Foundation) — verification only
+**Files affected:** None (read-only audit)
+**Decision made:** Confirmed via code trace that the two web-side gates required by Section 6 item 4 are already enforced and need no Phase 1/3 work:
+
+- **Login path:** `routes.py:259-261` — after `check_password_hash` succeeds, `if not user.is_active` flashes "Your account has been disabled. Please contact an administrator." and returns to login without calling `login_user`.
+- **Mid-session enforcement:** `routes.py:159-165` — Flask-Login `@login_manager.user_loader` returns `None` whenever `user.is_active` is False. Because `load_user` runs on every authenticated request, an admin disabling a user mid-session causes that user to be treated as anonymous on their very next request and bounced by `@login_required`.
+
+**Reason:** Logging confirmed verification so Phase 3 does not re-trace these paths.
+**Safer alternative considered:** Re-verify in Phase 3. Rejected — wastes effort; write down findings now.
+**Feature flag / rollback:** None — describes pre-existing behaviour.
+**Reversibility:** N/A
+**Recommendation if user disagrees:** Run a manual smoke test by disabling a non-admin user in the Users page and attempting both a fresh login and a mid-session navigation; both should be rejected.
+
+---
+
+## ASSUMPTION-009: Driver-API `is_active` gate added; header-only auth scheme unchanged
+
+**Date:** 2026-05-02
+**Phase:** Phase 1 (Foundation) — out-of-batch fix authorised by user
+**Files affected:** `routes_driver_api.py`
+**Decision made:** Hardened `driver_id_required` to also look up the user, return 401 if the username is unknown, the account is disabled (`{'error': 'Account disabled', 'code': 'ACCOUNT_DISABLED'}`), or the role is not `'driver'`. The header scheme itself is unchanged — still `x-driver-id` only, no token, no signature, no session cookie.
+**Reason:** Discovery during the Section 6 audit (Q3 follow-up) showed the previous decorator only checked header presence — a disabled driver who knew their own username could continue to hit `/api/driver/*`. The fix is bounded to four extra `if` checks; active drivers see no behaviour change. User explicitly authorised the scoped fix despite Section 7's "Driver Mode unchanged" rule, on the rationale that adding an enforcement check does not change the workflow for legitimate users.
+**Safer alternative considered:**
+  1. Defer to a dedicated Driver Auth Hardening batch. Rejected by user — disabled drivers are a current latent risk.
+  2. Replace header with a token / signed JWT. Rejected — out of scope; tracked as a future batch in `KNOWN_GAPS.md`.
+**Feature flag / rollback:** None — the new check is unconditional. To revert, restore the previous 6-line `driver_id_required` body.
+**Reversibility:** High (single function, ~30 LOC)
+**Recommendation if user disagrees:** Revert by reapplying the original decorator body and remove `User` from the `from models import …` line; behaviour returns to header-only.
+**Code-review tightening (2026-05-02 same-day):** Architect review flagged two robustness items, both applied:
+  1. Normalise the header — `driver_id = (request.headers.get('x-driver-id') or '').strip()` — so trailing whitespace from the mobile client is not misclassified as "Unknown driver".
+  2. Add WARN-level logs for every rejected auth attempt (missing/blank header, unknown driver, disabled account, non-driver role), each tagged with `request.remote_addr`. No secrets are logged.
