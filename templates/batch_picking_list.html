@@ -76,7 +76,7 @@
                                        class="btn btn-success btn-sm">
                                         <i class="fas fa-play me-1"></i>Start Picking
                                     </a>
-                                    {% if current_user.role == 'admin' %}
+                                    {% if has_permission('settings.manage_users') %}
                                         <button type="button" class="btn btn-outline-danger btn-sm ms-1" 
                                                 onclick="deleteBatch({{ batch.id }}, '{{ batch.batch_number or 'BATCH-' ~ batch.id }}')">
                                             <i class="fas fa-trash me-1"></i>Delete

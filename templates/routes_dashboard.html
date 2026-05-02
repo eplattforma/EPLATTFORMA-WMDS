@@ -52,7 +52,7 @@
         </li>
     </ul>
 
-    {% if current_user.role in ['admin', 'warehouse_manager'] and view_mode == 'active' %}
+    {% if has_permission('routes.manage') and view_mode == 'active' %}
     <div class="row mb-3">
         <div class="col-12">
             <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#newRouteModal">
@@ -238,7 +238,7 @@
                             <a href="{{ url_for('routes.run_sheet', shipment_id=route.id) }}" class="btn btn-outline-secondary" target="_blank" title="Print Run Sheet">
                                 <i class="fas fa-print"></i>
                             </a>
-                            {% if view_mode == 'pending' and current_user.role in ['admin', 'warehouse_manager'] %}
+                            {% if view_mode == 'pending' and has_permission('routes.manage') %}
                             <a href="{{ url_for('routes.reconcile_view', shipment_id=route.id) }}" class="btn btn-success" title="Reconcile Route">
                                 <i class="fas fa-check-double"></i>
                             </a>

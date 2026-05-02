@@ -523,6 +523,21 @@ if _db_available:
         logging.error(f"Error registering permissions template helpers: {str(e)}")
 
     try:
+        from services.permission_seeding import seed_permissions_from_roles
+        result = seed_permissions_from_roles(force=False)
+        if result.get("ran"):
+            logging.warning(
+                "Phase 3 permission seeder ran: "
+                f"users={result['users_seen']} "
+                f"inserted={result['rows_inserted']} "
+                f"kept={result['rows_skipped']}"
+            )
+        else:
+            logging.info("Phase 3 permission seeder: skipped (already done)")
+    except Exception as e:
+        logging.error(f"Error running Phase 3 permission seeder: {str(e)}")
+
+    try:
         from update_magento_login_log_schema import update_magento_login_log_schema
         update_magento_login_log_schema()
     except Exception as e:

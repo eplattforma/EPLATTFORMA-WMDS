@@ -22,6 +22,8 @@ from flask import (
 )
 from flask_login import login_required, current_user
 
+from services.permissions import require_permission
+
 logger = logging.getLogger(__name__)
 
 admin_scheduler_bp = Blueprint(
@@ -62,6 +64,7 @@ def list_jobs():
 
 @admin_scheduler_bp.route('/<job_id>/reschedule', methods=['POST'])
 @admin_required
+@require_permission('sync.run_manual')
 def reschedule(job_id):
     _validate_csrf()
     hour = (request.form.get('hour') or '').strip()
@@ -91,6 +94,7 @@ def reschedule(job_id):
 
 @admin_scheduler_bp.route('/<job_id>/pause', methods=['POST'])
 @admin_required
+@require_permission('sync.run_manual')
 def pause(job_id):
     _validate_csrf()
     try:
@@ -105,6 +109,7 @@ def pause(job_id):
 
 @admin_scheduler_bp.route('/<job_id>/resume', methods=['POST'])
 @admin_required
+@require_permission('sync.run_manual')
 def resume(job_id):
     _validate_csrf()
     try:
@@ -119,6 +124,7 @@ def resume(job_id):
 
 @admin_scheduler_bp.route('/<job_id>/run-now', methods=['POST'])
 @admin_required
+@require_permission('sync.run_manual')
 def run_now(job_id):
     _validate_csrf()
     try:

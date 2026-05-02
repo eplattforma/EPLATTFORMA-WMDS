@@ -15,6 +15,7 @@ from app import app, db
 from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift, IdlePeriod, ActivityLog, BatchPickingSession, BatchSessionInvoice, StockPosition, WmsPackingProfile, WmsPallet, WmsPalletOrder, DwSeason
 from utils import create_user
 from utils.invoice_utils import recalculate_invoice_totals
+from services.permissions import require_permission
 from utils.shift_tracking import (
     check_in_picker, check_out_picker, start_break, end_break, 
     record_activity, check_for_idle_pickers, check_for_missed_checkouts,
@@ -326,6 +327,7 @@ def change_password():
 
 @app.route('/admin/reset-password', methods=['GET', 'POST'])
 @login_required
+@require_permission('settings.manage_users')
 def admin_reset_password():
     """Allow admins to reset any user's password"""
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -1524,6 +1526,7 @@ def autocomplete_order():
 
 @app.route('/admin/users', methods=['GET', 'POST'])
 @login_required
+@require_permission('settings.manage_users')
 def manage_users():
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
@@ -1562,6 +1565,7 @@ def manage_users():
 
 @app.route('/admin/users/<username>/edit', methods=['POST'])
 @login_required
+@require_permission('settings.manage_users')
 def edit_user(username):
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
@@ -1651,6 +1655,7 @@ def edit_user(username):
 
 @app.route('/admin/users/<username>/delete', methods=['POST'])
 @login_required
+@require_permission('settings.manage_users')
 def delete_user(username):
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
@@ -1673,8 +1678,130 @@ def delete_user(username):
     
     return redirect(url_for('manage_users'))
 
+PERMISSION_EDITOR_GROUPS = [
+    ("Menu Visibility", [
+        "menu.dashboard", "menu.crm", "menu.forecast", "menu.communications",
+        "menu.warehouse", "menu.picking", "menu.routes", "menu.driver",
+        "menu.datawarehouse", "menu.settings",
+    ]),
+    ("Picking", [
+        "picking.perform", "picking.manage_batches",
+        "picking.claim_batch", "picking.cancel_batch",
+    ]),
+    ("Routes & Sync", [
+        "routes.manage", "sync.run_manual", "sync.view_logs",
+    ]),
+    ("Settings", [
+        "settings.manage_users", "settings.manage_permissions",
+    ]),
+]
+ALL_EDITOR_KEYS = [k for _, ks in PERMISSION_EDITOR_GROUPS for k in ks]
+
+
+@app.route('/admin/users/<username>/permissions', methods=['GET', 'POST'])
+@login_required
+@require_permission('settings.manage_users')
+def manage_user_permissions(username):
+    """Phase 3: explicit per-user permission editor.
+
+    Replaces the user's explicit (non-wildcard) permission rows with the
+    submitted set. Wildcard rows seeded from the role (`*`, `picking.*`, etc.)
+    are preserved unless the admin clicks "Reset to role defaults", which
+    re-runs the per-user seeding.
+    """
+    from services.permissions import ROLE_PERMISSIONS
+    from services.permission_seeding import reset_user_to_role_defaults
+
+    user = User.query.filter_by(username=username).first_or_404()
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'save')
+
+        if action == 'reset_role':
+            summary = reset_user_to_role_defaults(
+                username, granted_by=current_user.username
+            )
+            if summary.get("error"):
+                flash(f"Error resetting permissions: {summary['error']}", "danger")
+            else:
+                flash(
+                    f"Permissions reset to role defaults for {username}. "
+                    f"Removed {summary['deleted']}, restored {summary['inserted']}. "
+                    f"Changes take effect on next login.",
+                    "success",
+                )
+            return redirect(url_for('manage_user_permissions', username=username))
+
+        # Save: rewrite explicit (non-wildcard) rows from the submitted set.
+        submitted = set(request.form.getlist('permission_keys'))
+        valid = [k for k in submitted if k in ALL_EDITOR_KEYS]
+
+        try:
+            db.session.execute(text(
+                "DELETE FROM user_permissions "
+                "WHERE username = :u AND permission_key NOT LIKE '%*%'"
+            ), {"u": username})
+            for key in valid:
+                db.session.execute(text(
+                    "INSERT INTO user_permissions "
+                    "(username, permission_key, granted_by) "
+                    "VALUES (:u, :k, :by) "
+                    "ON CONFLICT (username, permission_key) DO NOTHING"
+                ), {"u": username, "k": key, "by": current_user.username})
+            db.session.commit()
+            flash(
+                f"Permissions updated for {username}. "
+                f"Changes take effect on next login.",
+                "success",
+            )
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Permission save failed for {username}: {e}")
+            flash(f"Error updating permissions: {e}", "danger")
+
+        return redirect(url_for('manage_user_permissions', username=username))
+
+    rows = db.session.execute(text(
+        "SELECT permission_key FROM user_permissions WHERE username = :u"
+    ), {"u": username}).fetchall()
+    all_keys = {r[0] for r in rows}
+    current_perms = {k for k in all_keys if "*" not in k}
+    role_wildcards = sorted({k for k in all_keys if "*" in k})
+
+    role_perm_set = set(ROLE_PERMISSIONS.get(user.role, []))
+
+    return render_template(
+        'user_permissions.html',
+        user=user,
+        permission_groups=PERMISSION_EDITOR_GROUPS,
+        current_perms=current_perms,
+        role_wildcards=role_wildcards,
+        role_perm_set=role_perm_set,
+    )
+
+
+@app.route('/admin/users/seed-permissions', methods=['POST'])
+@login_required
+@require_permission('settings.manage_users')
+def seed_permissions_now():
+    """Manual re-seed (idempotent). Useful after adding new users."""
+    from services.permission_seeding import seed_permissions_from_roles
+    result = seed_permissions_from_roles(force=True)
+    if result.get("error"):
+        flash(f"Re-seed failed: {result['error']}", "danger")
+    else:
+        flash(
+            f"Permission re-seed complete: users={result['users_seen']}, "
+            f"new rows={result['rows_inserted']}, "
+            f"kept={result['rows_skipped']}.",
+            "success",
+        )
+    return redirect(url_for('manage_users'))
+
+
 @app.route('/admin/users/<username>/toggle-status', methods=['POST'])
 @login_required
+@require_permission('settings.manage_users')
 def toggle_user_status(username):
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
@@ -1707,6 +1834,7 @@ def toggle_user_status(username):
 
 @app.route('/admin/sorting', methods=['GET', 'POST'])
 @login_required
+@require_permission('settings.manage_users')
 def admin_sorting_settings():
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')

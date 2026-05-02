@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from app import db
 from timezone_utils import get_utc_now
 from routes import validate_csrf_token
+from services.permissions import require_permission
 from models import (
     DwItem, DwItemCategory, DwBrand, DwSeason,
     ForecastItemSupplierMap, FactSalesWeeklyItem,
@@ -810,6 +811,7 @@ def api_items_stock_risk():
 
 
 @forecast_bp.route('/api/run', methods=['POST'])
+@require_permission('sync.run_manual')
 @admin_or_warehouse_required
 def api_run():
     import threading
@@ -851,6 +853,7 @@ def api_run():
 
 
 @forecast_bp.route('/api/refresh-weekly-sales', methods=['POST'])
+@require_permission('sync.run_manual')
 @admin_or_warehouse_required
 def api_refresh_weekly_sales():
     import threading
@@ -885,6 +888,7 @@ def api_refresh_weekly_sales():
 
 
 @forecast_bp.route('/api/recompute-seasonality', methods=['POST'])
+@require_permission('sync.run_manual')
 @admin_or_warehouse_required
 def api_recompute_seasonality():
     import threading
@@ -991,6 +995,7 @@ def _ensure_ordering_jobs_table():
         db.session.rollback()
 
 @forecast_bp.route('/api/ordering/refresh', methods=['POST'])
+@require_permission('sync.run_manual')
 @admin_or_warehouse_required
 def api_ordering_refresh():
     import threading
@@ -1083,6 +1088,7 @@ def api_ordering_refresh():
 
 
 @forecast_bp.route('/api/stock/refresh', methods=['POST'])
+@require_permission('sync.run_manual')
 @admin_or_warehouse_required
 def api_stock_refresh():
     """Global stock refresh — fetches live PS365 stock, persists to DB.

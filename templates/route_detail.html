@@ -90,7 +90,7 @@
                     </a>
                     {% endif %}
                     
-                    {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                    {% if has_permission('routes.manage') %}
                     <a class="btn btn-outline-info" href="{{ url_for('pallets.route_pallets', shipment_id=route.id) }}">
                         <i class="fas fa-pallet me-1"></i>Pallets
                     </a>
@@ -101,13 +101,13 @@
                             <i class="fas fa-ellipsis-v"></i>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                            {% if has_permission('routes.manage') %}
                             <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editRouteModal"><i class="fas fa-edit me-2"></i>Edit Route</a></li>
                             <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#changeStatusModal"><i class="fas fa-exchange-alt me-2"></i>Change Status</a></li>
                             <li><hr class="dropdown-divider"></li>
                             {% endif %}
                             <li><a class="dropdown-item" href="{{ url_for('routes.run_sheet', shipment_id=route.id) }}" target="_blank"><i class="fas fa-print me-2"></i>Run Sheet</a></li>
-                            {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                            {% if has_permission('routes.manage') %}
                             <li>
                                 <form method="POST" action="{{ url_for('routes.sync_ps365_totals', shipment_id=route.id) }}" class="d-inline">
                                     <button type="submit" class="dropdown-item"><i class="fas fa-sync me-2"></i>Sync PS365 Totals</button>

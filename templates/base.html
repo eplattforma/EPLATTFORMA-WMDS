@@ -210,7 +210,7 @@
                             </li>
                         </ul>
                     </li>
-                    {% if current_user.role == 'admin' %}
+                    {% if has_permission('settings.manage_users') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['manage_users', 'admin_settings', 'admin_sorting_settings', 'datawarehouse.dw_menu'] or request.path == '/crm/admin/offers' or (request.endpoint and request.endpoint.startswith('dropbox_integration.')) %}active{% endif %}" 
                            href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">

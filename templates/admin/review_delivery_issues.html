@@ -377,7 +377,7 @@
                         <td colspan="3" class="notes-cell">
                             <div class="action-buttons">
                                 {% if issue.status == 'reported' %}
-                                    {% if current_user.role == 'admin' %}
+                                    {% if has_permission('settings.manage_users') %}
                                         {% if not issue.is_validated %}
                                         <button type="button" class="btn btn-sm btn-warning" 
                                                 onclick="validateIssue({{ issue.id }})">
@@ -401,7 +401,7 @@
                                     </button>
                                     {% endif %}
                                 {% elif issue.status == 'review' %}
-                                    {% if current_user.role == 'admin' %}
+                                    {% if has_permission('settings.manage_users') %}
                                     <button type="button" class="btn btn-sm btn-primary" 
                                             onclick="closeIssue({{ issue.id }})">
                                         <i class="fas fa-times-circle me-1"></i>Close Issue
@@ -409,7 +409,7 @@
                                     {% endif %}
                                 {% endif %}
                                 
-                                {% if current_user.role == 'admin' %}
+                                {% if has_permission('settings.manage_users') %}
                                 <button type="button" class="btn btn-sm btn-danger" 
                                         onclick="deleteIssue({{ issue.id }}, '{{ issue.item_code_expected }}', '{{ issue.invoice_no }}')">
                                     <i class="fas fa-trash me-1"></i>Delete

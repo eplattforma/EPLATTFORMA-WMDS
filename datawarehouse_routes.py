@@ -4,6 +4,7 @@ Data Warehouse routes for PS365 sync operations
 from flask import Blueprint, render_template_string, request, jsonify, flash, redirect, url_for, render_template
 from flask_login import login_required, current_user
 from app import app, db
+from services.permissions import require_permission
 from models import SyncState
 from datawarehouse_sync import full_dw_update, incremental_dw_update, sync_invoices_from_date, test_fetch_single_item
 from ps365_invoices import fetch_invoice_lines_from_date, fetch_invoice_headers_from_date
@@ -94,6 +95,7 @@ def _run_sync_in_background(sync_func, callback=None):
 
 @dw_bp.route('/menu', methods=['GET'])
 @login_required
+@require_permission('menu.datawarehouse')
 def dw_menu():
     """Display data warehouse menu"""
     # Only allow admins
@@ -329,6 +331,7 @@ def api_monthly_validation():
 
 @dw_bp.route('/test-one-item', methods=['GET', 'POST'])
 @login_required
+@require_permission('sync.run_manual')
 def test_one_item():
     """Test endpoint - fetch one item to debug"""
     if current_user.role != 'admin':
@@ -354,6 +357,7 @@ def test_one_item():
 
 @dw_bp.route('/full-sync', methods=['GET', 'POST'])
 @login_required
+@require_permission('sync.run_manual')
 def full_sync():
     """Execute full data warehouse update in background"""
     if current_user.role != 'admin':
@@ -502,6 +506,7 @@ def full_sync_status():
 
 @dw_bp.route('/incremental-sync', methods=['GET', 'POST'])
 @login_required
+@require_permission('sync.run_manual')
 def incremental_sync():
     """Execute incremental data warehouse update"""
     if current_user.role != 'admin':
@@ -625,6 +630,7 @@ def incremental_sync():
 
 @dw_bp.route('/incremental-sync-execute', methods=['POST'])
 @login_required
+@require_permission('sync.run_manual')
 def incremental_sync_execute():
     """Execute incremental DW update synchronously and return detailed results"""
     if current_user.role != 'admin':
@@ -856,6 +862,7 @@ def invoice_sync_status():
 
 @dw_bp.route('/invoice-sync', methods=['GET', 'POST'])
 @login_required
+@require_permission('sync.run_manual')
 def invoice_sync():
     """Sync invoices from PS365 for a date range"""
     if current_user.role != 'admin':
@@ -1126,6 +1133,7 @@ def invoice_lines_preview():
 
 @dw_bp.route('/import-suppliers', methods=['GET', 'POST'])
 @login_required
+@require_permission('sync.run_manual')
 def import_suppliers():
     """Upload a Powersoft365 supplier export (XLSX) and upsert suppliers."""
     if current_user.role != 'admin':

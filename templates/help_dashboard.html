@@ -16,7 +16,7 @@
                 <h2 class="h4 mb-0">
                     <i class="fas fa-question-circle me-2"></i>Help & Documentation
                 </h2>
-                {% if current_user.role == 'admin' %}
+                {% if has_permission('settings.manage_users') %}
                 <a href="{{ url_for('help.admin_help_manage') }}" class="btn btn-primary">
                     <i class="fas fa-edit me-2"></i>Manage Content
                 </a>

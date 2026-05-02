@@ -96,7 +96,7 @@
 
     <div class="mt-4">
         <a href="{{ url_for('batch.batch_picking_item', batch_id=batch_session.id) }}" class="btn btn-primary">Continue Picking</a>
-        {% if current_user.role == 'admin' %}
+        {% if has_permission('settings.manage_users') %}
         <a href="{{ url_for('batch.batch_picking_item', batch_id=batch_session.id, reset='true') }}" class="btn btn-warning">Reset Index to 0</a>
         
         <form action="{{ url_for('batch.manual_verify_batch', batch_id=batch_session.id) }}" method="POST" class="mt-3">

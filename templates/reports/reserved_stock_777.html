@@ -32,7 +32,7 @@
           <span id="refreshText">Refresh</span>
           <span id="refreshSpinner" class="d-none"><i class="fas fa-spinner fa-spin me-1"></i>Refreshing from PS365...</span>
         </a>
-        {% if current_user.role in ['admin', 'warehouse_manager'] %}
+        {% if has_permission('menu.warehouse') %}
         <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#seasonSettingsPanel">
           <i class="fas fa-cog me-1"></i>Cross Shipping Settings
         </button>
@@ -43,7 +43,7 @@
       </div>
     </div>
 
-    {% if current_user.role in ['admin', 'warehouse_manager'] %}
+    {% if has_permission('menu.warehouse') %}
     <div class="collapse mb-3" id="seasonSettingsPanel">
       <div class="card">
         <div class="card-header bg-secondary text-white">
@@ -136,7 +136,7 @@
             <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.item_name }}">{{ r.item_name }}</td>
             <td style="white-space: nowrap;">{{ r.season_name or '' }}</td>
             <td style="text-align:right; white-space: nowrap; padding: 2px 4px;">
-              {% if current_user.role in ['admin', 'warehouse_manager'] %}
+              {% if has_permission('menu.warehouse') %}
               <input type="number" step="0.01" min="0" class="form-control form-control-sm cost-price-input"
                      data-item="{{ r.item_code_365 }}"
                      value="{{ '%.2f'|format(item_pricing.cost_price) if item_pricing.cost_price is not none else '' }}"
@@ -163,7 +163,7 @@
   {% endif %}
 </div>
 
-{% if current_user.role in ['admin', 'warehouse_manager'] %}
+{% if has_permission('menu.warehouse') %}
 <div class="modal fade" id="createPoModal" tabindex="-1" aria-labelledby="createPoModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
