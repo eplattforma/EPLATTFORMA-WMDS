@@ -16,6 +16,52 @@ logger = logging.getLogger(__name__)
 scheduler = None
 
 
+def _tracked(job_id, job_name=None, trigger_source="scheduled"):
+    """Generic APScheduler entrypoint that emits a `job_runs` lifecycle row.
+
+    Phase 2 visibility: every scheduled tick goes through this wrapper so a
+    row appears in `job_runs` (RUNNING -> SUCCESS/FAILED) for each fire. The
+    body func is looked up from `JOB_FUNCTIONS` at call time so we don't have
+    to ship a closure into the SQLAlchemyJobStore (it can only persist a
+    module-level callable by dotted path).
+
+    The wrapper records SUCCESS unless the body raises into APScheduler.
+    Several `_run_*` body funcs catch their own exceptions and only log,
+    which is intentional ("logging failures must not stop scheduled jobs"
+    per the brief) — those will appear SUCCESS at this layer; finer-grained
+    business success/failure lives in domain-specific log tables
+    (PS365SyncLog, ForecastRun, BotRunLog, etc.) and will be linked into
+    job_runs via parent_run_id in a later phase.
+
+    Writes are gated by the job_runs_enabled / job_runs_write_enabled flags
+    inside `services.job_run_logger`; if either is OFF the lifecycle calls
+    are no-ops and the body still runs normally.
+    """
+    if not JOB_FUNCTIONS:
+        _register_job_funcs()
+    body = JOB_FUNCTIONS.get(job_id)
+    if body is None:
+        logger.error(f"_tracked: no registered body for job_id={job_id!r}")
+        return
+
+    from services.job_run_logger import start_job_run, finish_job_run
+    run_id = start_job_run(
+        job_id,
+        job_name=job_name or job_id,
+        trigger_source=trigger_source,
+    )
+    try:
+        body()
+    except Exception as e:
+        finish_job_run(
+            run_id,
+            status="FAILED",
+            error_message=(str(e) or type(e).__name__)[:500],
+        )
+        raise
+    finish_job_run(run_id, status="SUCCESS")
+
+
 def setup_scheduler(app):
     """
     Initialize and start the background scheduler.
@@ -83,7 +129,8 @@ def setup_scheduler(app):
 
             # Full DW sync - daily at 17:15 Cairo (heavy, given a 15min gap after incremental)
             scheduler.add_job(
-                func=_run_full_sync,
+                func=_tracked,
+                kwargs={'job_id': 'full_dw_sync', 'job_name': 'Full Data Warehouse Sync'},
                 trigger=CronTrigger(hour=17, minute=15),
                 id='full_dw_sync',
                 name='Full Data Warehouse Sync',
@@ -96,7 +143,8 @@ def setup_scheduler(app):
 
             # Incremental sync - twice daily at 13:00 (lunch traffic) and 17:00 Cairo
             scheduler.add_job(
-                func=_run_incremental_sync,
+                func=_tracked,
+                kwargs={'job_id': 'incremental_dw_sync', 'job_name': 'Incremental Data Warehouse Sync'},
                 trigger=CronTrigger(hour="13,17", minute=0),
                 id='incremental_dw_sync',
                 name='Incremental Data Warehouse Sync',
@@ -108,7 +156,8 @@ def setup_scheduler(app):
             logger.info("✓ Incremental DW sync scheduled: Daily at 13:00 and 17:00 Cairo")
 
             scheduler.add_job(
-                func=_run_customer_sync,
+                func=_tracked,
+                kwargs={'job_id': 'customer_sync', 'job_name': 'Customer Sync from PS365'},
                 trigger=CronTrigger(hour=16, minute=40),
                 id='customer_sync',
                 name='Customer Sync from PS365',
@@ -120,7 +169,8 @@ def setup_scheduler(app):
             logger.info("✓ Customer sync scheduled: Daily at 16:40 Cairo")
 
             scheduler.add_job(
-                func=_run_invoice_sync,
+                func=_tracked,
+                kwargs={'job_id': 'invoice_sync', 'job_name': 'Invoice Sync from PS365'},
                 trigger=CronTrigger(hour=16, minute=50),
                 id='invoice_sync',
                 name='Invoice Sync from PS365',
@@ -132,7 +182,8 @@ def setup_scheduler(app):
             logger.info("✓ Invoice sync scheduled: Daily at 16:50 Cairo (last 2 days)")
 
             scheduler.add_job(
-                func=_run_balance_fetch,
+                func=_tracked,
+                kwargs={'job_id': 'balance_fetch', 'job_name': 'Customer Balance Fetch from PS365'},
                 trigger=CronTrigger(hour=16, minute=30),
                 id='balance_fetch',
                 name='Customer Balance Fetch from PS365',
@@ -144,7 +195,8 @@ def setup_scheduler(app):
             logger.info("✓ Balance fetch scheduled: Daily at 16:30 Cairo")
 
             scheduler.add_job(
-                func=_run_forecast,
+                func=_tracked,
+                kwargs={'job_id': 'forecast_run', 'job_name': 'Nightly Forecast Run'},
                 trigger=CronTrigger(hour=17, minute=35),
                 id='forecast_run',
                 name='Nightly Forecast Run',
@@ -155,23 +207,60 @@ def setup_scheduler(app):
             )
             logger.info("✓ Forecast run scheduled: Daily at 17:35 Cairo")
 
-            # Watchdog: every 10 min, mark stale forecast runs as failed and
-            # auto-relaunch (up to 3x per day). Catches workers killed mid-run
-            # by autoscale/OOM/gunicorn timeout so failures self-heal.
-            scheduler.add_job(
-                func=_run_forecast_watchdog,
-                trigger=CronTrigger(minute="*/10"),
-                id='forecast_watchdog',
-                name='Forecast Run Watchdog (auto-retry)',
-                replace_existing=True,
-                max_instances=1,
-                misfire_grace_time=300,
-                coalesce=True,
-            )
-            logger.info("✓ Forecast watchdog scheduled: Every 10 minutes (auto-retry stale runs)")
+            # Watchdog: gated on `forecast_watchdog_enabled` (default OFF in
+            # Phase 1). When ON, cadence reads from
+            # `forecast_watchdog_interval_minutes` (default 5; clamped 1..60)
+            # so operators can tune sweep frequency without a code deploy.
+            # When OFF, the live `/forecast/api/suppliers` endpoint still
+            # calls `mark_stale_forecast_run_if_needed` on every page hit,
+            # so a stuck run can never block the suppliers page indefinitely
+            # — only the background sweep (and auto-retry) is disabled.
+            try:
+                from models import Setting
+                # Settings live on the Flask-SQLAlchemy scoped session, so
+                # this read must happen inside an app context. The other
+                # add_job calls in setup_scheduler don't need one because
+                # APScheduler.add_job just stores the func ref — it doesn't
+                # touch the DB until the scheduler starts firing.
+                with app.app_context():
+                    wd_raw = Setting.get(db.session, 'forecast_watchdog_enabled', 'false')
+                    wd_enabled = str(wd_raw).strip().lower() in ('true', '1', 'yes', 'on')
+                    wd_interval_raw = Setting.get(db.session, 'forecast_watchdog_interval_minutes', '5')
+                    wd_interval = max(min(int(wd_interval_raw or '5'), 60), 1)
+            except Exception as e:
+                logger.warning(f"Could not read watchdog settings ({e}); defaulting to OFF")
+                wd_enabled = False
+                wd_interval = 5
+
+            if wd_enabled:
+                scheduler.add_job(
+                    func=_tracked,
+                    kwargs={'job_id': 'forecast_watchdog',
+                            'job_name': 'Forecast Run Watchdog (auto-retry)'},
+                    trigger=CronTrigger(minute=f"*/{wd_interval}"),
+                    id='forecast_watchdog',
+                    name='Forecast Run Watchdog (auto-retry)',
+                    replace_existing=True,
+                    max_instances=1,
+                    misfire_grace_time=300,
+                    coalesce=True,
+                )
+                logger.info(
+                    f"✓ Forecast watchdog scheduled: every {wd_interval} min "
+                    "(auto-retry stale runs)"
+                )
+            else:
+                logger.info("⏭ Forecast watchdog skipped (forecast_watchdog_enabled=false)")
+                # Note: defensive cleanup of any persisted forecast_watchdog
+                # row from a prior ON-boot happens AFTER scheduler.start(), see
+                # the cleanup block right after the start() call. Doing it
+                # here would race against the SQLAlchemyJobStore's job loading
+                # (scheduler.get_job in standby may return None for persisted
+                # rows that have not yet been pulled into memory).
 
             scheduler.add_job(
-                func=_run_pending_orders_sync,
+                func=_tracked,
+                kwargs={'job_id': 'pending_orders_sync', 'job_name': 'PS365 Pending Orders Sync'},
                 trigger=CronTrigger(minute="0,30"),
                 id='pending_orders_sync',
                 name='PS365 Pending Orders Sync',
@@ -182,7 +271,8 @@ def setup_scheduler(app):
             logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
 
             scheduler.add_job(
-                func=_retry_pending_payments,
+                func=_tracked,
+                kwargs={'job_id': 'retry_pending_payments', 'job_name': 'Retry PENDING_RETRY Payments to PS365'},
                 trigger=CronTrigger(minute="*/5"),
                 id='retry_pending_payments',
                 name='Retry PENDING_RETRY Payments to PS365',
@@ -193,7 +283,8 @@ def setup_scheduler(app):
             logger.info("✓ PENDING_RETRY payment retry scheduled: Every 5 minutes")
 
             scheduler.add_job(
-                func=_run_erp_item_cost_refresh,
+                func=_tracked,
+                kwargs={'job_id': 'erp_item_cost_refresh', 'job_name': 'Cost Update'},
                 trigger=CronTrigger(hour=17, minute=55),
                 id='erp_item_cost_refresh',
                 name='Cost Update',
@@ -209,7 +300,8 @@ def setup_scheduler(app):
             # Cost Update so cost columns are fresh when offer margins are
             # recomputed.
             scheduler.add_job(
-                func=_run_offers_update,
+                func=_tracked,
+                kwargs={'job_id': 'offers_update', 'job_name': 'Offers Update'},
                 trigger=CronTrigger(hour=18, minute=10),
                 id='offers_update',
                 name='Offers Update',
@@ -233,7 +325,8 @@ def setup_scheduler(app):
                     logger.warning(f"Could not start Playwright pre-warm: {e}")
 
             scheduler.add_job(
-                func=_run_expiry_ftp_upload,
+                func=_tracked,
+                kwargs={'job_id': 'expiry_ftp_upload', 'job_name': 'Expiry Dates FTP Upload'},
                 trigger=CronTrigger(hour=17, minute=45),
                 id='expiry_ftp_upload',
                 name='Expiry Dates FTP Upload',
@@ -246,7 +339,9 @@ def setup_scheduler(app):
 
             if is_production:
                 scheduler.add_job(
-                    func=_run_stock_777_sync,
+                    func=_tracked,
+                    kwargs={'job_id': 'stock_777_sync_production',
+                            'job_name': 'PS365 Stock 777 Daily Sync (Production)'},
                     trigger=CronTrigger(hour=18, minute=5),
                     id='stock_777_sync_production',
                     name='PS365 Stock 777 Daily Sync (Production)',
@@ -258,7 +353,9 @@ def setup_scheduler(app):
                 logger.info("✓ Stock 777 production sync scheduled: Daily at 18:05 Cairo")
             else:
                 scheduler.add_job(
-                    func=_run_stock_777_sync,
+                    func=_tracked,
+                    kwargs={'job_id': 'stock_777_sync',
+                            'job_name': 'PS365 Stock 777 Daily Sync'},
                     trigger=CronTrigger(hour=23, minute=30),
                     id='stock_777_sync',
                     name='PS365 Stock 777 Daily Sync',
@@ -275,7 +372,8 @@ def setup_scheduler(app):
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
                 scheduler.add_job(
-                    func=_run_ftp_login_sync,
+                    func=_tracked,
+                    kwargs={'job_id': 'ftp_login_sync', 'job_name': 'FTP Login Logs Sync'},
                     trigger=CronTrigger(minute="15,45"),
                     id='ftp_login_sync',
                     name='FTP Login Logs Sync',
@@ -300,6 +398,23 @@ def setup_scheduler(app):
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
+
+        # Post-start cleanup: now that the SQLAlchemyJobStore has loaded
+        # persisted rows into memory, drop any forecast_watchdog row left
+        # over from a previous boot when the flag was ON. We can't do this
+        # before start() because get_job/remove_job in standby do not see
+        # persisted rows from the jobstore reliably.
+        if not wd_enabled:
+            try:
+                existing_wd = scheduler.get_job('forecast_watchdog')
+                if existing_wd is not None:
+                    scheduler.remove_job('forecast_watchdog')
+                    logger.info(
+                        "🧹 Removed forecast_watchdog from jobstore "
+                        "(flag is OFF)"
+                    )
+            except Exception as e:
+                logger.debug(f"Watchdog cleanup skipped: {e}")
 
         if is_production:
             import threading
@@ -582,7 +697,14 @@ def _run_balance_fetch():
 def add_custom_job(schedule_description, job_name, job_func, hour=None, minute=0, day_of_week=None):
     """
     Add a custom scheduled job.
-    
+
+    Phase 2 note: this public helper is intentionally NOT routed through
+    `_tracked`. It exists for ad-hoc / dynamic jobs whose bodies are not
+    registered in `JOB_FUNCTIONS` (callers pass arbitrary callables here),
+    so `_tracked` would have no body to dispatch to. The 14 built-in
+    catalogue jobs in `setup_scheduler()` all use `_tracked` directly and
+    are the ones that produce `job_runs` lifecycle rows.
+
     Args:
         schedule_description: Human description of when to run (e.g., "Daily at 6 PM")
         job_name: Unique job identifier
@@ -649,45 +771,28 @@ AUTO_RETRY_CREATED_BY = "auto_retry_watchdog"
 def _run_forecast_watchdog():
     """Sweep stale forecast runs and auto-retry once per failure.
 
-    Runs every 10 minutes. If the most recent run is in 'running' state but
-    its heartbeat is older than STALE_HEARTBEAT_MINUTES, mark it failed and
-    immediately launch a replacement run (in a daemon thread, so the cron
-    tick returns fast). We cap auto-retries per day so a permanently broken
-    forecast pipeline does not loop indefinitely.
+    Stale-run detection lives in `services.forecast.stale_detection` so the
+    live `/forecast/api/suppliers` endpoint and this background tick agree on
+    what "stale" means and on the threshold. Cadence is driven by the
+    `forecast_watchdog_interval_minutes` setting (default 5 min when the
+    `forecast_watchdog_enabled` flag is on).
+
+    If the most recent run is in 'running' state but its heartbeat is older
+    than the configured threshold (`forecast_heartbeat_timeout_seconds`,
+    default 2700s = 45 min), mark it failed and immediately launch a
+    replacement run (in a daemon thread, so the cron tick returns fast). We
+    cap auto-retries per day so a permanently broken forecast pipeline does
+    not loop indefinitely.
     """
     try:
         from app import app, db
         from models import ForecastRun
+        from services.forecast.stale_detection import mark_stale_forecast_run_if_needed
         from datetime import timedelta
-        from timezone_utils import get_utc_now
 
         with app.app_context():
-            stale_cutoff = datetime.utcnow() - timedelta(minutes=STALE_HEARTBEAT_MINUTES)
-
-            running = (
-                ForecastRun.query
-                .filter_by(status="running")
-                .order_by(ForecastRun.started_at.desc())
-                .first()
-            )
-
-            stale_marked = False
-            if running:
-                reference = running.last_heartbeat_at or running.started_at
-                if reference and reference < stale_cutoff:
-                    minutes_silent = int((datetime.utcnow() - reference).total_seconds() / 60)
-                    logger.warning(
-                        f"forecast watchdog: marking stale run {running.id} as failed "
-                        f"(no heartbeat for {minutes_silent} min)"
-                    )
-                    running.status = "failed"
-                    running.completed_at = get_utc_now()
-                    running.notes = (
-                        f"Auto-marked failed by watchdog: no heartbeat for {minutes_silent} min "
-                        f"(threshold {STALE_HEARTBEAT_MINUTES} min)"
-                    )
-                    db.session.commit()
-                    stale_marked = True
+            stale_marked_id = mark_stale_forecast_run_if_needed(db.session)
+            stale_marked = stale_marked_id is not None
 
             if not stale_marked:
                 last = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
@@ -1069,6 +1174,28 @@ def list_scheduled_jobs():
 
 JOB_FUNCTIONS = {}
 
+# Phase 2: human-readable display names mirrored against the job IDs in
+# JOB_FUNCTIONS. `_tracked` reads from this map when invoked from `run_job_now`
+# so manual "Run Now" entries get a proper job_name written into job_runs
+# instead of falling back to the bare job_id.
+JOB_DISPLAY_NAMES = {
+    'full_dw_sync': 'Full Data Warehouse Sync',
+    'incremental_dw_sync': 'Incremental Data Warehouse Sync',
+    'customer_sync': 'Customer Sync from PS365',
+    'invoice_sync': 'Invoice Sync from PS365',
+    'balance_fetch': 'Customer Balance Fetch from PS365',
+    'forecast_run': 'Nightly Forecast Run',
+    'forecast_watchdog': 'Forecast Run Watchdog (auto-retry)',
+    'pending_orders_sync': 'PS365 Pending Orders Sync',
+    'retry_pending_payments': 'Retry PENDING_RETRY Payments to PS365',
+    'erp_item_cost_refresh': 'Cost Update',
+    'offers_update': 'Offers Update',
+    'expiry_ftp_upload': 'Expiry Dates FTP Upload',
+    'stock_777_sync_production': 'PS365 Stock 777 Daily Sync (Production)',
+    'stock_777_sync': 'PS365 Stock 777 Daily Sync',
+    'ftp_login_sync': 'FTP Login Logs Sync',
+}
+
 
 def _register_job_funcs():
     """Register the canonical job_id -> function mapping for 'Run Now'."""
@@ -1263,7 +1390,14 @@ def run_job_now(job_id):
 
     def _runner():
         try:
-            func()
+            # Route through `_tracked` so manual runs also emit a `job_runs`
+            # row (trigger_source='manual'), giving operators the same
+            # visibility on Run Now ticks as on scheduled cron ticks.
+            _tracked(
+                job_id,
+                job_name=JOB_DISPLAY_NAMES.get(job_id, job_id),
+                trigger_source='manual',
+            )
         except Exception as e:
             logger.error(f"Manual 'Run Now' for {job_id} failed: {e}", exc_info=True)
         finally:

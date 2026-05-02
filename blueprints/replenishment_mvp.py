@@ -46,8 +46,48 @@ def admin_or_warehouse_required(f):
     return decorated_function
 
 
+def legacy_required(f):
+    """Phase 2 gate: every route in this blueprint short-circuits when the
+    `legacy_replenishment_enabled` setting is OFF (default in Phase 1).
+
+    The blueprint stays registered (Forecast Workbench imports
+    `_build_po_email_content` and `_send_po_email` from this module, so the
+    module must still load) but no Replenishment URL is reachable while the
+    flag is off. JSON / CSV endpoints return a JSON 404; HTML routes flash
+    and redirect home so warehouse staff who deep-linked an old bookmark see
+    a clear message instead of stale data.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        from models import Setting
+        raw = Setting.get(db.session, 'legacy_replenishment_enabled', 'false')
+        enabled = str(raw).strip().lower() in ('true', '1', 'yes', 'on')
+        if not enabled:
+            wants_json = (
+                request.path.startswith('/replenishment-mvp/api/')
+                or 'application/json' in (request.headers.get('Accept') or '')
+            )
+            if wants_json:
+                return jsonify({
+                    "error": "legacy_replenishment_disabled",
+                    "message": (
+                        "The MVP Replenishment module is disabled. "
+                        "Use Forecast Workbench instead."
+                    ),
+                }), 404
+            flash(
+                'The MVP Replenishment module has been retired. '
+                'Use Forecast Workbench for ordering proposals.',
+                'warning',
+            )
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 @replenishment_bp.route('/')
 @admin_or_warehouse_required
+@legacy_required
 def index():
     from services.replenishment_mvp.repositories import get_active_suppliers
     suppliers = get_active_suppliers()
@@ -68,6 +108,7 @@ def index():
 
 @replenishment_bp.route('/generate', methods=['POST'])
 @admin_or_warehouse_required
+@legacy_required
 def generate():
     from services.replenishment_mvp.planner import generate_replenishment_run
 
@@ -107,6 +148,7 @@ def generate():
 
 @replenishment_bp.route('/run/<int:run_id>')
 @admin_or_warehouse_required
+@legacy_required
 def run_detail(run_id):
     run = ReplenishmentRun.query.get_or_404(run_id)
     lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).order_by(
@@ -121,6 +163,7 @@ def run_detail(run_id):
 
 @replenishment_bp.route('/run/<int:run_id>/refresh-stock', methods=['POST'])
 @admin_or_warehouse_required
+@legacy_required
 def refresh_stock(run_id):
     import math
     from services.replenishment_mvp.ps365_client import fetch_supplier_stock, REPLENISHMENT_WAREHOUSE_STORE
@@ -339,6 +382,7 @@ def refresh_stock(run_id):
 
 @replenishment_bp.route('/run/<int:run_id>/save', methods=['POST'])
 @admin_or_warehouse_required
+@legacy_required
 def save_finals(run_id):
     run = ReplenishmentRun.query.get_or_404(run_id)
     lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
@@ -362,6 +406,7 @@ def save_finals(run_id):
 
 @replenishment_bp.route('/run/<int:run_id>/export-csv')
 @admin_or_warehouse_required
+@legacy_required
 def export_csv(run_id):
     run = ReplenishmentRun.query.get_or_404(run_id)
     lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).order_by(
@@ -402,6 +447,7 @@ def export_csv(run_id):
 
 @replenishment_bp.route('/run/<int:run_id>/export-order-csv')
 @admin_or_warehouse_required
+@legacy_required
 def export_order_csv(run_id):
     from services.replenishment_mvp.repositories import get_item_master_for_codes
 
@@ -448,6 +494,7 @@ def export_order_csv(run_id):
 
 @replenishment_bp.route('/run/<int:run_id>/send-po', methods=['POST'])
 @admin_or_warehouse_required
+@legacy_required
 def send_po_to_ps365(run_id):
     from datetime import datetime, timezone
     from services.ps365_purchase_order_service import create_ps365_purchase_order
@@ -617,6 +664,7 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gm
 
 @replenishment_bp.route('/run/<int:run_id>/email-preview', methods=['GET'])
 @admin_or_warehouse_required
+@legacy_required
 def email_preview(run_id):
     from datetime import datetime, timezone
 
@@ -648,6 +696,7 @@ def email_preview(run_id):
 
 @replenishment_bp.route('/run/<int:run_id>/email-order', methods=['POST'])
 @admin_or_warehouse_required
+@legacy_required
 def email_order(run_id):
     from datetime import datetime, timezone
 
@@ -684,6 +733,7 @@ def email_order(run_id):
 
 @replenishment_bp.route('/api/run/<int:run_id>')
 @admin_or_warehouse_required
+@legacy_required
 def api_run_json(run_id):
     run = ReplenishmentRun.query.get_or_404(run_id)
     lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()

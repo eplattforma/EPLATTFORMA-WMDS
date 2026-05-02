@@ -140,11 +140,17 @@ def inject_context():
     # Make use_shipments feature flag available to all templates
     use_shipments_raw = Setting.get(db.session, 'use_shipments', 'false')
     use_shipments = str(use_shipments_raw).strip().lower() in ('true', '1', 'yes', 'on')
-    
+
+    # Phase 2: hide the legacy MVP Replenishment menu unless the operator
+    # has explicitly turned it back on. Default OFF (see Phase 1 defaults).
+    legacy_repl_raw = Setting.get(db.session, 'legacy_replenishment_enabled', 'false')
+    legacy_replenishment_enabled = str(legacy_repl_raw).strip().lower() in ('true', '1', 'yes', 'on')
+
     return {
         'now': get_local_time(),
         'csrf_token': csrf_token,
         'use_shipments': use_shipments,
+        'legacy_replenishment_enabled': legacy_replenishment_enabled,
         'resolve_supplier_name': resolve_supplier_name,
     }
 

@@ -103,19 +103,13 @@ def api_suppliers():
 
     try:
         from datetime import datetime, timedelta
-        from timezone_utils import get_utc_now
-        TIMEOUT_MINUTES = 45
+        from services.forecast.stale_detection import mark_stale_forecast_run_if_needed
 
-        running_run = ForecastRun.query.filter_by(status="running").order_by(ForecastRun.started_at.desc()).first()
-        if running_run:
-            reference_time = running_run.last_heartbeat_at or running_run.started_at
-            stale_cutoff = datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES)
-            if reference_time and reference_time < stale_cutoff:
-                logger.warning(f"api_suppliers: marking stale run {running_run.id} as failed")
-                running_run.status = "failed"
-                running_run.completed_at = get_utc_now()
-                running_run.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
-                db.session.commit()
+        # Phase 2: stale-run detection now lives in one place so the watchdog
+        # cron and this live page agree on what 'stale' means. Threshold reads
+        # from the `forecast_heartbeat_timeout_seconds` setting (default 2700s
+        # = 45 min). Helper never raises into the caller.
+        mark_stale_forecast_run_if_needed(db.session)
 
         last_run = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
 
