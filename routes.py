@@ -4015,6 +4015,7 @@ def update_routing_number():
 
 @app.route('/admin/update-stop-sequence', methods=['POST'])
 @login_required
+@require_permission('routes.manage')
 def update_stop_sequence():
     """Update the stop sequence number for an invoice (supports decimal sequences like 1.1, 1.5)"""
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -4109,6 +4110,7 @@ def update_stop_sequence():
     
 @app.route('/admin/quick-view-breakdown', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def quick_view_breakdown():
     if current_user.role not in ['admin', 'warehouse_manager']:
         return jsonify({'error': 'Access denied'}), 403
@@ -4266,6 +4268,7 @@ def quick_view_breakdown():
 
 @app.route('/print_selected_orders', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def print_selected_orders():
     """Print multiple selected orders from admin dashboard"""
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -4429,6 +4432,7 @@ def view_stock_position():
 
 @app.route('/stock-dashboard')
 @login_required
+@require_permission('menu.warehouse')
 def stock_dashboard():
     """Display stock position dashboard from database"""
     if current_user.role not in ['admin', 'warehouse_manager']:
