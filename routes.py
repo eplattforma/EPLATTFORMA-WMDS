@@ -1732,11 +1732,48 @@ def manage_user_permissions(username):
                 )
             return redirect(url_for('manage_user_permissions', username=username))
 
-        # Save: rewrite explicit (non-wildcard) rows from the submitted set.
+        # Save: handle wildcard removals first, then rewrite explicit
+        # (non-wildcard) rows from the submitted set.
         submitted = set(request.form.getlist('permission_keys'))
         valid = [k for k in submitted if k in ALL_EDITOR_KEYS]
 
+        # Wildcards the admin chose to remove. Filter to actual wildcards
+        # so a forged form can't slip a non-wildcard delete through this path.
+        to_remove_wildcards = [
+            w for w in request.form.getlist('remove_wildcards')
+            if w == '*' or w.endswith('.*')
+        ]
+
+        # Self-lockout guard: cannot revoke '*' from your own account here.
+        if '*' in to_remove_wildcards and username == current_user.username:
+            flash(
+                "You cannot revoke full admin ('*') from your own account. "
+                "Ask another admin to do it.",
+                "danger",
+            )
+            return redirect(url_for('manage_user_permissions', username=username))
+
+        # Confirmation gate for revoking literal '*' from another user.
+        if (
+            '*' in to_remove_wildcards
+            and request.form.get('confirm_remove_star') != 'YES'
+        ):
+            flash(
+                "Removing full admin ('*') requires the confirmation checkbox. "
+                "No changes were applied.",
+                "danger",
+            )
+            return redirect(url_for('manage_user_permissions', username=username))
+
         try:
+            wildcards_removed = 0
+            for w in to_remove_wildcards:
+                res = db.session.execute(text(
+                    "DELETE FROM user_permissions "
+                    "WHERE username = :u AND permission_key = :w"
+                ), {"u": username, "w": w})
+                wildcards_removed += res.rowcount or 0
+
             db.session.execute(text(
                 "DELETE FROM user_permissions "
                 "WHERE username = :u AND permission_key NOT LIKE '%*%'"
@@ -1749,11 +1786,15 @@ def manage_user_permissions(username):
                     "ON CONFLICT (username, permission_key) DO NOTHING"
                 ), {"u": username, "k": key, "by": current_user.username})
             db.session.commit()
-            flash(
-                f"Permissions updated for {username}. "
-                f"Changes take effect on next login.",
-                "success",
-            )
+
+            msg = f"Permissions updated for {username}."
+            if wildcards_removed:
+                msg += (
+                    f" Removed {wildcards_removed} wildcard grant"
+                    f"{'s' if wildcards_removed != 1 else ''}."
+                )
+            msg += " Changes take effect on next login."
+            flash(msg, "success")
         except Exception as e:
             db.session.rollback()
             logging.error(f"Permission save failed for {username}: {e}")

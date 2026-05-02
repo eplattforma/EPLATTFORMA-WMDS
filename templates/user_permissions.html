@@ -34,9 +34,11 @@
 {% if role_wildcards %}
 <div class="alert alert-secondary">
     <i class="fas fa-asterisk me-2"></i>
-    This user also has role-derived wildcard grants:
+    This user has wildcard grants that don't appear in the grid below:
     {% for w in role_wildcards %}<code>{{ w }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
-    Wildcards stay in effect alongside any explicit selections below.
+    Wildcards stay in effect alongside any explicit selections.
+    To revoke a single wildcard without resetting everything else, use the
+    <em>Wildcard Grants</em> section below.
     Use <em>Reset to role defaults</em> to restore the default set if you
     accidentally remove them.
 </div>
@@ -74,6 +76,52 @@
         {% endfor %}
     </div>
 
+    {% if role_wildcards %}
+    <div class="card shadow-sm mb-4 border-warning">
+        <div class="card-header bg-warning-subtle d-flex flex-wrap align-items-center gap-2">
+            <strong><i class="fas fa-asterisk me-2"></i>Wildcard Grants</strong>
+            <small class="text-muted">
+                Tick a wildcard below to <strong>remove</strong> it on Save.
+                Untouched wildcards stay in effect.
+            </small>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for w in role_wildcards %}
+            <label class="list-group-item d-flex align-items-center">
+                <input type="checkbox"
+                       class="form-check-input me-2"
+                       name="remove_wildcards"
+                       value="{{ w }}"
+                       {% if w == '*' %}data-is-star="1"{% endif %}>
+                <span class="flex-grow-1">
+                    <code>{{ w }}</code>
+                    {% if w == '*' %}
+                    <span class="badge bg-danger ms-2">Full admin — revokes all access</span>
+                    {% endif %}
+                </span>
+                {% if w in role_perm_set %}
+                <span class="badge bg-light text-dark border" title="Granted by role">from role</span>
+                {% endif %}
+            </label>
+            {% endfor %}
+        </div>
+        {% if '*' in role_wildcards %}
+        <div class="card-footer bg-light">
+            <label class="form-check small mb-0">
+                <input type="checkbox"
+                       class="form-check-input me-1"
+                       name="confirm_remove_star"
+                       value="YES"
+                       id="confirm_remove_star">
+                I understand that ticking <code>*</code> above will revoke
+                <strong>full admin access</strong> from
+                <strong>{{ user.username }}</strong> on next login.
+            </label>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="d-flex gap-2 flex-wrap mb-4">
         <button type="submit" name="action" value="save" class="btn btn-primary">
             <i class="fas fa-save me-2"></i>Save Permissions
@@ -85,4 +133,42 @@
         <a href="{{ url_for('manage_users') }}" class="btn btn-outline-secondary">Cancel</a>
     </div>
 </form>
+
+<script>
+(function () {
+    var form = document.querySelector('form[action="{{ url_for("manage_user_permissions", username=user.username) }}"]');
+    if (!form) { return; }
+    var targetUsername = {{ user.username|tojson }};
+
+    form.addEventListener('submit', function (event) {
+        var action = (event.submitter && event.submitter.value) || 'save';
+        if (action !== 'save') { return; }
+
+        var starCheck = form.querySelector('input[name="remove_wildcards"][data-is-star="1"]');
+        if (!starCheck || !starCheck.checked) { return; }
+
+        var typed = window.prompt(
+            'You are about to revoke FULL ADMIN ("*") from "' + targetUsername + '".\n\n' +
+            'Type the username "' + targetUsername + '" exactly to confirm:'
+        );
+        if (typed !== targetUsername) {
+            event.preventDefault();
+            window.alert('Confirmation did not match. Wildcard removal cancelled.');
+            return false;
+        }
+
+        var confirmCheck = form.querySelector('input[name="confirm_remove_star"]');
+        if (confirmCheck && !confirmCheck.checked) {
+            confirmCheck.checked = true;
+        }
+    });
+
+    var wildcardChecks = form.querySelectorAll('input[name="remove_wildcards"]');
+    wildcardChecks.forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            cb.closest('label').classList.toggle('bg-danger-subtle', cb.checked);
+        });
+    });
+})();
+</script>
 {% endblock %}
