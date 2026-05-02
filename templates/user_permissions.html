@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+
+{% block title %}Permissions for {{ user.username }} - EPLATTFORMA WMDS System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="display-6">
+            <i class="fas fa-user-shield me-2"></i>Permissions: {{ user.display_name or user.username }}
+        </h1>
+        <p class="text-muted">
+            Username: <code>{{ user.username }}</code> &middot;
+            Role: <span class="badge bg-secondary">{{ user.role.replace('_',' ').title() }}</span> &middot;
+            Status:
+            {% if user.is_active %}
+                <span class="badge bg-success">Active</span>
+            {% else %}
+                <span class="badge bg-secondary">Inactive</span>
+            {% endif %}
+        </p>
+        <a href="{{ url_for('manage_users') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Users
+        </a>
+    </div>
+</div>
+
+<div class="alert alert-info">
+    <i class="fas fa-info-circle me-2"></i>
+    <strong>Permission changes take effect on next login.</strong>
+    Currently signed-in sessions keep their existing access until they sign out
+    and back in. Driver Mode core workflow is unaffected.
+</div>
+
+{% if role_wildcards %}
+<div class="alert alert-secondary">
+    <i class="fas fa-asterisk me-2"></i>
+    This user also has role-derived wildcard grants:
+    {% for w in role_wildcards %}<code>{{ w }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+    Wildcards stay in effect alongside any explicit selections below.
+    Use <em>Reset to role defaults</em> to restore the default set if you
+    accidentally remove them.
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('manage_user_permissions', username=user.username) }}">
+    <div class="row">
+        {% for group_label, group_keys in permission_groups %}
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <strong>{{ group_label }}</strong>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for key in group_keys %}
+                    <label class="list-group-item d-flex align-items-center">
+                        <input type="checkbox"
+                               class="form-check-input me-2"
+                               name="permission_keys"
+                               value="{{ key }}"
+                               {% if key in current_perms %}checked{% endif %}>
+                        <span class="flex-grow-1">
+                            <code>{{ key }}</code>
+                        </span>
+                        {% if key in role_perm_set %}
+                        <span class="badge bg-light text-dark border" title="Granted by role">
+                            from role
+                        </span>
+                        {% endif %}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap mb-4">
+        <button type="submit" name="action" value="save" class="btn btn-primary">
+            <i class="fas fa-save me-2"></i>Save Permissions
+        </button>
+        <button type="submit" name="action" value="reset_role" class="btn btn-outline-warning"
+                onclick="return confirm('Reset {{ user.username }} to default permissions for role {{ user.role }}? This replaces the current set.');">
+            <i class="fas fa-undo me-2"></i>Reset to Role Defaults
+        </button>
+        <a href="{{ url_for('manage_users') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}

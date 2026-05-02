@@ -1,17 +1,23 @@
 """Centralised permission helpers for the WMDS Development Batch.
 
-Phase 1 ships this module **disabled by default**:
+Phase 1 shipped this module **disabled by default**:
 
   - `permissions_enforcement_enabled = false` in settings
   - `@require_permission(key)` logs but never blocks while disabled
   - `has_permission(user, key)` returns True with role-fallback when disabled
 
-Phase 3 enables enforcement by toggling `permissions_enforcement_enabled = true`.
+Phase 3 flips `permissions_enforcement_enabled = true` so direct URL/API access
+without the right key returns HTTP 403. Role fallback
+(`permissions_role_fallback_enabled`) stays ON in Phase 3 as the safety net.
+
+Phase 3 also adds request-scoped caching: each request resolves a given user's
+explicit permissions exactly once even when many menu items / decorators check
+the same user.
 """
 import logging
 from functools import wraps
 
-from flask import abort
+from flask import abort, g, has_request_context
 from flask_login import current_user
 
 from app import db
@@ -51,16 +57,39 @@ def _is_role_fallback_enabled():
 
 
 def _explicit_permissions_for(username):
+    """Return the set of explicit permission keys for a username.
+
+    Result is memoized for the duration of the current Flask request via
+    ``flask.g`` so that templates with many menu items and routes with many
+    decorator hits don't each issue their own SELECT.
+    """
+    cache = None
+    try:
+        if has_request_context():
+            cache = getattr(g, "_user_permissions_cache", None)
+            if cache is None:
+                cache = {}
+                g._user_permissions_cache = cache
+            if username in cache:
+                return cache[username]
+    except Exception:
+        cache = None
+
     try:
         from sqlalchemy import text
         rows = db.session.execute(
             text("SELECT permission_key FROM user_permissions WHERE username = :u"),
             {"u": username},
         ).fetchall()
-        return {r[0] for r in rows}
+        result = {r[0] for r in rows}
     except Exception as e:
         logger.debug(f"explicit_permissions lookup failed for {username}: {e}")
-        return set()
+        result = set()
+
+    if cache is not None:
+        cache[username] = result
+
+    return result
 
 
 def _role_permissions_for(role):

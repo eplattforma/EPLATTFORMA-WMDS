@@ -18,10 +18,13 @@ PHASE1_DEFAULTS = {
     "wmds_development_batch_enabled": "true",
     "maintenance_mode": "normal",
 
-    # Permissions
-    "permissions_enforcement_enabled": "false",
+    # Permissions (Phase 3 turns enforcement ON; role fallback stays ON as
+    # the safety net per the brief. Setting either to "false" is the
+    # documented one-flag rollback.)
+    "permissions_enforcement_enabled": "true",
     "permissions_menu_filtering_enabled": "true",
     "permissions_role_fallback_enabled": "true",
+    "permissions_auto_seed_done": "false",
 
     # Job Runs & Logging
     "job_runs_enabled": "true",
