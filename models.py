@@ -72,6 +72,9 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
     disabled_at = db.Column(db.DateTime, nullable=True)
     disabled_reason = db.Column(db.String(255), nullable=True)
+
+    # Phase 1 Foundation — human-readable name (nullable, falls back to username)
+    display_name = db.Column(db.String(120), nullable=True)
     
     __table_args__ = (
         db.Index('idx_users_is_active', 'is_active'),

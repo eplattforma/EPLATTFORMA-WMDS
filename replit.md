@@ -76,3 +76,40 @@ Preferred communication style: Simple, everyday language.
 - **Background scheduler**: APScheduler runs in a single designated gunicorn worker, persisting its job table to the shared Postgres `apscheduler_jobs` table. Because the production deployment is on Replit Autoscale (workers spin down to zero on idle), all daily batch jobs are scheduled in a 16:20–18:05 Cairo window that overlaps with warehouse staff working hours. Sub-hourly jobs (pending orders every 30min, payment retries every 5min, FTP login sync every 30min) keep their original cadence — they fire naturally whenever the app is in use during the day. Misfire grace on every daily job is 6 hours so a slightly delayed worker boot still catches the run.
 - **Stock Dashboard reserved-stock column** (`/stock-dashboard`): the dashboard table now includes a "Reserved" column (rightmost) showing how much of each item is reserved in PS365 sales orders for Store 777. Data is stored in the `stock_dashboard_reserved` table (model `StockDashboardReserved` — PK `item_code`, columns `store_code`, `stock_reserved`, `stock_ordered`, `synced_at`) and is refreshed on demand by the `POST /api/refresh-reserved-stock` endpoint (admin/warehouse_manager only). The endpoint pulls every distinct item code from `StockPosition`, calls `services_ps365_stock.fetch_items_stock_for_store("777", codes)` (chunks 50 per PS365 page with `analytical_per_store=True`), and DELETE-then-bulk-inserts the snapshot. The dashboard's `refreshFromERP()` JS chains the two refreshes back-to-back: first `erp_bot.erp_refresh_stock_positions` (the Playwright export), then `/api/refresh-reserved-stock`, then `location.reload()`. If the reserved step fails the user is warned but the page still reloads so they can see the ERP refresh result. The dashboard view also exposes a "Reserved: <local time>" stamp in the H2 subtitle so users can see when the figures were last fetched.
 - **Database Settings / Scheduler UI** (`/datawarehouse/database-settings`): admin-only page that lists every registered job with its cron expression, next-run time, and active/paused status, and lets administrators reschedule (hour / minute / day-of-week, cron syntax allowed), pause, resume, or trigger a job on demand ("Run now"). The page (template `templates/datawarehouse/database_settings.html`) is rendered by the `database_settings()` view in `datawarehouse_routes.py`. Form actions POST to the `admin_scheduler_bp` blueprint at `/admin/scheduler/<job_id>/{reschedule,pause,resume,run-now}` (in `routes_admin_scheduler.py`); each handler validates the project's session-based CSRF token, mutates the jobstore via `scheduler.py` helpers, flashes a result, and redirects back to `/datawarehouse/database-settings`. The legacy `/admin/scheduler/` GET URL is kept as a redirect for any existing bookmarks. Reads/writes go through the shared SQLAlchemy jobstore — to support being called from any worker (not just the scheduler-owning one), the helpers wrap each operation in a `_JobstoreContext` that, when the live scheduler isn't on this worker, spins up a temporary `BackgroundScheduler` started in paused mode (so it loads jobs from the DB without firing anything), performs the read/mutate, then shuts it down. Mutations propagate to the live scheduler on its next wake cycle (typically within a few minutes); no redeploy required. "Run now" bypasses the scheduler and invokes the job function directly in a daemon thread, guarded by a per-process lock so a double-click can't launch overlapping runs.
+## WMDS Development Batch — Phase 1 (Foundation)
+
+This is the first phase of the multi-phase WMDS Development Batch. The full brief is at `attached_assets/wmds_app_review_development_backlog_FINAL_*.md`. Phase 1 lays the foundation; **all high-risk behaviour ships disabled by default**.
+
+### Reference docs (repo root)
+- `SCHEDULING.md` — every scheduled job with explicit IANA timezone.
+- `ROLLBACK_AND_FLAGS.md` — canonical list of all feature flags, defaults, dependencies, and emergency disable order.
+- `ASSUMPTIONS_LOG.md` — assumptions made under the brief's "autonomous execution" rules.
+
+### What Phase 1 added
+- **Schema** (`update_phase1_foundation_schema.py`, called from `main.py`):
+  - `users.display_name VARCHAR(120) NULL` — backfilled from `username`. Falls back to `username` everywhere it is consumed.
+  - `job_runs` table — central log for scheduled / manual jobs (status, heartbeat, progress, result_summary, error_message, parent_run_id). Indexes on `(job_id, started_at DESC)`, `status`, and a partial index on `last_heartbeat WHERE status='RUNNING'` for the watchdog.
+  - `user_permissions` table — `(username, permission_key)` unique pair, FK to `users.username`. Username PK migration is **not** in scope per brief Ground Rule 2.
+- **Settings** (seeded by `services/settings_defaults.py :: ensure_phase1_settings_defaults()`, idempotent; never overwrites operator-set values):
+  - 24 flags from brief Section 14. High-risk flags default OFF (`permissions_enforcement_enabled`, `legacy_replenishment_enabled`, `use_db_backed_picking_queue`, `summer_cooler_mode_enabled`, `cooler_picking_enabled`, etc.).
+  - GREEN flags default ON (`job_runs_enabled`, `new_logging_enabled`, `permissions_role_fallback_enabled`).
+- **Permissions service** (`services/permissions.py`):
+  - `ROLE_PERMISSIONS` map (admin / warehouse_manager / picker / driver) supports wildcards (`picking.*`, `*`).
+  - `has_permission(user, key)` — explicit `user_permissions` first, then role fallback (when `permissions_role_fallback_enabled=true`).
+  - `@require_permission(key)` — Phase 1 is **non-blocking**: it only logs missing permissions while `permissions_enforcement_enabled=false`. Phase 3 toggles to active 403 enforcement.
+  - `register_template_helpers(app)` — exposes `has_permission()` to all Jinja templates.
+- **Job-run logger** (`services/job_run_logger.py`):
+  - `start_job_run`, `heartbeat`, `finish_job_run`, `mark_stale_runs`, `get_recent_runs`.
+  - All exception-safe: failures are logged at WARN level and never propagate (per brief Section 14: "logging failures must not stop scheduled jobs from running").
+  - Gated by `job_runs_enabled` AND `job_runs_write_enabled`.
+
+### What Phase 1 did NOT change
+- No existing route, blueprint, scheduler job, or model field was removed or repurposed.
+- The existing 10-min forecast watchdog continues unchanged — the brief's 5-min cadence is gated behind `forecast_watchdog_enabled` and is a Phase 2 change (see `ASSUMPTION-001`).
+- `replenishment_mvp` blueprint stays registered (needed by `forecast_workbench` PO email helpers per brief Section 9 / Appendix A).
+- Driver Mode core workflow untouched (brief Section 7).
+
+### Operational notes
+- New DB objects are visible at: `\d job_runs`, `\d user_permissions`, `\d users` (look for `display_name`).
+- Toggle flags via `Setting.set(db.session, key, value)` or by directly editing the `settings` table.
+- Phase 2/3/4/5 will each be done in their own focused batch — do not enable two high-risk flags in the same production step (see `ROLLBACK_AND_FLAGS.md` Production Safety Rules).

@@ -1,0 +1,144 @@
+"""Centralised permission helpers for the WMDS Development Batch.
+
+Phase 1 ships this module **disabled by default**:
+
+  - `permissions_enforcement_enabled = false` in settings
+  - `@require_permission(key)` logs but never blocks while disabled
+  - `has_permission(user, key)` returns True with role-fallback when disabled
+
+Phase 3 enables enforcement by toggling `permissions_enforcement_enabled = true`.
+"""
+import logging
+from functools import wraps
+
+from flask import abort
+from flask_login import current_user
+
+from app import db
+from models import Setting
+
+logger = logging.getLogger(__name__)
+
+
+ROLE_PERMISSIONS = {
+    "admin": ["*"],
+    "warehouse_manager": [
+        "menu.dashboard", "menu.warehouse", "menu.picking", "menu.crm",
+        "menu.forecast", "menu.communications", "menu.datawarehouse",
+        "picking.*", "cooler.*", "sync.view_logs", "routes.manage",
+    ],
+    "picker": [
+        "menu.picking", "picking.perform", "picking.claim_batch",
+    ],
+    "driver": [
+        "menu.driver", "driver.*",
+    ],
+}
+
+
+def _is_enforcement_enabled():
+    try:
+        return Setting.get(db.session, "permissions_enforcement_enabled", "false").lower() == "true"
+    except Exception:
+        return False
+
+
+def _is_role_fallback_enabled():
+    try:
+        return Setting.get(db.session, "permissions_role_fallback_enabled", "true").lower() == "true"
+    except Exception:
+        return True
+
+
+def _explicit_permissions_for(username):
+    try:
+        from sqlalchemy import text
+        rows = db.session.execute(
+            text("SELECT permission_key FROM user_permissions WHERE username = :u"),
+            {"u": username},
+        ).fetchall()
+        return {r[0] for r in rows}
+    except Exception as e:
+        logger.debug(f"explicit_permissions lookup failed for {username}: {e}")
+        return set()
+
+
+def _role_permissions_for(role):
+    perms = ROLE_PERMISSIONS.get(role, [])
+    return set(perms)
+
+
+def _matches(granted, key):
+    if granted == "*" or granted == key:
+        return True
+    if granted.endswith(".*"):
+        prefix = granted[:-2]
+        return key == prefix or key.startswith(prefix + ".")
+    return False
+
+
+def has_permission(user, key):
+    """Return True if `user` is allowed to use the permission `key`.
+
+    Resolution order:
+      1. Explicit `user_permissions` rows.
+      2. If `permissions_role_fallback_enabled` (default true), role-derived perms.
+      3. Otherwise, deny.
+
+    When enforcement is disabled, this still returns the correct answer so
+    callers and templates behave the same way; only the `@require_permission`
+    decorator changes its blocking behaviour based on the flag.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+
+    username = getattr(user, "username", None) or getattr(user, "get_id", lambda: None)()
+    role = getattr(user, "role", None)
+
+    if username:
+        explicit = _explicit_permissions_for(username)
+        for granted in explicit:
+            if _matches(granted, key):
+                return True
+
+    if _is_role_fallback_enabled() and role:
+        for granted in _role_permissions_for(role):
+            if _matches(granted, key):
+                return True
+
+    return False
+
+
+def require_permission(key):
+    """Decorator. While enforcement is OFF it only logs missing permissions.
+
+    Use freely on routes during Phase 1; flip the master flag in Phase 3 to
+    activate 403 responses.
+    """
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            allowed = has_permission(current_user, key)
+            if not allowed:
+                if _is_enforcement_enabled():
+                    logger.warning(
+                        f"Permission denied: user={getattr(current_user, 'username', '?')} "
+                        f"key={key} route={view.__name__}"
+                    )
+                    abort(403)
+                else:
+                    logger.debug(
+                        f"Permission missing (enforcement off): "
+                        f"user={getattr(current_user, 'username', '?')} key={key} "
+                        f"route={view.__name__}"
+                    )
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def register_template_helpers(app):
+    """Expose `has_permission` to all Jinja templates."""
+    @app.context_processor
+    def _inject_permission_helpers():
+        return {"has_permission": lambda key: has_permission(current_user, key)}

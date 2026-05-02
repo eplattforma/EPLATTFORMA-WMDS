@@ -502,6 +502,27 @@ if _db_available:
         logging.error(f"Error updating forecast runs schema: {str(e)}")
 
     try:
+        from update_phase1_foundation_schema import update_phase1_foundation_schema
+        update_phase1_foundation_schema()
+        logging.warning("Phase 1 foundation schema updater completed")
+    except Exception as e:
+        logging.error(f"Error updating Phase 1 foundation schema: {str(e)}")
+
+    try:
+        from services.settings_defaults import ensure_phase1_settings_defaults
+        with app.app_context():
+            ensure_phase1_settings_defaults()
+    except Exception as e:
+        logging.error(f"Error seeding Phase 1 settings defaults: {str(e)}")
+
+    try:
+        from services.permissions import register_template_helpers
+        register_template_helpers(app)
+        logging.warning("Phase 1 permissions: template helper has_permission() registered")
+    except Exception as e:
+        logging.error(f"Error registering permissions template helpers: {str(e)}")
+
+    try:
         from update_magento_login_log_schema import update_magento_login_log_schema
         update_magento_login_log_schema()
     except Exception as e:
