@@ -458,26 +458,28 @@ def setup_scheduler(app):
             else:
                 logger.info("⏭ FTP login sync skipped (not deployed)")
 
-            # Cleanup: remove the legacy FTP Price Master Sync job from the
-            # jobstore if a previous deploy registered it. The Cost Update
-            # job (ERP Item Catalogue export) now owns the 17:55 Cairo slot.
-            try:
-                # One-time WARN if the legacy slot is still in the jobstore
-                # so reconciliation is loud (jobstore is persistent — a
-                # silent INFO would be easy to miss). The cleanup itself is
-                # idempotent so subsequent boots will simply be silent.
-                legacy_job = scheduler.get_job('ftp_price_master_sync')
-                if legacy_job is not None:
-                    scheduler.remove_job('ftp_price_master_sync')
-                    logger.warning(
-                        "🧹 Removed legacy 'ftp_price_master_sync' job from jobstore "
-                        "(replaced by Cost Update at 17:55 Africa/Cairo — see SCHEDULING.md)"
-                    )
-            except Exception as e:
-                logger.debug(f"Legacy ftp_price_master_sync cleanup skipped: {e}")
-
         scheduler.start()
         logger.info("Background scheduler started successfully")
+
+        # Cleanup: remove the legacy FTP Price Master Sync job from the
+        # jobstore if a previous deploy registered it. The Cost Update
+        # job (ERP Item Catalogue export) now owns the 17:55 Cairo slot.
+        # IMPORTANT: must run AFTER scheduler.start() — APScheduler does
+        # not load jobs from the SQLAlchemy jobstore into its in-memory
+        # view until the scheduler is started, so `get_job(...)` /
+        # `remove_job(...)` on an unstarted scheduler would silently miss
+        # persisted rows and the legacy duplicate job would survive.
+        # See `_JobstoreContext` docstring for the same rationale.
+        try:
+            legacy_job = scheduler.get_job('ftp_price_master_sync')
+            if legacy_job is not None:
+                scheduler.remove_job('ftp_price_master_sync')
+                logger.warning(
+                    "🧹 Removed legacy 'ftp_price_master_sync' job from jobstore "
+                    "(replaced by Cost Update at 17:55 Africa/Cairo — see SCHEDULING.md)"
+                )
+        except Exception as e:
+            logger.debug(f"Legacy ftp_price_master_sync cleanup skipped: {e}")
 
         if is_production:
             import threading
