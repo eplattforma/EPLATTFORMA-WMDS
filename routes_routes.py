@@ -87,12 +87,23 @@ def _lock_route_manifest(shipment_id: int, username: str):
 
 
 def admin_required(f):
+    """Phase 3: route management guard.
+
+    Allow admin/warehouse_manager (legacy role check, defense in depth) OR any
+    user holding the ``routes.manage`` permission. Picker/driver and other
+    roles without an explicit grant get 403. The permission check honours the
+    same enforcement + role-fallback flags as ``@require_permission``.
+    """
+    from services.permissions import has_permission as _has_permission
+
     @wraps(f)
     @login_required
     def decorated_function(*args, **kwargs):
-        if current_user.role not in ['admin', 'warehouse_manager']:
-            abort(403)
-        return f(*args, **kwargs)
+        if current_user.role in ['admin', 'warehouse_manager']:
+            return f(*args, **kwargs)
+        if _has_permission(current_user, 'routes.manage'):
+            return f(*args, **kwargs)
+        abort(403)
     return decorated_function
 
 

@@ -33,6 +33,10 @@ ROLE_PERMISSIONS = {
         "menu.forecast", "menu.communications", "menu.datawarehouse",
         "picking.*", "cooler.*", "sync.view_logs", "routes.manage",
     ],
+    "crm_admin": [
+        "menu.dashboard", "menu.crm", "menu.communications",
+        "comms.*",
+    ],
     "picker": [
         "menu.picking", "picking.perform", "picking.claim_batch",
     ],
