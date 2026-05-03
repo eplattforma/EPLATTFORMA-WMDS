@@ -94,10 +94,9 @@ def test_bulk_set_annual_targets_one_history_row_per_customer(real_customer):
         bulk_set_annual_targets, get_target, get_target_history,
     )
     cc = real_customer
-    res = bulk_set_annual_targets([cc, "__no_such_customer__"], 36000,
-                                  actor="mgr1")
+    res = bulk_set_annual_targets([cc], 36000, actor="mgr1")
     assert res["applied"] == [cc]
-    assert res["skipped"] == ["__no_such_customer__"]
+    assert res["skipped"] == []
 
     s = get_target(cc)
     assert float(s["active"]["annual"]) == 36000.0
@@ -109,10 +108,32 @@ def test_bulk_set_annual_targets_one_history_row_per_customer(real_customer):
     assert any("bulk_set" in (x.get("notes") or "") for x in set_events)
 
 
+def test_bulk_set_atomic_rejects_on_any_unknown_customer(real_customer):
+    """Atomic: if ANY code is unknown, the whole bulk operation is
+    rejected before a single write — no partial commits."""
+    from services.cockpit_targets import (
+        bulk_set_annual_targets, get_target_history,
+    )
+    cc = real_customer
+    history_before = len(get_target_history(cc, limit=100))
+    with pytest.raises(ValueError, match="Unknown customer code"):
+        bulk_set_annual_targets([cc, "__no_such_customer__"], 99999,
+                                actor="mgr1")
+    # Real customer's history must be unchanged
+    history_after = len(get_target_history(cc, limit=100))
+    assert history_after == history_before
+
+
 def test_bulk_set_rejects_non_numeric_annual():
     from services.cockpit_targets import bulk_set_annual_targets
     with pytest.raises(ValueError):
         bulk_set_annual_targets(["x"], "not-a-number", actor="mgr")
+
+
+def test_bulk_set_rejects_empty_codes():
+    from services.cockpit_targets import bulk_set_annual_targets
+    with pytest.raises(ValueError):
+        bulk_set_annual_targets([], 1000, actor="mgr")
 
 
 def test_schema_objects_exist(appctx):

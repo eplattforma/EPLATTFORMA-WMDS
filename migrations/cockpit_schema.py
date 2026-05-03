@@ -177,30 +177,48 @@ def _exec_each(conn, sql_block):
         conn.execute(text(stmt))
 
 
+def _build_offer_view_sqlite() -> str:
+    """SQLite-compatible variant of vw_customer_offer_opportunity. Uses
+    the same column shape as the Postgres view so the cockpit service
+    selects against the same names on both dialects. SQLite supports CTEs
+    and CREATE VIEW; the only swap needed is the date arithmetic
+    (`date('now', '-90 days')` instead of `CURRENT_DATE - INTERVAL '90 days'`).
+    """
+    return _OFFER_OPPORTUNITY_VIEW_PG \
+        .replace("CREATE OR REPLACE VIEW", "CREATE VIEW IF NOT EXISTS") \
+        .replace("(CURRENT_DATE - INTERVAL '90 days')",
+                 "date('now', '-90 days')") \
+        .replace("is_active = true", "is_active = 1")
+
+
 def ensure_cockpit_schema():
-    """Idempotent boot-time schema ensure. Safe under parallel workers."""
+    """Idempotent boot-time schema ensure. Safe under parallel workers.
+
+    Cross-dialect: tables and view are created on both PostgreSQL and
+    SQLite. If the underlying fact tables (dw_invoice_line, etc.) are
+    missing on a given backend (e.g. a fresh in-memory test DB), the view
+    creation is skipped non-fatally — the cockpit service degrades to
+    ``[]`` for offer opportunities rather than raising.
+    """
     try:
         dialect = db.engine.dialect.name
         with db.engine.begin() as conn:
             if dialect == "postgresql":
                 _exec_each(conn, _TARGETS_DDL_PG)
                 _exec_each(conn, _HISTORY_DDL_PG)
-                # CREATE OR REPLACE VIEW is concurrency-safe on Postgres.
-                # If a referenced table is missing we swallow the error so
-                # cockpit table creation still succeeds.
-                try:
-                    conn.execute(text(_OFFER_OPPORTUNITY_VIEW_PG))
-                except Exception as ve:
-                    logger.warning(
-                        "Cockpit: vw_customer_offer_opportunity not created: %s", ve
-                    )
+                view_sql = _OFFER_OPPORTUNITY_VIEW_PG
             else:
                 _exec_each(conn, _TARGETS_DDL_SQLITE)
                 _exec_each(conn, _HISTORY_DDL_SQLITE)
-                # Skip the view on SQLite: its CTE/dialect-specific SQL is
-                # not portable and the view is only used by the cockpit
-                # service which is gated by ``cockpit_enabled`` (false in
-                # tests). Tests can still exercise the targets workflow.
+                view_sql = _build_offer_view_sqlite()
+            try:
+                conn.execute(text(view_sql))
+            except Exception as ve:
+                logger.warning(
+                    "Cockpit: vw_customer_offer_opportunity not created "
+                    "(dialect=%s, likely missing fact tables): %s",
+                    dialect, ve,
+                )
         logger.info("Cockpit: schema ensured (dialect=%s)", dialect)
     except Exception:
         logger.exception("Cockpit: ensure_cockpit_schema failed")
