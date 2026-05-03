@@ -145,14 +145,27 @@ def api_propose_target(customer_code):
         return jsonify({"error": str(e)}), 400
 
 
-@cockpit_bp.route("/api/<customer_code>/target/set", methods=["POST"])
+@cockpit_bp.route("/api/<customer_code>/target/set", methods=["POST", "PATCH"])
 @login_required
 @require_permission("customers.approve_target")
 def api_set_target(customer_code):
+    """Brief §10.5 specifies PATCH; we also accept POST for browsers/forms."""
     from services.cockpit_targets import set_target_directly
     payload = request.get_json(silent=True) or request.form.to_dict() or {}
     try:
         out = set_target_directly(customer_code, payload, actor=_actor())
+        return jsonify(out)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@cockpit_bp.route("/api/<customer_code>/target/clear", methods=["POST"])
+@login_required
+@require_permission("customers.approve_target")
+def api_clear_target(customer_code):
+    from services.cockpit_targets import clear_target
+    try:
+        out = clear_target(customer_code, actor=_actor())
         return jsonify(out)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

@@ -1,108 +1,153 @@
 """Cockpit Ticket 1: schema migration.
 
 Idempotent and dialect-aware (Postgres in production, SQLite in tests).
-Creates two tables and (Postgres only) one read-only SQL view.
+Creates three tables and one read-only SQL view per cockpit-brief §6.1,
+§6.7 and §10.2.
+
+Schema follows brief §6.1 column naming exactly: ``target_weekly_ambition``,
+``target_monthly``, ``target_quarterly``, ``target_annual``; history uses
+``event``/``created_at`` with ``previous_*`` columns. The brief's main
+table has no ``proposed_*`` numeric columns — pending-proposal values
+live as the latest ``event='proposed'`` row in the history table.
+
+Audit events (§6.7) are written to ``cockpit_audit_log`` because the
+operational batch's audit-event API is not yet in place — see
+ASSUMPTION-038.
 
 Usage as a script::
 
     python -m migrations.cockpit_schema
-
-Or call ``ensure_cockpit_schema()`` on app boot — the function is wired
-into ``main.py`` after the Phase 5 schema runner.
 """
 import logging
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 from app import db
 
 logger = logging.getLogger(__name__)
 
 
+# ─── PostgreSQL DDL ─────────────────────────────────────────────────────
+
 _TARGETS_DDL_PG = """
 CREATE TABLE IF NOT EXISTS customer_spend_target (
-    customer_code_365 VARCHAR(50) PRIMARY KEY
+    customer_code_365      VARCHAR(50) PRIMARY KEY
         REFERENCES ps_customers(customer_code_365),
-    weekly_ambition NUMERIC(14,2),
-    monthly         NUMERIC(14,2),
-    quarterly       NUMERIC(14,2),
-    annual          NUMERIC(14,2),
-    status          VARCHAR(20) NOT NULL DEFAULT 'active',
-    proposed_by         VARCHAR(64),
-    proposed_at         TIMESTAMP,
-    proposed_notes      TEXT,
-    proposed_weekly     NUMERIC(14,2),
-    proposed_monthly    NUMERIC(14,2),
-    proposed_quarterly  NUMERIC(14,2),
-    proposed_annual     NUMERIC(14,2),
-    approved_by         VARCHAR(64),
-    approved_at         TIMESTAMP,
-    last_modified_by    VARCHAR(64),
-    last_modified_at    TIMESTAMP DEFAULT NOW()
+    target_weekly_ambition NUMERIC(12,2),
+    target_monthly         NUMERIC(12,2),
+    target_quarterly       NUMERIC(12,2),
+    target_annual          NUMERIC(12,2),
+    status                 VARCHAR(20) NOT NULL DEFAULT 'active',
+    proposed_by            VARCHAR(64),
+    proposed_at            TIMESTAMP WITH TIME ZONE,
+    proposed_notes         TEXT,
+    approved_by            VARCHAR(64),
+    approved_at            TIMESTAMP WITH TIME ZONE,
+    last_modified_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    last_modified_by       VARCHAR(64) NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_customer_spend_target_status
+    ON customer_spend_target(status);
 """
 
 _HISTORY_DDL_PG = """
 CREATE TABLE IF NOT EXISTS customer_spend_target_history (
-    id BIGSERIAL PRIMARY KEY,
-    customer_code_365 VARCHAR(50) NOT NULL,
-    event_type VARCHAR(40) NOT NULL,
-    actor_username VARCHAR(64) NOT NULL,
-    occurred_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    weekly_ambition NUMERIC(14,2),
-    monthly   NUMERIC(14,2),
-    quarterly NUMERIC(14,2),
-    annual    NUMERIC(14,2),
-    notes TEXT,
-    reason TEXT
+    id                       BIGSERIAL PRIMARY KEY,
+    customer_code_365        VARCHAR(50) NOT NULL,
+    event                    VARCHAR(30) NOT NULL,
+    target_weekly_ambition   NUMERIC(12,2),
+    target_monthly           NUMERIC(12,2),
+    target_quarterly         NUMERIC(12,2),
+    target_annual            NUMERIC(12,2),
+    previous_weekly_ambition NUMERIC(12,2),
+    previous_monthly         NUMERIC(12,2),
+    previous_quarterly       NUMERIC(12,2),
+    previous_annual          NUMERIC(12,2),
+    actor_username           VARCHAR(64) NOT NULL,
+    notes                    TEXT,
+    created_at               TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS ix_cst_hist_customer_at
-    ON customer_spend_target_history(customer_code_365, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_customer_spend_target_history_customer
+    ON customer_spend_target_history(customer_code_365, created_at DESC);
 """
+
+_AUDIT_LOG_DDL_PG = """
+CREATE TABLE IF NOT EXISTS cockpit_audit_log (
+    id              BIGSERIAL PRIMARY KEY,
+    event_name      VARCHAR(80) NOT NULL,
+    actor_username  VARCHAR(64) NOT NULL,
+    customer_code_365 VARCHAR(50),
+    payload_json    TEXT,
+    created_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cockpit_audit_log_event_at
+    ON cockpit_audit_log(event_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cockpit_audit_log_customer
+    ON cockpit_audit_log(customer_code_365, created_at DESC);
+"""
+
+
+# ─── SQLite DDL (test envs) ─────────────────────────────────────────────
 
 _TARGETS_DDL_SQLITE = """
 CREATE TABLE IF NOT EXISTS customer_spend_target (
-    customer_code_365 VARCHAR(50) PRIMARY KEY,
-    weekly_ambition NUMERIC,
-    monthly         NUMERIC,
-    quarterly       NUMERIC,
-    annual          NUMERIC,
-    status          VARCHAR(20) NOT NULL DEFAULT 'active',
-    proposed_by         VARCHAR(64),
-    proposed_at         TIMESTAMP,
-    proposed_notes      TEXT,
-    proposed_weekly     NUMERIC,
-    proposed_monthly    NUMERIC,
-    proposed_quarterly  NUMERIC,
-    proposed_annual     NUMERIC,
-    approved_by         VARCHAR(64),
-    approved_at         TIMESTAMP,
-    last_modified_by    VARCHAR(64),
-    last_modified_at    TIMESTAMP
+    customer_code_365      VARCHAR(50) PRIMARY KEY,
+    target_weekly_ambition NUMERIC,
+    target_monthly         NUMERIC,
+    target_quarterly       NUMERIC,
+    target_annual          NUMERIC,
+    status                 VARCHAR(20) NOT NULL DEFAULT 'active',
+    proposed_by            VARCHAR(64),
+    proposed_at            TIMESTAMP,
+    proposed_notes         TEXT,
+    approved_by            VARCHAR(64),
+    approved_at            TIMESTAMP,
+    last_modified_at       TIMESTAMP NOT NULL,
+    last_modified_by       VARCHAR(64) NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_customer_spend_target_status
+    ON customer_spend_target(status);
 """
 
 _HISTORY_DDL_SQLITE = """
 CREATE TABLE IF NOT EXISTS customer_spend_target_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_code_365 VARCHAR(50) NOT NULL,
-    event_type VARCHAR(40) NOT NULL,
-    actor_username VARCHAR(64) NOT NULL,
-    occurred_at TIMESTAMP NOT NULL,
-    weekly_ambition NUMERIC,
-    monthly   NUMERIC,
-    quarterly NUMERIC,
-    annual    NUMERIC,
-    notes TEXT,
-    reason TEXT
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_code_365        VARCHAR(50) NOT NULL,
+    event                    VARCHAR(30) NOT NULL,
+    target_weekly_ambition   NUMERIC,
+    target_monthly           NUMERIC,
+    target_quarterly         NUMERIC,
+    target_annual            NUMERIC,
+    previous_weekly_ambition NUMERIC,
+    previous_monthly         NUMERIC,
+    previous_quarterly       NUMERIC,
+    previous_annual          NUMERIC,
+    actor_username           VARCHAR(64) NOT NULL,
+    notes                    TEXT,
+    created_at               TIMESTAMP NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_cst_hist_customer_at
-    ON customer_spend_target_history(customer_code_365, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_customer_spend_target_history_customer
+    ON customer_spend_target_history(customer_code_365, created_at);
+"""
+
+_AUDIT_LOG_DDL_SQLITE = """
+CREATE TABLE IF NOT EXISTS cockpit_audit_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_name      VARCHAR(80) NOT NULL,
+    actor_username  VARCHAR(64) NOT NULL,
+    customer_code_365 VARCHAR(50),
+    payload_json    TEXT,
+    created_at      TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cockpit_audit_log_event_at
+    ON cockpit_audit_log(event_name, created_at);
+CREATE INDEX IF NOT EXISTS idx_cockpit_audit_log_customer
+    ON cockpit_audit_log(customer_code_365, created_at);
 """
 
 
-# Postgres-only view. Adapted from cockpit-brief Section 10.2 to actual
-# schema (see ASSUMPTION-034):
+# ─── offer-opportunity view (brief §10.2) ───────────────────────────────
+# Adapted from cockpit-brief Section 10.2 to actual schema (ASSUMPTION-034):
 #   - dw_invoice_lines  -> dw_invoice_line  (singular)
 #   - revenue_excl_vat  -> line_total_excl
 #   - invoice_date      -> dw_invoice_header.invoice_date_utc0 (JOIN)
@@ -178,12 +223,9 @@ def _exec_each(conn, sql_block):
 
 
 def _build_offer_view_sqlite() -> str:
-    """SQLite-compatible variant of vw_customer_offer_opportunity. Uses
-    the same column shape as the Postgres view so the cockpit service
-    selects against the same names on both dialects. SQLite supports CTEs
-    and CREATE VIEW; the only swap needed is the date arithmetic
-    (`date('now', '-90 days')` instead of `CURRENT_DATE - INTERVAL '90 days'`).
-    """
+    """SQLite-compatible variant of vw_customer_offer_opportunity. Same
+    column shape as the Postgres view; only date arithmetic and boolean
+    literal change."""
     return _OFFER_OPPORTUNITY_VIEW_PG \
         .replace("CREATE OR REPLACE VIEW", "CREATE VIEW IF NOT EXISTS") \
         .replace("(CURRENT_DATE - INTERVAL '90 days')",
@@ -191,25 +233,53 @@ def _build_offer_view_sqlite() -> str:
         .replace("is_active = true", "is_active = 1")
 
 
+def _migrate_old_schema_if_present(conn, dialect: str):
+    """One-shot rename of pre-§6.1 column names.
+
+    Previous in-progress draft used ``weekly_ambition``/``monthly``/...
+    and ``event_type``/``occurred_at``. Brief §6.1 specifies
+    ``target_weekly_ambition``/...`` and ``event``/``created_at`` with
+    ``previous_*`` columns. Since cockpit was never enabled in prod
+    (cockpit_enabled=false everywhere), the safe operation is DROP +
+    recreate when the old column shape is detected.
+    """
+    from sqlalchemy import inspect
+    insp = inspect(conn)
+    if not insp.has_table("customer_spend_target"):
+        return
+    cols = {c["name"] for c in insp.get_columns("customer_spend_target")}
+    if "target_weekly_ambition" in cols:
+        return  # already on the new schema
+    logger.warning(
+        "Cockpit: detected old (pre-brief §6.1) schema — dropping "
+        "customer_spend_target / customer_spend_target_history for "
+        "rebuild. Safe because cockpit_enabled is false."
+    )
+    conn.execute(text("DROP TABLE IF EXISTS customer_spend_target_history"))
+    conn.execute(text("DROP TABLE IF EXISTS customer_spend_target"))
+
+
 def ensure_cockpit_schema():
     """Idempotent boot-time schema ensure. Safe under parallel workers.
 
-    Cross-dialect: tables and view are created on both PostgreSQL and
-    SQLite. If the underlying fact tables (dw_invoice_line, etc.) are
-    missing on a given backend (e.g. a fresh in-memory test DB), the view
-    creation is skipped non-fatally — the cockpit service degrades to
-    ``[]`` for offer opportunities rather than raising.
+    Cross-dialect: tables and view created on both PostgreSQL and SQLite.
+    If the underlying fact tables (dw_invoice_line, etc.) are missing the
+    view creation is skipped non-fatally — the cockpit service degrades
+    to ``[]`` for offer opportunities rather than raising.
     """
     try:
         dialect = db.engine.dialect.name
         with db.engine.begin() as conn:
+            _migrate_old_schema_if_present(conn, dialect)
             if dialect == "postgresql":
                 _exec_each(conn, _TARGETS_DDL_PG)
                 _exec_each(conn, _HISTORY_DDL_PG)
+                _exec_each(conn, _AUDIT_LOG_DDL_PG)
                 view_sql = _OFFER_OPPORTUNITY_VIEW_PG
             else:
                 _exec_each(conn, _TARGETS_DDL_SQLITE)
                 _exec_each(conn, _HISTORY_DDL_SQLITE)
+                _exec_each(conn, _AUDIT_LOG_DDL_SQLITE)
                 view_sql = _build_offer_view_sqlite()
             try:
                 conn.execute(text(view_sql))

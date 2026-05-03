@@ -42,6 +42,9 @@ def real_customer(appctx):
     db.session.execute(text(
         "DELETE FROM customer_spend_target WHERE customer_code_365=:c"
     ), {"c": code})
+    db.session.execute(text(
+        "DELETE FROM cockpit_audit_log WHERE customer_code_365=:c"
+    ), {"c": code})
     db.session.commit()
 
 
@@ -71,15 +74,8 @@ def test_search_redirects_on_exact_code_match(real_customer):
     Setting.set(db.session, "cockpit_enabled", "true")
     db.session.commit()
     try:
-        client = app.test_client()
-        with client.session_transaction() as s:
-            s["_user_id"] = "1"  # bypass login_required for this smoke test
-
-        # We can't easily auth in this lightweight test, so verify the
-        # service-level redirect logic directly via the handler's helper.
         from blueprints.cockpit import _search_customers
         matches = _search_customers(real_customer)
-        # Real customer code must round-trip through the LIKE search
         codes = [m["code"] for m in matches]
         assert real_customer in codes
     finally:
@@ -89,7 +85,7 @@ def test_search_redirects_on_exact_code_match(real_customer):
 
 def test_bulk_set_annual_targets_one_history_row_per_customer(real_customer):
     """Bulk action: applies annual to N customers in one transaction with
-    one ``customer.target.set`` history row per customer (brief 10.5)."""
+    one history row per customer (brief §10.5)."""
     from services.cockpit_targets import (
         bulk_set_annual_targets, get_target, get_target_history,
     )
@@ -103,9 +99,10 @@ def test_bulk_set_annual_targets_one_history_row_per_customer(real_customer):
     assert float(s["active"]["monthly"]) == 3000.0
 
     h = get_target_history(cc, limit=20)
-    set_events = [x for x in h if x["event_type"] == "customer.target.set"]
-    assert len(set_events) >= 1
-    assert any("bulk_set" in (x.get("notes") or "") for x in set_events)
+    # Brief §6.1: history column is `event` (not event_type)
+    write_events = [x for x in h if x["event"] in ("created", "modified_by_manager")]
+    assert len(write_events) >= 1
+    assert any("bulk_set" in (x.get("notes") or "") for x in write_events)
 
 
 def test_bulk_set_atomic_rejects_on_any_unknown_customer(real_customer):
@@ -119,7 +116,6 @@ def test_bulk_set_atomic_rejects_on_any_unknown_customer(real_customer):
     with pytest.raises(ValueError, match="Unknown customer code"):
         bulk_set_annual_targets([cc, "__no_such_customer__"], 99999,
                                 actor="mgr1")
-    # Real customer's history must be unchanged
     history_after = len(get_target_history(cc, limit=100))
     assert history_after == history_before
 
@@ -137,10 +133,30 @@ def test_bulk_set_rejects_empty_codes():
 
 
 def test_schema_objects_exist(appctx):
+    """Brief §6.1 + §6.7: the three cockpit tables must exist with the
+    brief's column names exactly."""
     from sqlalchemy import inspect
     insp = inspect(db.engine)
     assert insp.has_table("customer_spend_target")
     assert insp.has_table("customer_spend_target_history")
+    assert insp.has_table("cockpit_audit_log")
+
+    target_cols = {c["name"] for c in insp.get_columns("customer_spend_target")}
+    for col in ("customer_code_365", "target_weekly_ambition",
+                "target_monthly", "target_quarterly", "target_annual",
+                "status", "proposed_by", "proposed_at", "proposed_notes",
+                "approved_by", "approved_at",
+                "last_modified_at", "last_modified_by"):
+        assert col in target_cols, f"missing column: {col}"
+
+    hist_cols = {c["name"] for c in insp.get_columns("customer_spend_target_history")}
+    for col in ("event", "created_at",
+                "target_weekly_ambition", "target_monthly",
+                "target_quarterly", "target_annual",
+                "previous_weekly_ambition", "previous_monthly",
+                "previous_quarterly", "previous_annual",
+                "actor_username", "notes"):
+        assert col in hist_cols, f"history missing column: {col}"
 
 
 def test_cadence_auto_population_from_annual_only(appctx):
@@ -181,16 +197,14 @@ def test_propose_approve_reject_workflow(real_customer):
     propose_target(cc, {"annual": 30000}, actor="am1")
     s = reject_proposal(cc, reason="too high", actor="mgr1")
     assert s["pending_proposal"] is None
-    # Active target preserved across rejection
     assert float(s["active"]["annual"]) == 24000.0
 
     h = get_target_history(cc, limit=20)
-    types = [x["event_type"] for x in h]
-    assert "customer.target.proposed" in types
-    assert "customer.target.approved" in types
-    assert "customer.target.set" in types
-    assert "customer.target.rejected" in types
-    # Display-name resolution doesn't crash even when actor isn't in users
+    events = [x["event"] for x in h]
+    assert "proposed" in events
+    assert "approved" in events
+    assert "modified_by_manager" in events
+    assert "rejected" in events
     for row in h:
         assert "actor_display_name" in row
 
@@ -201,11 +215,14 @@ def test_propose_unknown_customer_raises(appctx):
         propose_target("__no_such_customer__", {"annual": 1000}, actor="x")
 
 
-def test_set_directly_does_not_null_existing_cadences_on_annual_only_edit(real_customer):
-    """COALESCE pattern: an annual-only edit must auto-fill missing cadences
-    from the new annual, never overwrite a manager-set value with NULL."""
+def test_inline_edit_annual_only_preserves_explicit_cadences(real_customer):
+    """Brief §10.5: an annual-only edit (the inline cell on the admin
+    page) auto-populates derived cadences ONLY if those cells were empty.
+    Explicit non-null cadence values on the existing row are preserved.
+    """
     from services.cockpit_targets import set_target_directly, get_target
     cc = real_customer
+    # Manager first sets a full custom set of values (e.g. seasonal)
     set_target_directly(
         cc,
         {"annual": 12000, "monthly": 1500, "quarterly": 4000,
@@ -215,34 +232,108 @@ def test_set_directly_does_not_null_existing_cadences_on_annual_only_edit(real_c
     s = get_target(cc)
     assert float(s["active"]["monthly"]) == 1500.0
     assert float(s["active"]["quarterly"]) == 4000.0
+    assert float(s["active"]["weekly_ambition"]) == 350.0
 
-    # Annual-only edit — auto-fill kicks in for omitted cadences
+    # Annual-only inline edit must NOT overwrite the seasonal cadences
     set_target_directly(cc, {"annual": 24000}, actor="mgr1")
     s = get_target(cc)
-    # Annual updated, derived values updated to match new annual
+    assert float(s["active"]["annual"]) == 24000.0
+    # Seasonal values intact — derived-from-annual would have given
+    # 24000/12=2000, 24000/4=6000, 24000/52≈461.54 — those would all be wrong
+    assert float(s["active"]["monthly"]) == 1500.0
+    assert float(s["active"]["quarterly"]) == 4000.0
+    assert float(s["active"]["weekly_ambition"]) == 350.0
+
+
+def test_inline_edit_annual_only_fills_empty_cadences(real_customer):
+    """Conversely: when the existing row's cadences are NULL, an
+    annual-only edit must derive them from the new annual."""
+    from services.cockpit_targets import set_target_directly, get_target
+    from app import db as _db
+    cc = real_customer
+    # Seed a row with only annual (cadences NULL)
+    _db.session.execute(text("""
+        INSERT INTO customer_spend_target
+          (customer_code_365, target_annual, status,
+           last_modified_by, last_modified_at)
+        VALUES (:c, 50000, 'active', 'mgr1', NOW())
+    """), {"c": cc})
+    _db.session.commit()
+
+    set_target_directly(cc, {"annual": 24000}, actor="mgr1")
+    s = get_target(cc)
     assert float(s["active"]["annual"]) == 24000.0
     assert float(s["active"]["monthly"]) == 2000.0
-    # No cadence ever became NULL
-    for k in ("annual", "monthly", "quarterly", "weekly_ambition"):
-        assert s["active"][k] is not None
+    assert float(s["active"]["quarterly"]) == 6000.0
+    assert abs(float(s["active"]["weekly_ambition"]) - 461.54) < 0.01
+
+
+def test_audit_log_entries_for_full_workflow(real_customer):
+    """Brief §6.7: each of the five workflow operations writes a row to
+    cockpit_audit_log."""
+    from services.cockpit_targets import (
+        propose_target, approve_proposal, set_target_directly,
+        reject_proposal, clear_target,
+    )
+    cc = real_customer
+    propose_target(cc, {"annual": 1000}, actor="am1")
+    approve_proposal(cc, actor="mgr1")
+    set_target_directly(cc, {"annual": 2000}, actor="mgr1")
+    propose_target(cc, {"annual": 3000}, actor="am1")
+    reject_proposal(cc, reason="nope", actor="mgr1")
+    clear_target(cc, actor="mgr1")
+
+    rows = db.session.execute(text("""
+        SELECT event_name FROM cockpit_audit_log
+        WHERE customer_code_365 = :c
+        ORDER BY created_at, id
+    """), {"c": cc}).all()
+    events = [r[0] for r in rows]
+    assert "customer.target.proposed" in events
+    assert "customer.target.approved" in events
+    assert "customer.target.set" in events
+    assert "customer.target.rejected" in events
+    assert "customer.target.cleared" in events
+
+
+def test_history_records_previous_values(real_customer):
+    """Brief §6.1: history table has `previous_*` columns capturing the
+    prior snapshot of every change."""
+    from services.cockpit_targets import set_target_directly
+    cc = real_customer
+    set_target_directly(cc, {"annual": 10000, "monthly": 800}, actor="mgr1")
+    set_target_directly(cc, {"annual": 20000, "monthly": 1700}, actor="mgr1")
+
+    rows = db.session.execute(text("""
+        SELECT target_annual, target_monthly,
+               previous_annual, previous_monthly, event
+        FROM customer_spend_target_history
+        WHERE customer_code_365 = :c
+        ORDER BY created_at DESC, id DESC
+    """), {"c": cc}).mappings().all()
+    # Most-recent row is the second update — its previous_* should equal
+    # the values from the first update.
+    latest = rows[0]
+    assert latest["event"] == "modified_by_manager"
+    assert float(latest["target_annual"]) == 20000.0
+    assert float(latest["previous_annual"]) == 10000.0
+    assert float(latest["previous_monthly"]) == 800.0
 
 
 def test_postgres_view_present_or_sqlite_skipped(appctx):
-    """Brief 10.2: view must exist on Postgres; on SQLite the cockpit
+    """Brief §10.2: view must exist on Postgres; on SQLite the cockpit
     service degrades to [] rather than crashing."""
     dialect = db.engine.dialect.name
     if dialect == "postgresql":
         from sqlalchemy import inspect
         view_names = inspect(db.engine).get_view_names()
         assert "vw_customer_offer_opportunity" in view_names
-        # Non-destructive: the view returns rows (count >= 0) without raising
         n = db.session.execute(text(
             "SELECT COUNT(*) FROM vw_customer_offer_opportunity"
         )).scalar()
         assert n is not None and n >= 0
     else:
         from services.cockpit_offer_opportunity import get_offer_opportunities
-        # SQLite path: no view, service degrades to [] and never raises
         assert get_offer_opportunities("anything") == []
 
 

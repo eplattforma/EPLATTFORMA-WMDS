@@ -100,8 +100,9 @@
 <script>
 async function setAnnual(code, val) {
   if (val === '' || val === null) return;
+  // Brief §10.5: inline-edit on the annual cell uses PATCH
   const r = await fetch(`/cockpit/api/${encodeURIComponent(code)}/target/set`, {
-    method: 'POST',
+    method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({annual: val}),
   });
