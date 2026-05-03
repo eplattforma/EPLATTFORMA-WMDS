@@ -380,3 +380,19 @@ The hard guards run regardless of `permissions_enforcement_enabled`. The mapping
 **Safer alternative considered:** Always enforce permissions for `cooler.*` (carve-out in `services/permissions.py`). Rejected for now — would change the global enforcement model and risks unrelated routes; the localised per-permission guard is the smaller blast-radius fix.
 **Feature flag / rollback:** None — defensive guard.
 **Reversibility:** High — remove the three guard decorators or revert to a single allow-list.
+
+---
+
+## ASSUMPTION-033: Per-surface feature flag gates on cooler endpoints (404 when disabled)
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 3 refresh (Task #22, fresh review)
+**Files affected:** `blueprints/cooler_picking.py` (`_flag_enabled`, `_make_flag_gate`, `_require_picking_flag`, `_require_labels_flag`; applied to every cooler view function)
+**Decision made:** Each cooler view function now carries (in addition to `@require_permission` and the per-permission hard role guard) one of two feature-flag gates:
+  - `cooler.pick` and `cooler.manage_boxes` routes -> `@_require_picking_flag` (reads `cooler_picking_enabled`)
+  - `cooler.print_labels` routes -> `@_require_labels_flag` (reads `cooler_labels_enabled`)
+When the flag is `false` (the production default) the route returns HTTP 404 — the feature is "hidden" rather than "forbidden", consistent with the rollback contract documented in `services/settings_defaults.py`.
+**Reason:** The fresh code-review round of Task #22 caught that the production-default OFF flags were advertised as a rollback control but had no actual enforcement on the cooler blueprint. `summer_cooler_mode_enabled = false` only blocks NEW SENSITIVE rows from being routed to the cooler queue — it does not disable mutable cooler box operations against existing/stale rows or PDF label/manifest generation. The per-surface gate restores parity between the documented rollback contract and the real runtime behaviour.
+**Safer alternative considered:** Apply the gate via a single `before_request` handler on the cooler blueprint. Rejected because the two flags govern different surfaces (picking vs labels) and a `before_request` handler would either need fragile URL pattern matching or apply the wrong flag to the wrong route.
+**Feature flag / rollback:** This IS the rollback control; flipping `cooler_picking_enabled` or `cooler_labels_enabled` to `false` instantly hides the corresponding routes without redeploy.
+**Reversibility:** High — removing the two decorators reverts to the pre-refresh behaviour.

@@ -209,6 +209,11 @@ def setup(app):
         db.session.execute(text("DELETE FROM cooler_box_items"))
         db.session.execute(text("DELETE FROM cooler_boxes"))
         db.session.execute(text("DELETE FROM batch_pick_queue"))
+        # Default-enable the per-surface flag gates so existing tests can
+        # exercise the cooler routes. Tests that need to assert flag-OFF
+        # behaviour explicitly toggle them back to "false".
+        _make_setting(db, "cooler_picking_enabled", "true")
+        _make_setting(db, "cooler_labels_enabled", "true")
         db.session.commit()
         yield app, db
 
@@ -1371,3 +1376,118 @@ class TestArchitectFixupRegressions:
         update_phase5_cooler_picking_schema()
         # Re-run is safe.
         update_phase5_cooler_picking_schema()
+
+    def test_p5_fix_10_cooler_picking_flag_off_returns_404(self, setup, client):
+        """Architect rejection (round 3 fresh review):
+        ``cooler_picking_enabled = false`` MUST hide every picker /
+        box-mutation endpoint with HTTP 404, regardless of the user's
+        role / permission grants. Without this gate a warehouse
+        manager could create / close / cancel boxes against stale
+        rows even when the feature is supposedly OFF for rollback."""
+        app, db = setup
+        _make_setting(db, "cooler_picking_enabled", "false")
+        _login(client, "admin")
+        # Bare test app's 404.html template references a blueprint not
+        # registered here — propagate so we read abort(404) directly.
+        app.config["TRAP_HTTP_EXCEPTIONS"] = True
+        app.config["PROPAGATE_EXCEPTIONS"] = True
+
+        def _sc(url, method, body):
+            try:
+                if method == "get":
+                    return client.get(url).status_code
+                return client.post(url, json=body).status_code
+            except Exception as e:
+                tn = type(e).__name__
+                if tn == "NotFound":
+                    return 404
+                if tn == "BuildError":
+                    # Template render of the 404 page failed -> the
+                    # underlying abort(404) still fired.
+                    return 404
+                raise
+
+        try:
+            for url, method, body in [
+                ("/cooler/route-list", "get", None),
+                ("/cooler/route/940/2026-05-03", "get", None),
+                ("/cooler/box/create", "post",
+                 {"route_id": 940, "delivery_date": "2026-05-03", "box_no": 1}),
+                ("/cooler/box/1/assign-item", "post", {"queue_item_id": 1}),
+                ("/cooler/box/1/remove-item", "post", {"queue_item_id": 1}),
+                ("/cooler/box/1/close", "post", {}),
+                ("/cooler/box/1/reopen", "post", {}),
+                ("/cooler/box/1/cancel", "post", {}),
+                ("/cooler/queue/1/exception", "post", {"reason": "x"}),
+                ("/cooler/queue/1/move-to-normal", "post", {}),
+                ("/cooler/queue/1/move-to-cooler", "post", {}),
+            ]:
+                sc = _sc(url, method, body)
+                assert sc == 404, (
+                    f"flag OFF: {method.upper()} {url} expected 404, got {sc}"
+                )
+        finally:
+            app.config.pop("TRAP_HTTP_EXCEPTIONS", None)
+            app.config.pop("PROPAGATE_EXCEPTIONS", None)
+
+    def test_p5_fix_11_cooler_labels_flag_off_returns_404(self, setup, client):
+        """Architect rejection (round 3 fresh review):
+        ``cooler_labels_enabled = false`` MUST hide every PDF label /
+        manifest endpoint with HTTP 404, regardless of role."""
+        app, db = setup
+        _make_setting(db, "cooler_labels_enabled", "false")
+        _login(client, "admin")
+        app.config["TRAP_HTTP_EXCEPTIONS"] = True
+        app.config["PROPAGATE_EXCEPTIONS"] = True
+        try:
+            for url in (
+                "/cooler/box/1/label",
+                "/cooler/box/1/manifest",
+                "/cooler/route/940/2026-05-03/manifest",
+            ):
+                try:
+                    sc = client.get(url).status_code
+                except Exception as e:
+                    tn = type(e).__name__
+                    sc = 404 if tn in ("NotFound", "BuildError") else None
+                    if sc is None:
+                        raise
+                assert sc == 404, (
+                    f"labels flag OFF: GET {url} expected 404, got {sc}"
+                )
+        finally:
+            app.config.pop("TRAP_HTTP_EXCEPTIONS", None)
+            app.config.pop("PROPAGATE_EXCEPTIONS", None)
+
+    def test_p5_fix_12_flag_gates_applied_to_every_cooler_route(self, setup):
+        """Static contract: every cooler view function carries one of
+        the two flag gates so a future-added route cannot accidentally
+        escape the rollback control."""
+        with open("blueprints/cooler_picking.py", "r", encoding="utf-8") as _f:
+            src = _f.read()
+        import re as _re
+        perm_lines = _re.findall(
+            r'@require_permission\("cooler\.[a-z_]+"\)', src
+        )
+        flag_count = (
+            src.count("@_require_picking_flag")
+            + src.count("@_require_labels_flag")
+        )
+        assert flag_count == len(perm_lines), (
+            f"only {flag_count}/{len(perm_lines)} cooler views have a "
+            f"feature-flag gate applied"
+        )
+        # And the pairing must be cooler.pick + cooler.manage_boxes -> picking flag,
+        # cooler.print_labels -> labels flag (chain order: role guard above
+        # flag gate, so pattern is @_require_cooler_X then @_require_*_flag).
+        pairs = _re.findall(
+            r'@_require_cooler_(pick|manage|print)\s*\n\s*@_require_(picking|labels)_flag',
+            src,
+        )
+        expected = {"pick": "picking", "manage": "picking", "print": "labels"}
+        for role_kind, flag_kind in pairs:
+            assert expected[role_kind] == flag_kind, (
+                f"@_require_cooler_{role_kind} paired with "
+                f"@_require_{flag_kind}_flag; expected "
+                f"@_require_{expected[role_kind]}_flag"
+            )

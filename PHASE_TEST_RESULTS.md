@@ -399,3 +399,21 @@ The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` 
 | FIX-09 | Round-3 architect rejection (and follow-up review): `@require_permission("cooler.*")` no-ops when `permissions_enforcement_enabled` is OFF (the production default), so any authenticated user — including drivers and CRM admins — could call cooler endpoints. A first pass added a single role allow-list, but the architect re-review noted that pickers (who only hold `cooler.pick`) could still reach `cooler.manage_boxes` and `cooler.print_labels` endpoints | `blueprints/cooler_picking.py` now defines three per-permission allow-lists — `_COOLER_ROLES_PICK = {picker, wh_mgr, admin}`, `_COOLER_ROLES_MANAGE = {wh_mgr, admin}`, `_COOLER_ROLES_PRINT = {wh_mgr, admin}` — and three matching guard decorators (`_require_cooler_pick`, `_require_cooler_manage`, `_require_cooler_print`). Each of the 14 cooler view functions is paired with the guard whose label matches its `@require_permission(...)` key. Hard 403 fires regardless of the global enforcement flag | `test_p5_fix_09_cooler_routes_hard_block_unauthorised_roles` (driver + crm_admin → 403 on every endpoint; picker → 403 on `box/create`, `box/close`, `box/cancel`, `box/label`, `box/manifest`, `route/manifest`); also updated `test_p5_16_picker_can_view_route_list` to assert picker is 403 on the manifest endpoint |
 
 **Production posture unchanged:** Phase 5 flags remain seeded `false`. The hard role guard runs unconditionally so the cooler endpoints are now safe even before any feature flag is flipped. The normal picker now never sees cooler-zone rows even when the cooler workflow is in use.
+
+---
+
+# Phase 5 — Cooler Picking Fix-up Round 3 Refresh (Task #22)
+
+**Date:** 2026-05-03
+**Test file:** `tests/test_phase5_cooler_picking.py`
+**Result:** ✅ **47 / 47 PASSED** (~8s, in-memory SQLite)
+**Phase 4 regression:** ✅ 30/30 PASSED.
+**Override-pipeline workflow:** ✅ still passing.
+
+| Cell | Architect rejection | Fix-up | Test |
+|---|---|---|---|
+| FIX-10 | Round-3 fresh review: `cooler_picking_enabled` was seeded/documented as a production-default OFF rollback flag, but `blueprints/cooler_picking.py` had no per-route gate enforcing it. Warehouse / admin users could create / close / cancel boxes against existing or stale cooler rows even when the feature was supposedly OFF. `summer_cooler_mode_enabled = false` only stops NEW SENSITIVE rows from being routed to the cooler queue; it does not disable mutable cooler box operations | Added `_require_picking_flag` decorator (returns HTTP 404 when `cooler_picking_enabled = false`). Applied to all 11 picker / box-mutation cooler endpoints (every route paired with `@_require_cooler_pick` or `@_require_cooler_manage`) | `test_p5_fix_10_cooler_picking_flag_off_returns_404` (admin role still gets 404 on every picker / box-mutation endpoint when the flag is OFF) |
+| FIX-11 | Round-3 fresh review: same gap on the PDF surfaces — `cooler_labels_enabled` was advertised as a rollback flag with no enforcement | Added `_require_labels_flag` decorator (HTTP 404 when `cooler_labels_enabled = false`). Applied to all 3 PDF label / manifest cooler endpoints (every route paired with `@_require_cooler_print`) | `test_p5_fix_11_cooler_labels_flag_off_returns_404` |
+| FIX-12 | Static contract: a future-added cooler route must not accidentally escape the rollback control | New regression test scans `blueprints/cooler_picking.py` and asserts (a) every `@require_permission("cooler.*")` line is paired with one of the two flag gates and (b) the pairing is correct: `cooler.pick` / `cooler.manage_boxes` -> picking flag, `cooler.print_labels` -> labels flag | `test_p5_fix_12_flag_gates_applied_to_every_cooler_route` |
+
+**Production posture unchanged:** All four Phase 5 flags (`summer_cooler_mode_enabled`, `cooler_picking_enabled`, `cooler_labels_enabled`, `cooler_driver_view_enabled`) remain seeded `false` in `services/settings_defaults.py`. With the cooler picking flag OFF every cooler URL returns 404 regardless of the user's role / permission grants — the rollback control documented in the closeout docs is now actually enforced.

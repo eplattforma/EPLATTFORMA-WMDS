@@ -79,6 +79,47 @@ _require_cooler_pick = _make_role_guard(_COOLER_ROLES_PICK, "cooler.pick")
 _require_cooler_manage = _make_role_guard(_COOLER_ROLES_MANAGE, "cooler.manage_boxes")
 _require_cooler_print = _make_role_guard(_COOLER_ROLES_PRINT, "cooler.print_labels")
 
+
+# ---------------------------------------------------------------------------
+# Feature-flag gates
+# ---------------------------------------------------------------------------
+# The cooler workflow ships behind two production-default-OFF flags so the
+# rollout can be paused at any time without redeploying:
+#
+#   cooler_picking_enabled  - gates picker/box-mutation routes
+#                             (cooler.pick + cooler.manage_boxes)
+#   cooler_labels_enabled   - gates PDF label / manifest routes
+#                             (cooler.print_labels)
+#
+# When a flag is OFF the route returns HTTP 404 (feature hidden) regardless
+# of the user's role / permission grants. ``summer_cooler_mode_enabled``
+# only stops NEW SENSITIVE rows from being routed to the cooler queue; it
+# does NOT disable mutable cooler box operations against existing/stale
+# rows, which is why the per-surface flag gate is required here.
+def _flag_enabled(key):
+    try:
+        return Setting.get(db.session, key, "false").lower() == "true"
+    except Exception:
+        return False
+
+
+def _make_flag_gate(flag_key):
+    from functools import wraps
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            if not _flag_enabled(flag_key):
+                abort(404)
+            return view(*args, **kwargs)
+        wrapper._cooler_flag_key = flag_key
+        return wrapper
+    return decorator
+
+
+_require_picking_flag = _make_flag_gate("cooler_picking_enabled")
+_require_labels_flag = _make_flag_gate("cooler_labels_enabled")
+
 # Backwards-compatible alias used by older tests / call sites that
 # only need to assert "any cooler role is allowed". New code should
 # pick the permission-specific guard above.
@@ -186,6 +227,7 @@ def _audit(activity_type, details, invoice_no=None, item_code=None):
 @login_required
 @require_permission("cooler.pick")
 @_require_cooler_pick
+@_require_picking_flag
 def route_list():
     """List route_id + delivery_date pairs that have pending cooler items.
 
@@ -239,6 +281,7 @@ def route_list():
 @login_required
 @require_permission("cooler.pick")
 @_require_cooler_pick
+@_require_picking_flag
 def route_picking(route_id, delivery_date):
     """Cooler picking screen for a given route + date.
 
@@ -322,6 +365,7 @@ def route_picking(route_id, delivery_date):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def box_create():
     """Create a cooler box. Idempotent on (route_id, delivery_date, box_no)."""
     data = request.get_json(silent=True) or request.form
@@ -410,6 +454,7 @@ def box_create():
 @login_required
 @require_permission("cooler.pick")
 @_require_cooler_pick
+@_require_picking_flag
 def box_assign_item(box_id):
     """Assign a queue row to an open cooler box."""
     box = _fetch_box(box_id)
@@ -554,6 +599,7 @@ def box_assign_item(box_id):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def box_remove_item(box_id):
     """Remove an item from an open cooler box; reverse the assignment."""
     box = _fetch_box(box_id)
@@ -610,6 +656,7 @@ def box_remove_item(box_id):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def box_close(box_id):
     """Close an open cooler box and stamp its stop range."""
     box = _fetch_box(box_id)
@@ -659,6 +706,7 @@ def box_close(box_id):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def box_reopen(box_id):
     """Re-open a previously closed cooler box.
 
@@ -691,6 +739,7 @@ def box_reopen(box_id):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def box_cancel(box_id):
     """Cancel an open box; revert all assigned items back to pending."""
     box = _fetch_box(box_id)
@@ -746,6 +795,7 @@ def box_cancel(box_id):
 @login_required
 @require_permission("cooler.pick")
 @_require_cooler_pick
+@_require_picking_flag
 def queue_exception(queue_item_id):
     """Mark a cooler queue row as ``exception`` with reason."""
     data = request.get_json(silent=True) or request.form
@@ -792,6 +842,7 @@ def queue_exception(queue_item_id):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def queue_move_to_normal(queue_item_id):
     """Admin-only: move a cooler queue row back to normal."""
     return _move_zone(queue_item_id, "cooler", "normal")
@@ -801,6 +852,7 @@ def queue_move_to_normal(queue_item_id):
 @login_required
 @require_permission("cooler.manage_boxes")
 @_require_cooler_manage
+@_require_picking_flag
 def queue_move_to_cooler(queue_item_id):
     """Admin-only: move a normal queue row to cooler."""
     return _move_zone(queue_item_id, "normal", "cooler")
@@ -872,6 +924,7 @@ def _pdf_response(pdf_bytes, filename):
 @login_required
 @require_permission("cooler.print_labels")
 @_require_cooler_print
+@_require_labels_flag
 def box_label(box_id):
     box = _fetch_box(box_id)
     if box is None:
@@ -893,6 +946,7 @@ def box_label(box_id):
 @login_required
 @require_permission("cooler.print_labels")
 @_require_cooler_print
+@_require_labels_flag
 def box_manifest(box_id):
     box = _fetch_box(box_id)
     if box is None:
@@ -906,6 +960,7 @@ def box_manifest(box_id):
 @login_required
 @require_permission("cooler.print_labels")
 @_require_cooler_print
+@_require_labels_flag
 def route_manifest(route_id, delivery_date):
     if _parse_date(delivery_date) is None:
         return jsonify({"error": "delivery_date must be YYYY-MM-DD"}), 400
