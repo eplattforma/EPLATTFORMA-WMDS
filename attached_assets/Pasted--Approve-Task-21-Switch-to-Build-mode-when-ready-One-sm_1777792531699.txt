@@ -1,0 +1,48 @@
+"Approve Task #21. Switch to Build mode when ready.
+
+One small clarification before you start: routes_batch_fixed.py is dead code — it defines a batch_bp Blueprint at line 15 but is never imported or registered (only routes_batch.py is wired in main.py:178). Skip refactoring it in Step 2 unless you find evidence it's reachable via some other path. If you do refactor it for consistency, note the rationale in ASSUMPTIONS_LOG.md. If you find it's actually duplicate dead code that should be removed, do not delete it in this batch — flag it in KNOWN_GAPS.md for a future cleanup task and leave it untouched.
+
+Otherwise the plan looks solid:
+
+Schema name correction (batch_picking_sessions plural) — caught correctly
+Hard-delete handler line references (:410 and :2635) — pre-located
+All 28 tests itemised by cell ID — no drops possible
+Production flag constraints listed by name — safety net intact
+Driver Mode invariant explicit — non-negotiable preserved
+When Phase 4 is signed off, you can draft Task #22 with the same discipline. Phase 5 cooler scope reductions (capacity tracking, returns inventory, idle detection, type management, time/temperature) must be carried verbatim into Task #22's plan as 'OUT OF SCOPE.'
+
+Standard discipline applies: assumptions log every autonomous decision, file:line evidence in test results, architect review before sign-off."
+
+What to Watch When Replit Builds
+You're handing them ten clean steps. Watch for these signals:
+
+Green flags (build is going well)
+Migration runs idempotently on second boot (no errors)
+Both Phase 4 status helpers (is_* and can_*) added before they're called anywhere
+BatchConflict exception raised with both batch_id and item_codes — not just one
+cancel_batch test (P4-15) shows picked rows in audit AND unpicked rows unlocked, in the same test
+Drain workflow tested with simulated active picker, not just the happy path
+Yellow flags (ask for clarification)
+Any test marked "verified by inspection" without strong rationale
+Architect review with zero findings (genuinely unusual for a 28-test refactor — some Critical issues are normal and a sign of careful review)
+Phase 4 closeout sign-off without naming the lock-release-on-completion decision in ASSUMPTIONS_LOG.md (Step 4.5 of the brief explicitly flagged this as "assumption-required")
+Red flags (push back)
+Any production flag value changed from the table in the Critical constraints
+Any edit to templates/driver/* or routes_driver.py
+routes_batch_fixed.py actually deleted in this batch (you said no)
+Cooler-anything appearing in Task #21 (that's Task #22)
+The override-ordering pipeline regression test failing
+Bigger Picture
+You've now got the rhythm right:
+
+You sent a comprehensive instruction document (PHASE4_PHASE5_INSTRUCTIONS.md)
+Replit drafted task plans in Plan mode with file:line precision
+You review the plans, catching small issues like the dead-code file
+Replit builds in Build mode with constraints enforced
+You review test results before approving Phase 5
+This is the rhythm that produced the clean Phases 1–3. Stick with it.
+
+Approve Task #21 with the dead-code clarification, then let Replit start. Task #22 (Phase 5) won't even get drafted until #21 is signed off —
+
+
+
