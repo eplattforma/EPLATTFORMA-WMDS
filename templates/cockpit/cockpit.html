@@ -176,10 +176,11 @@
         · {{ lc.sku_count }} item(s)
         {% if lc.age_minutes is not none %} · synced {{ lc.age_minutes }}m ago{% endif %}
         {% if lc.is_addon %} · <span class="badge bg-info">add-on cart</span>{% endif %}
-        {% if lc.magento_customer_id %}
-          <a class="ms-2" href="/abandoned-carts" target="_blank" rel="noopener">View in Abandoned Carts →</a>
+        <a class="ms-2" href="/abandoned-carts" target="_blank" rel="noopener">Open in Abandoned Carts →</a>
+        {% if lc.magento_customer_url %}
+          <a class="ms-2" href="{{ lc.magento_customer_url }}" target="_blank" rel="noopener">Open customer in Magento →</a>
         {% endif %}
-        <div class="text-muted mt-1">Per-line cart contents are not stored in our warehouse — see Magento for the SKU breakdown.</div>
+        <div class="text-muted mt-1">Per-line cart contents are not stored in our warehouse (ASSUMPTION-045) — open Magento for the SKU breakdown.</div>
       {% endif %}
     </div>
   </div>

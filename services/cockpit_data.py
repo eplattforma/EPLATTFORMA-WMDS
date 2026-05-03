@@ -16,6 +16,7 @@ Caching (cockpit-brief §11.2):
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -151,19 +152,24 @@ def fetch_live_cart(customer_code: str) -> dict:
         row = None
     if not row or not row["has_abandoned_cart"]:
         return {"amount": 0.0, "sku_count": 0, "is_addon": False,
-                "age_minutes": None, "magento_customer_id": None}
+                "age_minutes": None, "magento_customer_id": None,
+                "magento_customer_url": None}
     last = row["last_synced_at"]
     age_minutes = None
     if last:
         if last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
         age_minutes = int((datetime.now(timezone.utc) - last).total_seconds() / 60)
+    mid = row.get("magento_customer_id")
+    base = os.environ.get("MAGENTO_BASE_URL", "").rstrip("/")
+    magento_url = f"{base}/admin/customer/index/edit/id/{mid}" if (base and mid) else None
     return {
         "amount": float(row["abandoned_cart_amount"] or 0),
         "sku_count": int(row["abandoned_cart_items"] or 0),
         "is_addon": False,
         "age_minutes": age_minutes,
-        "magento_customer_id": row.get("magento_customer_id"),
+        "magento_customer_id": mid,
+        "magento_customer_url": magento_url,
     }
 
 
