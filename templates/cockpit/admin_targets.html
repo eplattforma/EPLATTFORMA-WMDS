@@ -31,10 +31,29 @@
     <div class="col-auto"><button class="btn btn-sm btn-primary">Apply</button></div>
   </form>
 
+  <div class="card mb-3 bg-light border-0">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">
+          <label class="form-label small mb-0">Bulk action — set annual € for selected</label>
+          <input id="bulk-annual" type="number" step="0.01" class="form-control form-control-sm"
+                 placeholder="e.g. 24000" style="max-width: 160px;">
+        </div>
+        <div class="col-auto">
+          <button id="bulk-apply" type="button" class="btn btn-sm btn-warning">
+            Apply to <span id="bulk-count">0</span> selected
+          </button>
+        </div>
+        <div class="col-auto"><span id="bulk-status" class="small text-muted"></span></div>
+      </div>
+    </div>
+  </div>
+
   <div class="table-responsive">
     <table class="table table-sm table-striped align-middle">
       <thead class="table-light">
         <tr>
+          <th><input type="checkbox" id="select-all" title="Select all"></th>
           <th>Code</th><th>Customer</th><th>Class</th><th>District</th><th>Agent</th>
           <th class="text-end">90d sales €</th>
           <th class="text-end">Run-rate annual €</th>
@@ -47,6 +66,7 @@
       <tbody>
         {% for r in rows %}
           <tr>
+            <td><input type="checkbox" class="row-select" value="{{ r.customer_code }}"></td>
             <td><a href="/cockpit/{{ r.customer_code }}">{{ r.customer_code }}</a></td>
             <td>{{ r.customer_name }}</td>
             <td>{{ r.classification or '' }}</td>
@@ -70,7 +90,7 @@
             <td><a href="/cockpit/{{ r.customer_code }}" class="btn btn-sm btn-outline-secondary">Open</a></td>
           </tr>
         {% else %}
-          <tr><td colspan="12" class="text-center text-muted py-4">No customers match the filters.</td></tr>
+          <tr><td colspan="13" class="text-center text-muted py-4">No customers match the filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -90,5 +110,35 @@ async function setAnnual(code, val) {
     alert('Failed: ' + (d.error || r.status));
   }
 }
+
+function selectedCodes() {
+  return Array.from(document.querySelectorAll('.row-select:checked')).map(el => el.value);
+}
+function refreshCount() {
+  document.getElementById('bulk-count').textContent = selectedCodes().length;
+}
+document.querySelectorAll('.row-select').forEach(el =>
+  el.addEventListener('change', refreshCount));
+document.getElementById('select-all').addEventListener('change', e => {
+  document.querySelectorAll('.row-select').forEach(el => { el.checked = e.target.checked; });
+  refreshCount();
+});
+document.getElementById('bulk-apply').addEventListener('click', async () => {
+  const codes = selectedCodes();
+  const annual = document.getElementById('bulk-annual').value;
+  const status = document.getElementById('bulk-status');
+  if (!codes.length) { status.textContent = 'Select at least one customer.'; return; }
+  if (!annual) { status.textContent = 'Enter an annual amount.'; return; }
+  status.textContent = 'Applying…';
+  const r = await fetch('/cockpit/api/targets/bulk_set', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({codes: codes, annual: annual}),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { status.textContent = 'Failed: ' + (d.error || r.status); return; }
+  status.textContent = `Applied to ${d.applied.length}, skipped ${d.skipped.length}. Reloading…`;
+  setTimeout(() => location.reload(), 700);
+});
 </script>
 {% endblock %}

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import text
 
@@ -43,11 +43,40 @@ def _gate_master_flag():
 
 # ─── Pages ──────────────────────────────────────────────────────────────
 
+def _search_customers(q: str, limit: int = 20) -> list[dict]:
+    """Cross-dialect customer search by code or name (LIKE on lowercased values)."""
+    if not q:
+        return []
+    rows = db.session.execute(text("""
+        SELECT customer_code_365 AS code,
+               COALESCE(company_name, '') AS name
+        FROM ps_customers
+        WHERE (LOWER(customer_code_365) LIKE :likeq
+           OR LOWER(COALESCE(company_name, '')) LIKE :likeq)
+          AND deleted_at IS NULL
+        ORDER BY customer_code_365
+        LIMIT :lim
+    """), {"likeq": f"%{q.lower()}%", "lim": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @cockpit_bp.route("/")
 @login_required
 @require_permission("menu.cockpit")
 def search():
-    return render_template("cockpit/search.html")
+    """Picker landing. If the user submitted a query that uniquely resolves
+    to a single customer, redirect straight to that cockpit page (brief
+    Section 10 picker behaviour). Otherwise render the chooser."""
+    q = (request.args.get("q") or "").strip()
+    matches = _search_customers(q) if q else []
+    if q:
+        # Exact code match → go straight in
+        for m in matches:
+            if (m["code"] or "").lower() == q.lower():
+                return redirect(url_for("cockpit.cockpit", customer_code=m["code"]))
+        if len(matches) == 1:
+            return redirect(url_for("cockpit.cockpit", customer_code=matches[0]["code"]))
+    return render_template("cockpit/search.html", q=q, matches=matches)
 
 
 @cockpit_bp.route("/api/search")
@@ -55,19 +84,7 @@ def search():
 @require_permission("menu.cockpit")
 def api_search():
     q = (request.args.get("q") or "").strip()
-    if not q:
-        return jsonify({"items": []})
-    rows = db.session.execute(text("""
-        SELECT customer_code_365 AS code,
-               COALESCE(company_name, '') AS name
-        FROM ps_customers
-        WHERE (customer_code_365 ILIKE :likeq
-           OR COALESCE(company_name, '') ILIKE :likeq)
-          AND deleted_at IS NULL
-        ORDER BY customer_code_365
-        LIMIT 20
-    """), {"likeq": f"%{q}%"}).mappings().all()
-    return jsonify({"items": [dict(r) for r in rows]})
+    return jsonify({"items": _search_customers(q)})
 
 
 @cockpit_bp.route("/<customer_code>")
@@ -174,3 +191,24 @@ def api_reject_target(customer_code):
 def api_target_history(customer_code):
     from services.cockpit_targets import get_target_history
     return jsonify(get_target_history(customer_code))
+
+
+@cockpit_bp.route("/api/targets/bulk_set", methods=["POST"])
+@login_required
+@require_permission("customers.approve_target")
+def api_bulk_set_targets():
+    """Brief 10.5: 'set annual = X for selected'. One DB transaction,
+    one history row per customer."""
+    from services.cockpit_targets import bulk_set_annual_targets
+    payload = request.get_json(silent=True) or request.form.to_dict(flat=False) or {}
+    codes = payload.get("codes") or []
+    if isinstance(codes, str):
+        codes = [c.strip() for c in codes.split(",") if c.strip()]
+    annual = payload.get("annual")
+    if not codes or annual in (None, ""):
+        return jsonify({"error": "codes and annual are required"}), 400
+    try:
+        result = bulk_set_annual_targets(codes, annual, actor=_actor())
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400

@@ -303,6 +303,18 @@ try:
         ensure_cockpit_schema()
     from blueprints.cockpit import cockpit_bp
     app.register_blueprint(cockpit_bp)
+
+    @app.context_processor
+    def _inject_cockpit_enabled():
+        """Expose ``cockpit_enabled`` to every template so menu and other
+        UI elements stay byte-identical to today when the flag is off."""
+        try:
+            from models import Setting
+            return {"cockpit_enabled": Setting.get(
+                db.session, "cockpit_enabled", "false").lower() == "true"}
+        except Exception:
+            return {"cockpit_enabled": False}
+
     logging.info("Cockpit blueprint registered (master flag controls visibility)")
 except Exception as e:
     logging.warning(f"Cockpit blueprint not registered: {e}")

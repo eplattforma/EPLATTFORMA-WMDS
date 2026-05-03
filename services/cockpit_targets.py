@@ -244,6 +244,83 @@ def set_target_directly(customer_code: str, payload: dict, actor: str) -> dict:
     return get_target(customer_code)
 
 
+def bulk_set_annual_targets(customer_codes: list[str], annual,
+                            actor: str) -> dict:
+    """Brief 10.5: 'set annual = X for selected customers'.
+
+    Single DB transaction; one ``customer.target.set`` history row per
+    customer. Cadences auto-fill from annual via ``_normalize_cadences``.
+    Unknown customer codes are skipped (returned in ``skipped``); the
+    transaction commits the successful writes only.
+    """
+    annual_dec = _to_dec(annual)
+    if annual_dec is None:
+        raise ValueError("annual is required and must be numeric")
+
+    cad = _normalize_cadences({"annual": annual_dec})
+    now = _utc_now()
+    applied: list[str] = []
+    skipped: list[str] = []
+
+    try:
+        for code in customer_codes:
+            if not _customer_exists(code):
+                skipped.append(code)
+                continue
+
+            existing = db.session.execute(text(
+                "SELECT customer_code_365 FROM customer_spend_target "
+                "WHERE customer_code_365 = :c"
+            ), {"c": code}).first()
+
+            if existing:
+                db.session.execute(text("""
+                    UPDATE customer_spend_target SET
+                        weekly_ambition = COALESCE(:w, weekly_ambition),
+                        monthly         = COALESCE(:m, monthly),
+                        quarterly       = COALESCE(:q, quarterly),
+                        annual          = :y,
+                        status          = 'active',
+                        approved_by     = :a,
+                        approved_at     = :now,
+                        last_modified_by = :a,
+                        last_modified_at = :now,
+                        proposed_by = NULL, proposed_at = NULL,
+                        proposed_notes = NULL,
+                        proposed_weekly = NULL, proposed_monthly = NULL,
+                        proposed_quarterly = NULL, proposed_annual = NULL
+                    WHERE customer_code_365 = :c
+                """), {"c": code, "a": actor, "now": now,
+                       "w": cad["weekly_ambition"], "m": cad["monthly"],
+                       "q": cad["quarterly"], "y": cad["annual"]})
+            else:
+                db.session.execute(text("""
+                    INSERT INTO customer_spend_target
+                        (customer_code_365, weekly_ambition, monthly,
+                         quarterly, annual, status, approved_by, approved_at,
+                         last_modified_by, last_modified_at)
+                    VALUES (:c, :w, :m, :q, :y, 'active', :a, :now, :a, :now)
+                """), {"c": code, "a": actor, "now": now,
+                       "w": cad["weekly_ambition"], "m": cad["monthly"],
+                       "q": cad["quarterly"], "y": cad["annual"]})
+
+            _insert_history(code, "customer.target.set", actor, cad,
+                            notes=f"bulk_set: annual={cad['annual']}")
+            applied.append(code)
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    return {
+        "applied": applied,
+        "skipped": skipped,
+        "annual": str(cad["annual"]),
+        "actor": actor,
+    }
+
+
 def approve_proposal(customer_code: str, actor: str) -> dict:
     state = get_target(customer_code)
     pending = state.get("pending_proposal")
