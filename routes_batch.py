@@ -483,7 +483,41 @@ def batch_picking_create_simple():
         if not name or not zones or not picking_mode:
             flash('Please provide a name, zones, and picking mode for the batch picking session.', 'warning')
             return redirect(url_for('batch.batch_picking_create_simple'))
-        
+
+        # Phase 4: drain block — non-admins cannot create batches while
+        # the system is draining for maintenance.
+        from services.maintenance import drain as _drain
+        if not _drain.is_creation_allowed_for(current_user):
+            flash(_drain.get_drain_banner() or
+                  'Batch creation is paused — maintenance mode is draining.', 'warning')
+            return redirect(url_for('batch.batch_picking_create_simple'))
+
+        # Phase 4: when ``use_db_backed_picking_queue`` is ON, route
+        # creation through the all-or-nothing service. BatchConflict is
+        # surfaced as a flash and the user is sent back to the form.
+        from services.batch_picking import (
+            BatchConflict as _BatchConflict,
+            create_batch_atomic as _create_batch_atomic,
+            is_db_queue_enabled as _is_db_queue_enabled,
+        )
+        if _is_db_queue_enabled():
+            zone_list_dispatch = [z.strip() for z in zones.split(',') if z.strip()]
+            try:
+                batch = _create_batch_atomic(
+                    filters={"zones": zone_list_dispatch},
+                    created_by=current_user.username,
+                    mode=picking_mode,
+                    name=name,
+                )
+                flash(f'Batch picking session "{name}" created (DB-backed queue).', 'success')
+                return redirect(url_for('batch.batch_picking_view', batch_id=batch.id))
+            except _BatchConflict as bc:
+                flash(bc.message, 'danger')
+                return redirect(url_for('batch.batch_picking_create_simple'))
+            except ValueError as ve:
+                flash(str(ve), 'warning')
+                return redirect(url_for('batch.batch_picking_create_simple'))
+
         # Generate a unique batch number
         from batch_utils import generate_batch_number
         batch_number = generate_batch_number()
@@ -841,7 +875,45 @@ def batch_picking_create():
     if not zones or not invoice_nos or not picking_mode:
         flash('Please select zones, picking mode, and at least one invoice.', 'warning')
         return redirect(url_for('batch.batch_picking_filter'))
-    
+
+    # Phase 4: drain block (non-admins blocked from creating batches in drain mode)
+    from services.maintenance import drain as _drain
+    if not _drain.is_creation_allowed_for(current_user):
+        flash(_drain.get_drain_banner() or
+              'Batch creation is paused — maintenance mode is draining.', 'warning')
+        return redirect(url_for('batch.batch_picking_filter'))
+
+    # Phase 4 dispatcher: DB-backed atomic path when flag is ON
+    from services.batch_picking import (
+        BatchConflict as _BatchConflict,
+        create_batch_atomic as _create_batch_atomic,
+        is_db_queue_enabled as _is_db_queue_enabled,
+    )
+    if _is_db_queue_enabled():
+        clean_zones_dispatch = [str(z).strip('{}[]').strip() for z in zones if str(z).strip('{}[]').strip()]
+        clean_corridors_dispatch = [str(c).strip('{}[]').strip() for c in corridors if str(c).strip('{}[]').strip()]
+        clean_unit_types_dispatch = [str(u).strip('{}[]').strip() for u in unit_types if str(u).strip('{}[]').strip()]
+        try:
+            batch = _create_batch_atomic(
+                filters={
+                    "zones": clean_zones_dispatch,
+                    "corridors": clean_corridors_dispatch or None,
+                    "unit_types": clean_unit_types_dispatch or None,
+                    "invoice_nos": invoice_nos,
+                },
+                created_by=current_user.username,
+                mode=picking_mode,
+                name=name,
+            )
+            flash(f'Batch "{name}" created with DB-backed queue.', 'success')
+            return redirect(url_for('batch.batch_picking_view', batch_id=batch.id))
+        except _BatchConflict as bc:
+            flash(bc.message, 'danger')
+            return redirect(url_for('batch.batch_picking_filter'))
+        except ValueError as ve:
+            flash(str(ve), 'warning')
+            return redirect(url_for('batch.batch_picking_filter'))
+
     # Generate a unique batch number
     from batch_utils import generate_batch_number
     batch_number = generate_batch_number()
@@ -1289,7 +1361,17 @@ def start_batch_picking(batch_id):
     if current_user.role not in ['admin', 'warehouse_manager'] and batch_session.assigned_to != current_user.username:
         flash('You are not assigned to this batch picking session.', 'danger')
         return redirect(url_for('batch.picker_batch_list'))
-    
+
+    # Phase 4: when ``batch_claim_required`` is ON, the picker must
+    # explicitly claim the batch before starting. Legacy auto-assignment
+    # is not sufficient — claimed_by must be set. Admin/WM bypass.
+    from services.batch_picking import is_claim_required as _is_claim_required
+    if (_is_claim_required()
+            and current_user.role not in ['admin', 'warehouse_manager']
+            and not getattr(batch_session, 'claimed_by', None)):
+        flash('This batch requires explicit claim. Please claim before picking.', 'warning')
+        return redirect(url_for('batch.picker_batch_list'))
+
     # Update the status to picking
     batch_session.status = 'picking'
     

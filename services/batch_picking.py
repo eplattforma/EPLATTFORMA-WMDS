@@ -70,6 +70,16 @@ def is_db_queue_enabled():
         return False
 
 
+def is_claim_required():
+    """Read ``batch_claim_required`` flag (defaults OFF). When ON, a
+    picker must explicitly claim a batch before starting to pick — the
+    legacy ``assigned_to`` auto-assignment is no longer enough."""
+    try:
+        return Setting.get(db.session, "batch_claim_required", "false").lower() == "true"
+    except Exception:
+        return False
+
+
 def _candidate_items_query(filters):
     """Build the candidate-items query from a ``filters`` dict.
 
@@ -159,7 +169,14 @@ def create_batch_atomic(filters, created_by, mode="Sequential", name=None,
             dialect = ""
         if dialect == "postgresql":
             try:
-                cand_q = cand_q.with_for_update(skip_locked=True)
+                # NB: ``skip_locked=False`` (the default) — we want the
+                # second concurrent transaction to **block** until the
+                # first commits, then observe the freshly-set
+                # ``locked_by_batch_id`` and raise ``BatchConflict``.
+                # SKIP LOCKED would let the second transaction silently
+                # win on the leftovers, which violates the Phase 4
+                # "exactly one winner" contract.
+                cand_q = cand_q.with_for_update()
             except Exception as e:
                 logger.debug("with_for_update unavailable: %s", e)
 

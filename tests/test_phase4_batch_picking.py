@@ -431,15 +431,41 @@ class TestFlagCoexistence:
             db.session.commit()
 
     def test_p4_27_legacy_path_does_not_write_queue(self, setup):
+        """When the master flag is OFF, the legacy creation path
+        (manually inserting a BatchPickingSession + invoking the legacy
+        locking utils) MUST NOT write any rows into batch_pick_queue —
+        only ``create_batch_atomic`` does, and it isn't called when the
+        flag is OFF.
+        """
         app, db = setup
-        # When create_batch_atomic isn't called, batch_pick_queue stays empty.
-        rows = db.session.execute(
-            text("SELECT COUNT(*) FROM batch_pick_queue")
-        ).scalar()
-        # Other tests in this module may have created rows, so just assert
-        # the table exists and is queryable — confirming that the legacy
-        # session path doesn't touch it during normal operation.
-        assert rows is not None
+        from models import BatchPickingSession, InvoiceItem, Setting
+        from timezone_utils import get_utc_now
+        Setting.set(db.session, "use_db_backed_picking_queue", "false")
+        db.session.commit()
+        _make_invoice_with_items(db, "INV-LEG-1", 2, "ZLEG1")
+        # Snapshot queue size, then simulate a legacy creation path:
+        before = db.session.execute(text(
+            "SELECT COUNT(*) FROM batch_pick_queue"
+        )).scalar()
+        bs = BatchPickingSession(
+            name="legacy", batch_number="LEG-1", zones="ZLEG1",
+            created_by="test_admin_user", picking_mode="Sequential",
+            status="Created",
+        )
+        db.session.add(bs)
+        db.session.flush()
+        # Manually lock items the way batch_locking_utils.lock_items_for_batch does.
+        items = InvoiceItem.query.filter_by(invoice_no="INV-LEG-1").all()
+        for it in items:
+            it.locked_by_batch_id = bs.id
+        db.session.commit()
+        after = db.session.execute(text(
+            "SELECT COUNT(*) FROM batch_pick_queue"
+        )).scalar()
+        assert before == after, (
+            "Legacy creation path must not write batch_pick_queue rows "
+            "when use_db_backed_picking_queue is OFF"
+        )
 
 
 # ---------------------------------------------------------------------------
