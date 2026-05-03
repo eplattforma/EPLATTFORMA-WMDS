@@ -176,7 +176,13 @@ def dw_menu():
             <div class="menu-option">
                 <a href="/datawarehouse/logs">
                     <h3>Sync Log Files</h3>
-                    <p>Detailed history of all PS365 synchronisations with update counts, and raw log files for troubleshooting.</p>
+                    <p>File-based PS365 sync logs (raw text for troubleshooting).</p>
+                </a>
+            </div>
+            <div class="menu-option">
+                <a href="/admin/job-runs">
+                    <h3>Job Runs</h3>
+                    <p>Live lifecycle view of every scheduled and manual job tick (RUNNING / SUCCESS / SKIPPED / FAILED). Filter by job, status, and time window.</p>
                 </a>
             </div>
             

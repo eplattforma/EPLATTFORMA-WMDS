@@ -115,6 +115,21 @@ def test_summary_shape_matches_brief(app_ctx, with_settings):
     assert isinstance(summary["cutoff_utc"], str) and "T" in summary["cutoff_utc"]
 
 
+def test_cutoff_utc_is_actual_threshold(app_ctx):
+    """`cutoff_utc` must be NOW - retention_days, not wall-clock now."""
+    from datetime import datetime, timezone
+    from services.maintenance.log_cleanup import delete_old_job_runs
+    summary = delete_old_job_runs(retention_days=30)
+    cutoff = datetime.fromisoformat(summary["cutoff_utc"])
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - cutoff).total_seconds() / 86400
+    # Should be ~30 days back (within 60s of perfect)
+    assert 29.999 <= age_days <= 30.001, (
+        f"cutoff_utc should be ~30d ago, got {age_days:.4f} days back"
+    )
+
+
 def test_deletes_only_rows_older_than_cutoff(app_ctx, cleanup_rows):
     old_id = cleanup_rows("SUCCESS", started_offset_days=200, finished_offset_days=200, suffix="old")
     young_id = cleanup_rows("SUCCESS", started_offset_days=5, finished_offset_days=5, suffix="young")

@@ -24,7 +24,7 @@ flips the flag in the Settings UI. Retention defaults to 90 days
 no-op so an operator can pause cleanup without disabling the cron.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
@@ -86,7 +86,16 @@ def delete_old_job_runs(retention_days=None):
     except (ValueError, TypeError):
         retention_days = DEFAULT_RETENTION_DAYS
 
-    cutoff = datetime.now(timezone.utc)
+    # ``cutoff_utc`` is the actual deletion threshold (NOW - retention),
+    # not the wall-clock at which the job ran. This matches the SQL
+    # predicate ``started_at < (NOW() - retention_days * '1 day')`` so
+    # operators inspecting ``result_summary`` can see exactly which
+    # rows were eligible for pruning.
+    now_utc = datetime.now(timezone.utc)
+    if retention_days > 0:
+        cutoff = now_utc - timedelta(days=retention_days)
+    else:
+        cutoff = now_utc
     summary = {
         "rows_deleted": 0,
         "retention_days": retention_days,
