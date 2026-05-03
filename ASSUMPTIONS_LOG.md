@@ -197,6 +197,8 @@ Format defined in Section 3 of the brief.
 
 ## ASSUMPTION-019: customer_analytics / category_manager / peer_analytics keep raw role-string checks (out of scope for Task #16)
 
+**Status:** SUPERSEDED by Task #17 (2026-05-03). All three `_role_ok()` helpers were migrated to `has_permission(current_user, "menu.warehouse")`. The `menu.warehouse` key was used for customer analytics as well (not `menu.crm`) because `crm_admin` holds `menu.crm` in `ROLE_PERMISSIONS` and reusing it would have widened Customer 360 access to `crm_admin` by default. With `menu.warehouse`, role fallback continues to allow only `admin` (`*`) and `warehouse_manager` (already grants `menu.warehouse`); admins can now grant per-user `menu.warehouse` rows from the permission editor to give custom-role users access without making them warehouse managers. `KNOWN_GAPS.md` GAP-002 retired in the same commit. Original assumption text retained below for audit trail.
+
 **Date:** 2026-05-02
 **Phase:** Phase 3 (Permission Enforcement) — closeout
 **Files affected:** `routes_customer_analytics.py`, `blueprints/category_manager.py`, `blueprints/peer_analytics.py`

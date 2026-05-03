@@ -18,7 +18,8 @@ ITEM_CATEGORY_COL = "category_code_365"
 ITEM_BRAND_COL = "brand_code_365"
 
 def _role_ok():
-    return getattr(current_user, "role", None) in ("admin", "warehouse_manager")
+    from services.permissions import has_permission
+    return has_permission(current_user, "menu.warehouse")
 
 def _safe_float(value, default):
     s = str(value).strip()

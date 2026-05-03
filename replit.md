@@ -139,6 +139,14 @@ Phase 3 turns the Phase 1 permission scaffolding ON across the app and migrates 
   - Three workflow-routing cases that aren't access control: `templates/admin_dashboard.html:211` (warehouse-manager-specific issue badge), `templates/admin/review_delivery_issues.html:198,203` (warehouse-manager filter UI), `templates/change_password.html:59` (picker dashboard URL pick after password reset).
   - Inline `if current_user.role not in ['admin', 'warehouse_manager']:` blocks inside batch routes — kept as defense in depth alongside the new decorator.
 
+### Task #17 — analytics blueprints migrated (2026-05-03)
+The three remaining `_role_ok()` holdovers from Phase 3 closeout (deferred via ASSUMPTION-019 / GAP-002) were migrated to `has_permission(current_user, "menu.warehouse")`:
+  - `routes_customer_analytics.py` (11 call sites)
+  - `blueprints/category_manager.py` (3 call sites)
+  - `blueprints/peer_analytics.py` (4 call sites)
+
+`menu.warehouse` was used for all three (not `menu.crm` for customer analytics) so that role fallback continues to allow only `admin` (`*`) and `warehouse_manager` by default. Using `menu.crm` would have widened Customer 360 access to the `crm_admin` role (which holds `menu.crm` in `ROLE_PERMISSIONS`), violating the "no other role gains analytics access by default" constraint. The `_role_ok()` helper signature was preserved in each file as a thin wrapper around `has_permission(...)` so the 18 call sites are unchanged. No edits to `ROLE_PERMISSIONS` were needed (admin already has `*`, warehouse_manager already has `menu.warehouse`). Admins can now grant `menu.warehouse` to a custom-role user from the per-user permission editor to give them analytics access without making them a warehouse manager. `tests/test_permission_enforcement.py` `ROUTE_MATRIX` extended with one allow (admin → 200) + one deny (picker → 403) + one `crm_admin` deny (→ 403, pins the no-widening property) cell per blueprint, plus a parametrised `test_explicit_grant_non_wm_user_passes_analytics` proving a `picker` with an explicit `menu.warehouse` grant passes all three surfaces under role-fallback OFF. `KNOWN_GAPS.md` GAP-002 removed; `ASSUMPTIONS_LOG.md` ASSUMPTION-019 marked SUPERSEDED.
+
 ### One-flag rollback
 `Setting.set(db.session, 'permissions_enforcement_enabled', 'false')` reverts `@require_permission` to log-only mode without touching code or templates. The `admin_required` widening in `routes_routes.py` automatically respects the flag through `has_permission`. `ROLLBACK_AND_FLAGS.md` Phase 3 section is the canonical reference.
 

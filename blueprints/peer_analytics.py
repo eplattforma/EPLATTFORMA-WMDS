@@ -18,8 +18,8 @@ ITEM_CATEGORY_COL = "category_code_365"
 ITEM_BRAND_COL = "brand_code_365"
 
 def _role_ok():
-    r = getattr(current_user, "role", None)
-    return r in ("admin", "warehouse_manager")
+    from services.permissions import has_permission
+    return has_permission(current_user, "menu.warehouse")
 
 def _parse_date(v):
     if not v: return None

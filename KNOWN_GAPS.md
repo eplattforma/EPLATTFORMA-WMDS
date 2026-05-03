@@ -24,25 +24,6 @@ Format: each gap has a short ID, severity, where it was discovered, the current 
 
 ---
 
-## GAP-002: Three analytics blueprints still use raw role-string `_role_ok()` checks
-
-**Severity:** Low
-**Discovered:** 2026-05-02 (Phase 3 closeout `_role_ok` migration audit, Task #16)
-**Files:**
-  - `routes_customer_analytics.py` (`customer_analytics_bp`, 11 call sites)
-  - `blueprints/category_manager.py` (`catmgr_bp`, 3 call sites)
-  - `blueprints/peer_analytics.py` (`peer_bp`, 4 call sites)
-**Current behaviour:** Each blueprint defines a local `_role_ok()` helper that returns `current_user.role in ("admin", "warehouse_manager")` and short-circuits every analytics endpoint. Unlike the comms/sms helpers — which were migrated to `has_permission(current_user, "menu.communications")` during Phase 3 — these three were intentionally left on the legacy role-string check.
-**Risk:** None today. Both `admin` and `warehouse_manager` are still the only legitimate consumers of these analytics surfaces, so the gate produces the same answer as a permission lookup would. The risk is purely future: if an operator ever wants to grant a custom-role user (e.g. a category buyer) access to category-manager analytics without making them a warehouse manager, they cannot do so from the per-user permission editor — the role-string check would still block them.
-**Recommended future fix (separate "Analytics permission migration" task):**
-  - Replace each helper body with `has_permission(current_user, "menu.crm")` (customer analytics) / `has_permission(current_user, "menu.warehouse")` (category manager + peer) — pick the menu key that matches each blueprint's natural section.
-  - Add the corresponding key to each role's grant in `services.permissions.ROLE_PERMISSIONS` if it is not already covered (admin has `*`, warehouse_manager already has `menu.warehouse`).
-  - Extend `tests/test_permission_enforcement.py` parametrised matrix with one allow + one deny cell per blueprint.
-  - Optional: rename the helpers (or replace them with `@require_permission(...)` decorators on each route) to remove the misleading `_role_ok` name.
-**Why not now:** Out-of-scope for Task #16 per the closeout brief ("either complete the migration or document the deliberate dual-track"). Touching access control on three more blueprints inside a closeout/verification task widens the blast radius beyond what the brief calls for. Documented as the deliberate dual-track in `ASSUMPTIONS_LOG.md` (ASSUMPTION-019).
-
----
-
 ## RR-001: Admin role has no decorator-level DENY case (residual risk)
 
 **Severity:** Documentation only — no security impact.

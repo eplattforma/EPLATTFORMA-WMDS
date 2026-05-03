@@ -58,8 +58,8 @@ def _compare_range(d_from, d_to, mode):
     return prev_start, prev_end
 
 def _role_ok():
-    r = getattr(current_user, "role", None)
-    return r in ("admin", "warehouse_manager")
+    from services.permissions import has_permission
+    return has_permission(current_user, "menu.warehouse")
 
 
 @customer_analytics_bp.route("/")

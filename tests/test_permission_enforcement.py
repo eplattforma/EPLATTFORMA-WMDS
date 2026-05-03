@@ -78,6 +78,7 @@ def role_users(app_ctx):
         "admin": f"t15_admin_{suffix}",
         "warehouse_manager": f"t15_wm_{suffix}",
         "picker": f"t15_picker_{suffix}",
+        "crm_admin": f"t15_crmadmin_{suffix}",
     }
     for role, name in users.items():
         _seed_user(db, name, role)
@@ -156,6 +157,19 @@ ROUTE_MATRIX = [
     ("__user_perms__",                 "admin",             200),
     ("__user_perms__",                 "warehouse_manager", 403),
     ("__user_perms__",                 "picker",            403),
+    # Analytics blueprints migrated from `_role_ok()` to
+    # `has_permission(current_user, "menu.warehouse")`. One allow + one deny
+    # cell per blueprint, plus `crm_admin` deny cells to pin that the
+    # migration did not widen access to roles that hold `menu.crm`.
+    ("/analytics/customers/",                              "admin",     200),
+    ("/analytics/customers/",                              "picker",    403),
+    ("/analytics/customers/",                              "crm_admin", 403),
+    ("/analytics/category-manager/api/category-gaps",      "admin",     200),
+    ("/analytics/category-manager/api/category-gaps",      "picker",    403),
+    ("/analytics/category-manager/api/category-gaps",      "crm_admin", 403),
+    ("/analytics/peer/TESTCUST",                           "admin",     200),
+    ("/analytics/peer/TESTCUST",                           "picker",    403),
+    ("/analytics/peer/TESTCUST",                           "crm_admin", 403),
 ]
 
 
@@ -199,6 +213,37 @@ def test_explicit_grant_blocked_by_admin_only_body_on_sync(
     _login(client, explicit_grant_user)
     r = client.get("/datawarehouse/full-sync", follow_redirects=False)
     assert r.status_code == 302
+
+
+@pytest.fixture
+def analytics_explicit_grant_user(app_ctx):
+    """Non-warehouse-manager (role='picker') with an explicit `menu.warehouse`
+    grant. Used with role_fallback OFF to prove that admins can grant analytics
+    access from the per-user permission editor without making the user a
+    warehouse manager (Task #17 acceptance: per-user grant unblocks analytics
+    for a non-wm role)."""
+    _, db = app_ctx
+    name = f"t17_anlx_{uuid.uuid4().hex[:6]}"
+    _seed_user(db, name, "picker")
+    _seed_perm(db, name, "menu.warehouse")
+    db.session.commit()
+    try:
+        yield name
+    finally:
+        _cleanup(db, name)
+
+
+@pytest.mark.parametrize("path", [
+    "/analytics/customers/",
+    "/analytics/category-manager/api/category-gaps",
+    "/analytics/peer/TESTCUST",
+])
+def test_explicit_grant_non_wm_user_passes_analytics(
+    app_ctx, analytics_explicit_grant_user, enforcement_no_fallback, path
+):
+    client = app_ctx[0].test_client()
+    _login(client, analytics_explicit_grant_user)
+    assert client.get(path).status_code == 200
 
 
 def test_explicit_grant_user_without_grants_is_denied(
