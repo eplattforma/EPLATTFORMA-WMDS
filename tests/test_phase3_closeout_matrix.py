@@ -222,12 +222,23 @@ def _format_matrix(captured):
 @pytest.fixture(scope="module", autouse=True)
 def matrix_capture():
     """Module-scoped dict that accumulates (key, role) -> status_code
-    across all parametrised test cells; writes the captured matrix to
-    ``PHASE3_CLOSEOUT_MATRIX.txt`` at module teardown."""
+    across all parametrised test cells.
+
+    Regeneration workflow: by default this fixture **does not** write
+    ``PHASE3_CLOSEOUT_MATRIX.txt`` -- normal ``pytest`` runs assert
+    behaviour without churning the tracked closeout artefact. To
+    explicitly regenerate the snapshot, run with the env var
+    ``PHASE3_REGEN_MATRIX=1`` set, e.g.::
+
+        PHASE3_REGEN_MATRIX=1 pytest -q tests/test_phase3_closeout_matrix.py
+
+    This pattern keeps the captured matrix under deliberate operator
+    control rather than letting any test invocation overwrite it.
+    """
     captured = {}
     _CAPTURE_REF.append(captured)
     yield captured
-    if captured:
+    if captured and os.environ.get("PHASE3_REGEN_MATRIX") == "1":
         out_path = Path(PROJECT_ROOT) / "PHASE3_CLOSEOUT_MATRIX.txt"
         out_path.write_text(_format_matrix(captured))
 
