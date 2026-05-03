@@ -257,6 +257,98 @@ def api_target_history(customer_code):
     return jsonify(get_target_history(customer_code))
 
 
+# ─── Claude advice (Ticket 3, cockpit-brief §12) ────────────────────────
+
+# Snapshot key sets per brief §12.4. Header + target are always included
+# so the prompt knows which customer and what the gap-to-target is.
+_ADVICE_SECTION_KEYS = {
+    "all": ("kpis", "trend", "pvm", "top_items_by_gp", "active_offers",
+            "offer_opportunities", "white_space", "lapsed_items",
+            "churn_risk_by_category"),
+    "offers": ("active_offers", "offer_opportunities"),
+    "opportunities": ("white_space", "lapsed_items", "cross_sell",
+                      "offer_opportunities"),
+    "pricing": ("price_index_outliers", "top_items_by_gp"),
+    "risk": ("churn_risk_by_category", "activity_timeline", "engagement"),
+}
+
+
+def _build_advice_snapshot(full: dict, section: str) -> dict:
+    """Slice a section-scoped snapshot from the full cockpit payload.
+
+    Always carries `header` and `target` so Claude knows the customer
+    and the active gap. Engagement is sourced from `kpis.engagement_score`
+    when the dedicated `engagement` key isn't present in the full payload.
+    """
+    if not isinstance(full, dict):
+        full = {}
+    section = (section or "all").lower()
+    if section not in _ADVICE_SECTION_KEYS:
+        section = "all"
+
+    snap = {
+        "section": section,
+        "header": full.get("header") or {},
+        "target": full.get("target") or {},
+    }
+    for k in _ADVICE_SECTION_KEYS[section]:
+        if k == "engagement":
+            # Synthesise from kpis when no dedicated key exists.
+            kpis = full.get("kpis") or {}
+            eng = kpis.get("engagement_score")
+            if eng is not None:
+                snap["engagement"] = eng
+            continue
+        if k in full:
+            snap[k] = full[k]
+    return snap
+
+
+@cockpit_bp.route("/api/<customer_code>/advice", methods=["POST"])
+@login_required
+@require_permission_hard("customers.ask_claude")
+def api_advice(customer_code):
+    """Generate Greek-language Claude advice for the given customer.
+
+    Failure modes (cockpit-brief §12.6):
+      - Missing ANTHROPIC_API_KEY  → 503 + ``{"configured": false}``
+      - Anthropic API error        → 500 + caught, full error logged
+    """
+    payload = request.get_json(silent=True) or {}
+    section = (payload.get("section") or "all").lower()
+
+    # Customer must exist (mirrors the cockpit page guard).
+    exists = db.session.execute(
+        text("SELECT 1 FROM ps_customers WHERE customer_code_365 = :c LIMIT 1"),
+        {"c": customer_code},
+    ).first()
+    if not exists:
+        abort(404)
+
+    from services.cockpit_data import get_cockpit_data
+    full = get_cockpit_data(customer_code)
+    snapshot = _build_advice_snapshot(full, section)
+
+    try:
+        from services.claude_advice_service import generate_cockpit_advice
+        out = generate_cockpit_advice(snapshot)
+        return jsonify(out)
+    except ValueError as e:
+        # Only the "not configured" ValueError maps to 503; any other
+        # ValueError (e.g. malformed snapshot) is a real server error.
+        if "not configured" in str(e):
+            return jsonify({"error": str(e), "configured": False}), 503
+        logger.exception("Claude advice generation failed for %s (%s)",
+                         customer_code, section)
+        return jsonify({"error": "Advice generation failed",
+                        "detail": str(e)}), 500
+    except Exception as e:
+        logger.exception("Claude advice generation failed for %s (%s)",
+                         customer_code, section)
+        return jsonify({"error": "Advice generation failed",
+                        "detail": str(e)}), 500
+
+
 @cockpit_bp.route("/api/targets/bulk_set", methods=["POST"])
 @login_required
 @require_permission_hard("customers.approve_target")

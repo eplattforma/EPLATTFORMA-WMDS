@@ -31,8 +31,15 @@
         </div>
 
         {# ── Page-level controls (§11.8) ── #}
-        <form id="cockpitControls" class="ms-auto d-flex flex-wrap gap-2 align-items-center"
-              method="GET" onsubmit="return cockpitApplyControls(event)">
+        {% if has_permission('customers.ask_claude') %}
+          <button type="button" class="btn btn-sm btn-primary ms-auto"
+                  onclick="askClaude('all')">✦ Ask Claude</button>
+          <form id="cockpitControls" class="d-flex flex-wrap gap-2 align-items-center"
+                method="GET" onsubmit="return cockpitApplyControls(event)">
+        {% else %}
+          <form id="cockpitControls" class="ms-auto d-flex flex-wrap gap-2 align-items-center"
+                method="GET" onsubmit="return cockpitApplyControls(event)">
+        {% endif %}
           <label class="small text-muted mb-0">Period
             <select name="period" class="form-select form-select-sm">
               <option value="90"  {% if controls.period == 90 %}selected{% endif %}>Last 90 days</option>
@@ -396,8 +403,12 @@
   <div class="row g-3 mb-3">
     <div class="col-lg-7">
       <div class="card h-100">
-        <div class="card-header"><strong><i class="fas fa-tag me-2"></i>Active Offers</strong>
-          <span class="ms-auto small text-muted float-end">{{ (data.active_offers.lines or [])|length }} live</span>
+        <div class="card-header d-flex align-items-center"><strong><i class="fas fa-tag me-2"></i>Active Offers</strong>
+          {% if has_permission('customers.ask_claude') %}
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2"
+                    onclick="askClaude('offers')">✦ Ask Claude about offers</button>
+          {% endif %}
+          <span class="ms-auto small text-muted">{{ (data.active_offers.lines or [])|length }} live</span>
         </div>
         {% set ao_sum = data.active_offers.summary or {} %}
         {% if ao_sum %}
@@ -436,8 +447,12 @@
     </div>
     <div class="col-lg-5">
       <div class="card h-100">
-        <div class="card-header"><strong><i class="fas fa-lightbulb me-2"></i>Offer Opportunities</strong>
-          <span class="ms-auto small text-muted float-end">SKUs bought regularly · no offer yet</span>
+        <div class="card-header d-flex align-items-center"><strong><i class="fas fa-lightbulb me-2"></i>Offer Opportunities</strong>
+          {% if has_permission('customers.ask_claude') %}
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2"
+                    onclick="askClaude('opportunities')">✦ Ask Claude</button>
+          {% endif %}
+          <span class="ms-auto small text-muted">SKUs bought regularly · no offer yet</span>
         </div>
         <div class="card-body p-0 cockpit-tbl-wrap">
           <table class="table table-sm mb-0">
@@ -510,8 +525,12 @@
     </div>
     <div class="col-lg-4">
       <div class="card h-100">
-        <div class="card-header"><strong><i class="fas fa-triangle-exclamation me-2"></i>Churn Risk by Category</strong>
-          <span class="ms-auto small text-muted float-end">recent vs prior 90d</span>
+        <div class="card-header d-flex align-items-center"><strong><i class="fas fa-triangle-exclamation me-2"></i>Churn Risk by Category</strong>
+          {% if has_permission('customers.ask_claude') %}
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2"
+                    onclick="askClaude('risk')">✦ Ask Claude about risk</button>
+          {% endif %}
+          <span class="ms-auto small text-muted">recent vs prior 90d</span>
         </div>
         <div class="card-body p-0 cockpit-tbl-wrap">
           <table class="table table-sm mb-0">
@@ -562,7 +581,12 @@
   <div class="row g-3 mb-3">
     <div class="col-lg-7">
       <div class="card h-100">
-        <div class="card-header"><strong><i class="fas fa-money-bill-wave me-2"></i>Price Index Outliers</strong></div>
+        <div class="card-header d-flex align-items-center"><strong><i class="fas fa-money-bill-wave me-2"></i>Price Index Outliers</strong>
+          {% if has_permission('customers.ask_claude') %}
+            <button type="button" class="btn btn-sm btn-outline-primary ms-auto"
+                    onclick="askClaude('pricing')">✦ Ask Claude about pricing</button>
+          {% endif %}
+        </div>
         <div class="card-body p-0 cockpit-tbl-wrap">
           <table class="table table-sm mb-0">
             <thead><tr><th>SKU</th><th class="text-end">Your price</th><th class="text-end">Peer price</th><th class="text-end">Index</th><th class="text-end">Qty</th></tr></thead>
@@ -606,15 +630,12 @@
     </div>
   </div>
 
-  {# ── Recommended Actions placeholder (Ticket 3) ────────────── #}
-  <div class="card mb-3">
-    <div class="card-header"><strong><i class="fas fa-wand-magic-sparkles me-2"></i>Recommended Actions</strong>
-      <span class="ms-auto small text-muted float-end">Ticket 3 — Greek Claude advice</span>
-    </div>
-    <div class="card-body text-muted small">
-      Recommendations are populated by the next cockpit ticket. The placeholder keeps the layout stable.
-    </div>
-  </div>
+  {# ── Recommended Actions panel (Ticket 3) ────────────────────
+     Hidden entirely for users without `customers.ask_claude`
+     (cockpit-brief §12.5). #}
+  {% if has_permission('customers.ask_claude') %}
+    {% include 'cockpit/_partials/recommended_actions.html' %}
+  {% endif %}
 
   {# ── Footer: data freshness ──────────────────────────────── #}
   <div class="text-muted small d-flex flex-wrap gap-3">

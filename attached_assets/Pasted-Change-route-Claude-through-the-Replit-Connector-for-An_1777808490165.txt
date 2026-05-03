@@ -1,0 +1,48 @@
+Change: route Claude through the Replit Connector for Anthropic, not the
+direct Anthropic API. This replaces my earlier "direct Anthropic API"
+instruction.
+
+What this changes in the Ticket 3 plan:
+
+1. Drop the ANTHROPIC_API_KEY env-var path. Instead use Replit's
+   connector mechanism to fetch an access token at request time.
+   Look up the current connector pattern in Replit docs before
+   coding — I don't want to specify the wrong API surface here.
+   Log the chosen pattern in the assumptions log as ASSUMPTION-NNN
+   (include: connector name, how the token is retrieved, where the
+   model string comes from).
+
+2. Add a refresh-on-401 wrapper around client.messages.create. If
+   Anthropic returns 401, fetch a fresh token via the connector
+   and retry once. If the retry also fails, fall through to the
+   normal 500 error path.
+
+3. Update the failure-mode 503 trigger. Old: "ANTHROPIC_API_KEY is
+   empty." New: "Replit Anthropic connector is not configured or
+   the connector returned an error fetching a token." The user-visible
+   Greek message stays the same: "Συμβουλές μη διαθέσιμες — επικοινώνησε
+   με admin." Detect this case explicitly and return 503 +
+   {"configured": false} just like before.
+
+4. Update CLAUDE_MODEL handling. The model string still comes from
+   config (default to current production Sonnet — verify the model
+   name against https://docs.claude.com/en/docs/about-claude/models
+   at build time). Don't hardcode.
+
+What stays the same:
+
+- All the service logic in services/claude_advice_service.py:
+  Greek prompt, cache pattern with cockpit_ prefix, JSON parsing,
+  markdown-fence stripping, snapshot builder, endpoint, permission
+  gating, UI behavior, graceful degradation.
+- The shared cache table and the prefix-collision rule.
+- The "cockpit page renders even if advice fails" requirement.
+- The existing OpenAI service stays untouched.
+- The other four notes from my previous message: targets-first
+  before manual verification, cache-collision SQL spot-check,
+  empty-section snapshot handling, _safe pattern non-negotiable.
+
+Confirm received. Verify the Replit connector pattern from current
+docs before writing the service. If the connector for Anthropic
+isn't available in your Replit project, stop and tell me — we'll
+fall back to direct API in that case.

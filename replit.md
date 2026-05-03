@@ -32,7 +32,7 @@ Preferred communication style: Simple, everyday language.
     - **Synchronization & Data Refresh**: Automated FTP login sync, PS365 sync logging, and pending order import.
     - **CRM Dashboard**: A central dashboard for customer activity monitoring, classification management, delivery slot filtering, task logging, and open orders integration.
     - **Scheduler Management**: Every scheduled job is wrapped for tracking, logging, and progress reporting. Includes an admin UI for managing jobs (reschedule, pause, resume, run now) and a log cleanup service.
-    - **Account-Manager Cockpit**: A new module for account managers featuring customer spend targets, performance tracking, offer opportunities, and an activity timeline.
+    - **Account-Manager Cockpit**: A new module for account managers featuring customer spend targets, performance tracking, offer opportunities, an activity timeline, and a Greek-language Claude-powered Recommended Actions panel + per-section Ask Claude advice (gated by `customers.ask_claude`; requires `ANTHROPIC_API_KEY` secret).
 
 ### System Design Choices
 - **UTC Timestamp Consistency**: All database timestamps are stored in UTC.

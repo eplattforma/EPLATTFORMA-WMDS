@@ -118,8 +118,152 @@ async function targetReject() {
   location.reload();
 }
 
+// ─── Claude advice (Ticket 3, cockpit-brief §12) ────────────────────────
+//
+// Greek output. The page-level "all" advice auto-loads into the Recommended
+// Actions panel on DOMContentLoaded. Section buttons open a Bootstrap modal.
+
+const SECTION_TITLES = {
+  all: '✦ Ask Claude',
+  offers: '✦ Ask Claude about offers',
+  opportunities: '✦ Ask Claude about opportunities',
+  pricing: '✦ Ask Claude about pricing',
+  risk: '✦ Ask Claude about risk',
+};
+
+const RA_NOT_CONFIGURED = 'Συμβουλές μη διαθέσιμες — επικοινώνησε με admin.';
+const RA_GENERIC_ERROR  = 'Σφάλμα κατά τη δημιουργία συμβουλής. Δοκίμασε ξανά.';
+
+function _esc(s) {
+  // Minimal HTML escape for AI-returned strings.
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function _fetchAdvice(section) {
+  const url = `/cockpit/api/${encodeURIComponent(CC)}/advice`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ section: section || 'all' }),
+  });
+  let body = {};
+  try { body = await r.json(); } catch (e) {}
+  return { ok: r.ok, status: r.status, body };
+}
+
+function _renderAdviceHTML(data) {
+  const parts = [];
+  if (data.summary) {
+    parts.push(`<p class="mb-2"><strong>${_esc(data.summary)}</strong></p>`);
+  }
+  if (data.peer_context) {
+    parts.push(`<p class="text-muted small mb-3">${_esc(data.peer_context)}</p>`);
+  }
+  if ((data.next_actions || []).length) {
+    parts.push('<h6 class="mt-3 mb-2">Next Actions</h6><ol class="mb-3">');
+    data.next_actions.forEach(a => {
+      const pri = _esc(a.priority || '');
+      const act = _esc(a.action || '');
+      const hint = a.script_hint
+        ? `<div class="small text-muted"><em>${_esc(a.script_hint)}</em></div>` : '';
+      parts.push(`<li><span class="badge bg-secondary me-2">${pri}</span>${act}${hint}</li>`);
+    });
+    parts.push('</ol>');
+  }
+  if ((data.key_findings || []).length) {
+    parts.push('<h6 class="mt-3 mb-2">Key Findings</h6><ul class="mb-3">');
+    data.key_findings.forEach(f => parts.push(`<li>${_esc(f)}</li>`));
+    parts.push('</ul>');
+  }
+  if ((data.opportunities || []).length) {
+    parts.push('<h6 class="mt-3 mb-2">Opportunities</h6><ul class="mb-3">');
+    data.opportunities.forEach(o => {
+      const conf = (o.confidence != null) ? ` <span class="badge bg-light text-dark">${(o.confidence*100).toFixed(0)}%</span>` : '';
+      parts.push(`<li><strong>${_esc(o.title)}</strong>${conf}<div class="small">${_esc(o.why)}</div><div class="small text-success">${_esc(o.expected_impact)}</div></li>`);
+    });
+    parts.push('</ul>');
+  }
+  if ((data.risks || []).length) {
+    parts.push('<h6 class="mt-3 mb-2">Risks</h6><ul class="mb-0">');
+    data.risks.forEach(r => parts.push(`<li>${_esc(r)}</li>`));
+    parts.push('</ul>');
+  }
+  return parts.join('');
+}
+
+function _renderRecommendedActions(data) {
+  const top = (data.next_actions || []).slice(0, 4);
+  if (!top.length && !data.summary) {
+    return `<div class="text-muted small">${_esc(RA_GENERIC_ERROR)}</div>`;
+  }
+  const parts = [];
+  if (data.summary) parts.push(`<p class="mb-2">${_esc(data.summary)}</p>`);
+  if (top.length) {
+    parts.push('<ol class="mb-0">');
+    top.forEach(a => {
+      const pri = _esc(a.priority || '');
+      const act = _esc(a.action || '');
+      const hint = a.script_hint
+        ? `<div class="small text-muted"><em>${_esc(a.script_hint)}</em></div>` : '';
+      parts.push(`<li><span class="badge bg-secondary me-2">${pri}</span>${act}${hint}</li>`);
+    });
+    parts.push('</ol>');
+  }
+  return parts.join('');
+}
+
+async function _loadRecommendedActions() {
+  const card = document.getElementById('recommendedActionsCard');
+  if (!card) return;
+  const loading = document.getElementById('raLoading');
+  const content = document.getElementById('raContent');
+  const err = document.getElementById('raError');
+  const result = await _fetchAdvice('all');
+  if (loading) loading.classList.add('d-none');
+  if (result.ok) {
+    content.innerHTML = _renderRecommendedActions(result.body);
+    content.classList.remove('d-none');
+  } else if (result.status === 503) {
+    err.textContent = RA_NOT_CONFIGURED;
+    err.classList.remove('d-none');
+  } else {
+    err.textContent = RA_GENERIC_ERROR;
+    err.classList.remove('d-none');
+  }
+}
+
+async function askClaude(section) {
+  const modalEl = document.getElementById('claudeAdviceModal');
+  if (!modalEl) return;
+  document.getElementById('claudeAdviceTitle').textContent =
+    SECTION_TITLES[section] || SECTION_TITLES.all;
+  const body = document.getElementById('claudeAdviceBody');
+  body.innerHTML = '<div class="text-muted small d-flex align-items-center">'
+    + '<div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>'
+    + '<span>Δημιουργία συμβουλών…</span></div>';
+  let modal;
+  if (window.bootstrap && window.bootstrap.Modal) {
+    modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+  } else {
+    modalEl.style.display = 'block';
+    modalEl.classList.add('show');
+  }
+  const result = await _fetchAdvice(section);
+  if (result.ok) {
+    body.innerHTML = _renderAdviceHTML(result.body);
+  } else if (result.status === 503) {
+    body.innerHTML = `<div class="alert alert-warning small mb-0">${_esc(RA_NOT_CONFIGURED)}</div>`;
+  } else {
+    body.innerHTML = `<div class="alert alert-warning small mb-0">${_esc(RA_GENERIC_ERROR)}</div>`;
+  }
+}
+
 // ─── boot ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('canvas[data-spark]').forEach(drawSparkline);
   drawTrendChart();
+  _loadRecommendedActions();
 });

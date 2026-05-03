@@ -1,0 +1,38 @@
+{# Recommended Actions panel — cockpit-brief §12.5.
+
+   Renders the top next_actions returned by Claude. Loaded async on
+   page load via askClaude('all') in cockpit.js. Hidden entirely for
+   users without `customers.ask_claude`.
+#}
+<div class="card mb-3" id="recommendedActionsCard">
+  <div class="card-header d-flex align-items-center">
+    <strong><i class="fas fa-wand-magic-sparkles me-2"></i>Recommended Actions</strong>
+    <span class="ms-auto small text-muted">Greek Claude advice · gap-to-target focus</span>
+  </div>
+  <div class="card-body" id="recommendedActionsBody">
+    <div class="text-muted small d-flex align-items-center" id="raLoading">
+      <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+      <span>Δημιουργία συμβουλών…</span>
+    </div>
+    <div id="raContent" class="d-none"></div>
+    <div id="raError" class="alert alert-warning small mb-0 d-none"></div>
+  </div>
+</div>
+
+{# Modal used by section-level Ask Claude buttons. #}
+<div class="modal fade" id="claudeAdviceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-wand-magic-sparkles me-2"></i><span id="claudeAdviceTitle">Ask Claude</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="claudeAdviceBody">
+        <div class="text-muted small d-flex align-items-center">
+          <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+          <span>Δημιουργία συμβουλών…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

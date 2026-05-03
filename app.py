@@ -35,6 +35,13 @@ else:
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# Cockpit Ticket 3 — Claude advice service. Read at boot from Replit Secrets;
+# the actual SDK client is created lazily inside services.claude_advice_service
+# so the app boots cleanly even when the key is unset (endpoint then returns
+# 503 per cockpit-brief §12.6).
+app.config["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
+app.config["CLAUDE_MODEL"] = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
+
 is_production = os.environ.get("REPLIT_DEPLOYMENT") == "1"
 
 # SQLite (used by the test suite) doesn't accept Postgres-specific pool/connect

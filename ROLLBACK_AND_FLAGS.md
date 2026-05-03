@@ -267,3 +267,41 @@ Ticket 2 is **service + template only**. All data is computed on read from alrea
 ### Emergency disable order (updated)
 
 - `3a.` (unchanged) `cockpit_enabled = false` — disables the full URL space and the menu entry simultaneously. No data deletion required.
+
+## Cockpit Ticket 3 — Greek Claude advice + Recommended Actions panel
+
+### New dependency
+
+- Python: `anthropic==0.97.0` (Anthropic SDK).
+
+### New env / secrets (both optional)
+
+- `ANTHROPIC_API_KEY` — without it the advice endpoint returns 503 with `{"configured": false}` and the rest of the cockpit page is unaffected.
+- `CLAUDE_MODEL` — defaults to `claude-sonnet-4-5` if unset.
+
+### New files
+
+- `services/claude_advice_service.py` — lazy Anthropic client + 12h cache (`cockpit_`-prefixed in `ai_feedback_cache`).
+- `templates/cockpit/_partials/recommended_actions.html` — auto-loading panel + Bootstrap modal for section-level advice.
+- `tests/test_cockpit_ticket3.py` — unit + endpoint coverage (no live API calls).
+
+### Modified files (additive)
+
+- `app.py` — read `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` into `app.config` at boot.
+- `blueprints/cockpit.py` — `_ADVICE_SECTION_KEYS`, `_build_advice_snapshot`, `POST /cockpit/api/<code>/advice`.
+- `templates/cockpit/cockpit.html` — replace the Ticket 3 placeholder with the partial include; add four Ask Claude buttons (page-level + offers + opportunities + pricing + risk), all permission-gated.
+- `static/cockpit/cockpit.js` — `askClaude(section)`, `_loadRecommendedActions()`, modal renderer, HTML escaping.
+
+### New route (under existing `cockpit_enabled` master flag)
+
+- `POST /cockpit/<customer_code>/advice` — JSON body `{section: all|offers|opportunities|pricing|risk}`. Requires `customers.ask_claude` (hard permission). Returns the Claude advice JSON, 404 for unknown customer, 503 if API key unset, 500 on Anthropic error.
+
+### New permission (already registered in Ticket 1)
+
+- `customers.ask_claude` — already in `COCKPIT_PERMISSION_KEYS` and `ALL_EDITOR_KEYS`; unassigned by default. Grant via the standard user-permissions editor.
+
+### Rollback
+
+1. Set `cockpit_enabled = false` — the entire `/cockpit/...` URL space (including `/advice`) returns 404.
+2. To remove the panel without disabling the cockpit, revoke the `customers.ask_claude` permission for all users — the panel and all Ask Claude buttons disappear server-side.
+3. Full revert: delete the four files above, revert the `app.py` / `blueprints/cockpit.py` / `cockpit.html` / `cockpit.js` patches, run `uv remove anthropic`. No schema changes were made; the shared `ai_feedback_cache` rows can be cleaned with `DELETE FROM ai_feedback_cache WHERE payload_hash LIKE 'cockpit_%';`.

@@ -585,3 +585,47 @@ The view's structural intent — customer/SKU pairs ≥ €100 90d revenue, no a
 **Decision made:** `crm_abandoned_cart_state` only stores `abandoned_cart_amount`, `abandoned_cart_items` (count) and `last_synced_at` — not per-SKU cart contents. Per the Ticket 2 close-out scope decision, the Live-Cart **KPI tile** therefore acts as a plain anchor: it shows amount + item count + sync age and links straight to the Magento admin customer page when `MAGENTO_BASE_URL` + `magento_customer_id` are available, falling back to `/abandoned-carts`. There is no inline-expand panel, no JS toggle, and no JSON endpoint. If a per-line cart source becomes available later (e.g. a Magento quote-items extract) this assumption can be retired and an inline panel reintroduced — tracked as a Ticket 2.1 follow-up.
 
 **Rollback:** revert the Live-Cart KPI tile block in `templates/cockpit/cockpit.html` and the `magento_customer_url` field added to `services.cockpit_data.fetch_live_cart`.
+
+
+## ASSUMPTION-046: Cockpit Ticket 3 — Claude advice client, cache prefix, hash sizing
+
+**Status:** ACTIVE
+**Owner:** cockpit (Ticket 3)
+**Date:** 2026-05-03
+**Files affected:** `services/claude_advice_service.py`, `app.py`
+
+**Decision made:** The Anthropic SDK client is built **lazily** (`_get_client`) inside `services/claude_advice_service.py`. App boot reads `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` (default `claude-sonnet-4-5`) into `app.config` but never instantiates the client. When the key is missing, `generate_cockpit_advice` raises `ValueError("not configured")`, which the `/cockpit/api/<code>/advice` endpoint maps to **HTTP 503** with `{"configured": false}` (cockpit-brief §12.6). All other Anthropic exceptions bubble up and are caught at the route, returning **HTTP 500** with the message echoed in the JSON body and the full traceback in `logger.exception`.
+
+The cache table `ai_feedback_cache` is shared with the legacy OpenAI service (`ai_feedback_service.py`). To prevent collision between the two services' rows (different system prompts, different output shapes) Claude entries are namespaced with the literal string prefix `cockpit_`. Because `payload_hash` is `VARCHAR(64)` and `len("cockpit_") + 64 = 72`, the SHA-256 hex digest is **truncated to `64 - len(CACHE_KEY_PREFIX) = 56` hex chars** (224 bits) before prefixing — well above any realistic collision risk for a per-customer cache. TTL is 12 hours (cockpit-brief §12.4).
+
+**Reason:** Brief §12 requires sharing the existing cache table while preventing cross-service contamination, and §12.6 requires a clean degraded-mode response when the key is unset. Lazy init keeps the test suite (which never has a live key) hermetic.
+
+**Safer alternative considered:** Add a new `ai_feedback_cache_cockpit` table. Rejected — pure additive footprint is the brief's preference, and the prefix scheme is already in use elsewhere in the codebase for shared key spaces.
+
+**Feature flag / rollback:** Behind `cockpit_enabled = false`. Additionally the endpoint is gated by the per-user `customers.ask_claude` permission (unassigned by default).
+
+**Reversibility:** High — delete `services/claude_advice_service.py`, the `_build_advice_snapshot` + `api_advice` block in `blueprints/cockpit.py`, the partial template, the JS helpers, and the four Ask Claude buttons in `cockpit.html`. No schema changes were made.
+
+
+## ASSUMPTION-047: Cockpit Ticket 3 — section snapshot key mapping
+
+**Status:** ACTIVE
+**Owner:** cockpit (Ticket 3)
+**Date:** 2026-05-03
+**Files affected:** `blueprints/cockpit.py` (`_ADVICE_SECTION_KEYS`, `_build_advice_snapshot`)
+
+**Decision made:** The `section` parameter on `POST /cockpit/api/<code>/advice` selects which slices of the full cockpit payload are forwarded to Claude. `header` and `target` are **always** included so the prompt can frame the gap-to-target. The mapping is:
+
+| section          | extra keys forwarded                                                                               |
+|------------------|----------------------------------------------------------------------------------------------------|
+| `all` (default)  | kpis, trend, pvm, top_items_by_gp, active_offers, offer_opportunities, white_space, lapsed_items, churn_risk_by_category |
+| `offers`         | active_offers, offer_opportunities                                                                 |
+| `opportunities`  | white_space, lapsed_items, cross_sell, offer_opportunities                                         |
+| `pricing`        | price_index_outliers, top_items_by_gp                                                              |
+| `risk`           | churn_risk_by_category, activity_timeline, engagement                                              |
+
+`engagement` is **synthesised** from `kpis.engagement_score` because the cockpit payload has no top-level `engagement` key (cockpit-brief §11.2 puts engagement inside the KPI tile set). Unknown sections fall back to `all`. List-typed sections are clipped at `MAX_ROWS = 50` rows in the service to keep the prompt within Anthropic's input budget.
+
+**Reason:** Brief §12.4 mandates section-scoped advice without specifying the exact slicing. This pins it so the prompt size is bounded and predictable.
+
+**Reversibility:** High — single dictionary; edit in place.
