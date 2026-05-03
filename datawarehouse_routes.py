@@ -175,7 +175,7 @@ def dw_menu():
             
             <div class="menu-option">
                 <a href="/datawarehouse/logs">
-                    <h3>View Sync Logs</h3>
+                    <h3>Sync Log Files</h3>
                     <p>Detailed history of all PS365 synchronisations with update counts, and raw log files for troubleshooting.</p>
                 </a>
             </div>
@@ -948,7 +948,7 @@ def invoice_sync():
                     </div>
                 </div>
                 <p style="margin-top: 30px; text-align: center;">
-                    <a href="/datawarehouse/logs" style="color: #0066cc; text-decoration: none;">View Sync Logs</a> | 
+                    <a href="/datawarehouse/logs" style="color: #0066cc; text-decoration: none;">Sync Log Files</a> | <a href="/admin/job-runs" style="color: #0066cc; text-decoration: none;">Job Runs</a> | 
                     <a href="/datawarehouse/menu" style="color: #0066cc; text-decoration: none;">Back to Menu</a>
                 </p>
             </div>

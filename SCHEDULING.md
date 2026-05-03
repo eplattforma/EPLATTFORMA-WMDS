@@ -79,19 +79,19 @@ suppliers page indefinitely.
 
 ## Job Runs cleanup (Phase 4)
 
-| Slot          | Cadence                       | Owner module                          | Status |
-|---------------|-------------------------------|---------------------------------------|--------|
-| `log_cleanup` | Daily at 06:00 Europe/Nicosia | `services.maintenance.log_cleanup`    | **Implemented in Phase 4.** Goes through `_tracked(...)` like every other job. The body is gated by `job_log_cleanup_enabled` (default `false`) — when OFF the wrapper records a SKIPPED row each morning so the cron is visibly alive without deleting any history. When ON, deletes terminal-state `job_runs` rows whose `finished_at` (or `started_at` fallback) is older than `job_log_retention_days` (default 90). RUNNING rows are never wiped. |
+| Slot          | Cadence                       | Owner module                       | Status |
+|---------------|-------------------------------|------------------------------------|--------|
+| `log_cleanup` | Daily at 06:00 Africa/Cairo   | `services.maintenance.log_cleanup` | **Implemented in Phase 4.** Goes through `_tracked(...)` like every other job. The body is gated by `job_log_cleanup_enabled` (default `false`) — when OFF the wrapper records a SKIPPED row each morning so the cron is visibly alive without deleting any history. When ON, deletes `job_runs` rows whose `started_at` is older than `job_runs_retention_days` (default 90, no-op when ≤ 0). The body returns `{rows_deleted, retention_days, cutoff_utc}` and `_tracked` persists it as the row's `result_summary`. |
 
 Operator default posture: ship with `job_log_cleanup_enabled=false` so
 the table accumulates indefinitely until an admin flips the flag. The
 scheduled job is **always** registered so the moment the flag is
 flipped to `true` the next 06:00 sweep runs without a code deploy.
 
-Visibility: every fire is visible at `/admin/job-runs` (gated by
-`job_runs_ui_enabled` + `sync.view_logs` permission) with the same
-RUNNING/SUCCESS/SKIPPED/FAILED/STALE_FAILED semantics as every other
-job.
+Visibility: every fire is visible at `/admin/job-runs` (gated solely by
+the `sync.view_logs` permission — no separate UI kill-switch) with the
+same RUNNING/SUCCESS/SKIPPED/FAILED/STALE_FAILED semantics as every
+other job.
 
 ## Removed / legacy
 

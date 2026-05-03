@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Job Run #{{ run.id }} — EPLATTFORMA{% endblock %}
+{% block content %}
+<div class="container-fluid mt-3" style="max-width:1100px;">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{{ url_for('admin_job_runs.job_runs_page') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left"></i> Back
+    </a>
+    <h4 class="mb-0"><i class="fas fa-receipt me-2"></i>Job Run #{{ run.id }}</h4>
+    {% set st = (run.status or '')|upper %}
+    {% if st == 'SUCCESS' %}<span class="badge bg-success">SUCCESS</span>
+    {% elif st == 'RUNNING' %}<span class="badge bg-warning text-dark">RUNNING</span>
+    {% elif st == 'SKIPPED' %}<span class="badge bg-info text-dark">SKIPPED</span>
+    {% elif st == 'FAILED' %}<span class="badge bg-danger">FAILED</span>
+    {% elif st == 'STALE_FAILED' %}<span class="badge bg-dark">STALE_FAILED</span>
+    {% elif st == 'CANCELLED' %}<span class="badge bg-secondary">CANCELLED</span>
+    {% else %}<span class="badge bg-secondary">{{ run.status }}</span>{% endif %}
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><strong>Identity & timing</strong></div>
+    <div class="card-body py-2">
+      <dl class="row mb-0 small">
+        <dt class="col-sm-3">Job ID</dt><dd class="col-sm-9"><code>{{ run.job_id }}</code></dd>
+        <dt class="col-sm-3">Job name</dt><dd class="col-sm-9">{{ run.job_name or '—' }}</dd>
+        <dt class="col-sm-3">Trigger</dt><dd class="col-sm-9">{{ run.trigger_source or '—' }}</dd>
+        <dt class="col-sm-3">Started (UTC)</dt><dd class="col-sm-9">{{ run.started_at }}</dd>
+        <dt class="col-sm-3">Finished (UTC)</dt><dd class="col-sm-9">{{ run.finished_at or '—' }}</dd>
+        <dt class="col-sm-3">Duration</dt>
+        <dd class="col-sm-9">
+          {% if run.duration_seconds is not none %}{{ '%.2f' % run.duration_seconds }}s{% else %}—{% endif %}
+        </dd>
+        <dt class="col-sm-3">Last heartbeat</dt><dd class="col-sm-9">{{ run.last_heartbeat or '—' }}</dd>
+        <dt class="col-sm-3">Created by</dt><dd class="col-sm-9">{{ run.created_by or '—' }}</dd>
+        <dt class="col-sm-3">Parent run</dt>
+        <dd class="col-sm-9">
+          {% if run.parent_run_id %}
+            <a href="{{ url_for('admin_job_runs.job_run_detail', run_id=run.parent_run_id) }}">#{{ run.parent_run_id }}</a>
+          {% else %}—{% endif %}
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  {% if run.current_step or run.progress_total or run.progress_message %}
+  <div class="card mb-3">
+    <div class="card-header py-2"><strong>Progress</strong></div>
+    <div class="card-body py-2 small">
+      {% if run.current_step %}<div><strong>Step:</strong> {{ run.current_step }}</div>{% endif %}
+      {% if run.progress_total %}
+        <div><strong>Progress:</strong> {{ run.progress_current or 0 }} / {{ run.progress_total }}</div>
+      {% endif %}
+      {% if run.progress_message %}<div class="text-muted">{{ run.progress_message }}</div>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if run.error_message %}
+  <div class="card mb-3 border-danger">
+    <div class="card-header py-2 bg-danger text-white"><strong><i class="fas fa-exclamation-triangle me-2"></i>Error</strong></div>
+    <div class="card-body py-2"><pre class="mb-0 small text-danger">{{ run.error_message }}</pre></div>
+  </div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><strong>Result summary</strong></div>
+    <div class="card-body py-2">
+      {% if result_summary_pretty %}<pre class="mb-0 small">{{ result_summary_pretty }}</pre>
+      {% else %}<small class="text-muted">No result summary recorded.</small>{% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2"><strong>Metadata</strong></div>
+    <div class="card-body py-2">
+      {% if metadata_pretty %}<pre class="mb-0 small">{{ metadata_pretty }}</pre>
+      {% else %}<small class="text-muted">No metadata recorded.</small>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

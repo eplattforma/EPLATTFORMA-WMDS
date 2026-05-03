@@ -1,22 +1,27 @@
 """Phase 4: scheduled cleanup of the ``job_runs`` table.
 
-Mirrors the transactional/exception-safety contract of
+Mirrors the transactional / exception-safety contract of
 ``services.job_run_logger``:
 
   * Uses an isolated short-lived ``db.engine.connect()`` connection.
-  * Never touches ``db.session`` so it cannot commit half-finished caller
-    work in a parent transaction.
-  * Catches all exceptions, logs at WARN, and returns sentinel values.
-    Per the WMDS brief Section 14 ("logging failures must not stop
-    scheduled jobs"), the scheduled wrapper raises ``JobSkipped`` rather
-    than ``Exception`` when the flag is OFF so the tick is recorded as
-    SKIPPED in the operations dashboard instead of FAILED.
+  * Never touches ``db.session`` so it cannot commit half-finished
+    caller work in a parent transaction.
+  * Catches all exceptions, logs at WARN, and returns a sentinel
+    summary instead of raising into the scheduler executor (per the
+    WMDS brief Section 14: "logging failures must not stop scheduled
+    jobs").
 
-Default posture: the body is gated by ``job_log_cleanup_enabled``
-(default ``'false'``) and only deletes rows older than
-``job_log_retention_days`` (default ``'90'``). With both at their
-defaults the cron wrapper writes a SKIPPED row every morning at 06:00
-Europe/Nicosia and the table is left untouched.
+The scheduled wrapper (``scheduler._run_log_cleanup``) reads the
+``job_log_cleanup_enabled`` flag itself and raises ``JobSkipped`` when
+OFF, so each tick still produces a SKIPPED row in ``job_runs``. The
+pure function in this module is therefore "delete-only" and assumes
+the caller has already decided to run it.
+
+Default posture: ``job_log_cleanup_enabled=false`` (seeded by Phase 1)
+keeps the cleanup body unreached on production until an operator
+flips the flag in the Settings UI. Retention defaults to 90 days
+(``job_runs_retention_days``); a 0 or negative value is treated as a
+no-op so an operator can pause cleanup without disabling the cron.
 """
 import logging
 from datetime import datetime, timezone
@@ -29,122 +34,92 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_RETENTION_DAYS = 90
-MIN_RETENTION_DAYS = 7
-MAX_RETENTION_DAYS = 3650
 
 
-def _get_setting(key, default):
-    """Read a single ``settings`` row via an isolated connection.
+def _read_retention_days():
+    """Read ``job_runs_retention_days`` from the settings table.
 
-    Returns ``default`` (string) on any failure or missing row.
+    Returns an ``int`` or ``DEFAULT_RETENTION_DAYS`` if the row is
+    missing / unparseable. Read uses an isolated connection so a
+    failure here cannot poison a parent transaction.
     """
     try:
         with db.engine.connect() as conn:
             row = conn.execute(
                 text("SELECT value FROM settings WHERE key = :k"),
-                {"k": key},
+                {"k": "job_runs_retention_days"},
             ).fetchone()
-        if row is None:
-            return default
-        return (row[0] if row[0] is not None else default)
-    except Exception as e:
-        logger.warning(f"log_cleanup: could not read setting {key!r}: {e}")
-        return default
-
-
-def _is_enabled():
-    raw = _get_setting("job_log_cleanup_enabled", "false")
-    return str(raw).strip().lower() in ("true", "1", "yes", "on")
-
-
-def _retention_days():
-    """Return the retention horizon clamped to a safe range.
-
-    Returns ``DEFAULT_RETENTION_DAYS`` if the value is missing or
-    cannot be parsed as an integer.
-    """
-    raw = _get_setting("job_log_retention_days", str(DEFAULT_RETENTION_DAYS))
-    try:
-        value = int(str(raw).strip())
+        if row is None or row[0] is None:
+            return DEFAULT_RETENTION_DAYS
+        return int(str(row[0]).strip())
     except (ValueError, TypeError):
         logger.warning(
-            f"log_cleanup: invalid job_log_retention_days={raw!r}; "
+            "log_cleanup: invalid job_runs_retention_days; "
             f"using default {DEFAULT_RETENTION_DAYS}"
         )
         return DEFAULT_RETENTION_DAYS
-    if value < MIN_RETENTION_DAYS:
+    except Exception as e:
         logger.warning(
-            f"log_cleanup: job_log_retention_days={value} below minimum "
-            f"{MIN_RETENTION_DAYS}; clamping up"
+            f"log_cleanup: could not read job_runs_retention_days: {e}; "
+            f"using default {DEFAULT_RETENTION_DAYS}"
         )
-        return MIN_RETENTION_DAYS
-    if value > MAX_RETENTION_DAYS:
-        logger.warning(
-            f"log_cleanup: job_log_retention_days={value} above maximum "
-            f"{MAX_RETENTION_DAYS}; clamping down"
-        )
-        return MAX_RETENTION_DAYS
-    return value
+        return DEFAULT_RETENTION_DAYS
 
 
-def run_log_cleanup():
-    """Delete finished ``job_runs`` rows older than the retention horizon.
+def delete_old_job_runs(retention_days=None):
+    """Delete ``job_runs`` rows older than ``retention_days``.
 
-    Returns a dict ``{enabled, retention_days, deleted_count, cutoff}``.
-    Never raises — exceptions are caught, logged, and surfaced via
-    ``deleted_count = -1`` so the caller (scheduler ``_tracked``
-    wrapper) records SUCCESS while the underlying problem is visible
-    in the application log.
+    Per the Phase 4 brief: parameterised
+    ``DELETE FROM job_runs WHERE started_at < (now() - interval ...)``.
+    No status filter — the cleanup horizon is purely time-based.
+    A 0 or negative ``retention_days`` is treated as a no-op (defensive
+    pause-without-disable behaviour).
 
-    Only deletes rows whose ``status`` is in a terminal state
-    (SUCCESS / FAILED / SKIPPED / STALE_FAILED / CANCELLED) so
-    long-running jobs that started before the cutoff but are still
-    RUNNING are never wiped out.
+    Returns ``{rows_deleted, retention_days, cutoff_utc}``. Never
+    raises.
     """
-    retention_days = _retention_days()
+    if retention_days is None:
+        retention_days = _read_retention_days()
+
+    try:
+        retention_days = int(retention_days)
+    except (ValueError, TypeError):
+        retention_days = DEFAULT_RETENTION_DAYS
+
     cutoff = datetime.now(timezone.utc)
     summary = {
-        "enabled": False,
+        "rows_deleted": 0,
         "retention_days": retention_days,
-        "deleted_count": 0,
-        "cutoff": cutoff.isoformat(),
+        "cutoff_utc": cutoff.isoformat(),
     }
 
-    if not _is_enabled():
+    if retention_days <= 0:
         logger.info(
-            "log_cleanup: skipped (job_log_cleanup_enabled=false); "
-            f"would have pruned rows older than {retention_days}d"
+            f"log_cleanup: retention_days={retention_days} is non-positive; "
+            "no-op (use job_log_cleanup_enabled=false to disable cron entirely)"
         )
-        from scheduler import JobSkipped
-        raise JobSkipped(
-            f"job_log_cleanup_enabled=false (retention={retention_days}d)"
-        )
+        return summary
 
-    summary["enabled"] = True
     try:
         with db.engine.connect() as conn:
             result = conn.execute(
                 text(
                     """
                     DELETE FROM job_runs
-                    WHERE status IN
-                        ('SUCCESS','FAILED','SKIPPED','STALE_FAILED','CANCELLED')
-                      AND COALESCE(finished_at, started_at) <
-                          (NOW() - (:days || ' days')::interval)
+                    WHERE started_at < (NOW() - (:days || ' days')::interval)
                     """
                 ),
                 {"days": retention_days},
             )
             conn.commit()
-            deleted = result.rowcount or 0
-        summary["deleted_count"] = deleted
+            summary["rows_deleted"] = result.rowcount or 0
         logger.info(
-            f"log_cleanup: pruned {deleted} job_runs row(s) older than "
-            f"{retention_days}d"
+            f"log_cleanup: pruned {summary['rows_deleted']} job_runs row(s) "
+            f"older than {retention_days}d (cutoff_utc={summary['cutoff_utc']})"
         )
         return summary
     except Exception as e:
         logger.warning(f"log_cleanup: DELETE failed (non-fatal): {e}")
-        summary["deleted_count"] = -1
+        summary["rows_deleted"] = -1
         summary["error"] = str(e)[:500]
         return summary

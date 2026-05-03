@@ -175,10 +175,37 @@ def mark_stale_runs(timeout_seconds, job_id_filter=None):
         return 0
 
 
-def get_recent_runs(limit=100, job_id=None):
-    """Return recent runs as list of dicts. Returns [] on failure."""
+def get_recent_runs(limit=100, job_id=None, statuses=None, hours=None):
+    """Return recent runs as list of dicts. Returns [] on failure.
+
+    All filters are server-side / parameterised — no string concat:
+      * ``job_id``  — exact match
+      * ``statuses`` — iterable of status strings (multi-select)
+      * ``hours``    — only rows with ``started_at`` newer than N hours ago
+    """
     try:
-        sql = """
+        clauses = []
+        params = {"limit": int(limit)}
+        if job_id:
+            clauses.append("job_id = :job_id")
+            params["job_id"] = job_id
+        if statuses:
+            status_list = [str(s).upper() for s in statuses if s]
+            if status_list:
+                clauses.append("status = ANY(:statuses)")
+                params["statuses"] = status_list
+        if hours is not None:
+            try:
+                hrs = float(hours)
+            except (TypeError, ValueError):
+                hrs = None
+            if hrs is not None and hrs > 0:
+                clauses.append(
+                    "started_at >= (NOW() - (:hours || ' hours')::interval)"
+                )
+                params["hours"] = str(hrs)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"""
             SELECT id, job_id, job_name, trigger_source, status,
                    started_at, finished_at, duration_seconds, last_heartbeat,
                    current_step, progress_current, progress_total,
@@ -189,15 +216,44 @@ def get_recent_runs(limit=100, job_id=None):
             ORDER BY started_at DESC
             LIMIT :limit
         """
-        params = {"limit": limit}
-        if job_id:
-            sql = sql.format(where="WHERE job_id = :job_id")
-            params["job_id"] = job_id
-        else:
-            sql = sql.format(where="")
         with db.engine.connect() as conn:
             rows = conn.execute(text(sql), params).fetchall()
         return [dict(r._mapping) for r in rows]
     except Exception as e:
         logger.warning(f"get_recent_runs failed: {e}")
+        return []
+
+
+def get_run_by_id(run_id):
+    """Return one ``job_runs`` row as a dict, or ``None`` if not found / on error."""
+    if not run_id:
+        return None
+    try:
+        with db.engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT id, job_id, job_name, trigger_source, status,
+                       started_at, finished_at, duration_seconds, last_heartbeat,
+                       current_step, progress_current, progress_total,
+                       progress_message, result_summary, error_message,
+                       created_by, parent_run_id, metadata, created_at, updated_at
+                FROM job_runs
+                WHERE id = :id
+            """), {"id": int(run_id)}).fetchone()
+        return dict(row._mapping) if row else None
+    except Exception as e:
+        logger.warning(f"get_run_by_id failed for {run_id!r}: {e}")
+        return None
+
+
+def get_distinct_job_ids():
+    """Return sorted distinct job_id values from job_runs. [] on failure."""
+    try:
+        with db.engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT DISTINCT job_id FROM job_runs WHERE job_id IS NOT NULL "
+                "ORDER BY job_id"
+            )).fetchall()
+        return [r[0] for r in rows]
+    except Exception as e:
+        logger.warning(f"get_distinct_job_ids failed: {e}")
         return []

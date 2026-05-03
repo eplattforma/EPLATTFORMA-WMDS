@@ -1,47 +1,31 @@
 {% extends "base.html" %}
 {% block title %}Job Runs — EPLATTFORMA{% endblock %}
 {% block content %}
-<div class="container-fluid mt-3" style="max-width:1400px;">
+<div class="container-fluid mt-3" style="max-width:1500px;">
   <div class="d-flex align-items-center gap-3 mb-3">
     <a href="{{ url_for('datawarehouse.dw_menu') }}" class="btn btn-outline-secondary btn-sm">
       <i class="fas fa-arrow-left"></i>
     </a>
     <h4 class="mb-0"><i class="fas fa-tasks me-2"></i>Job Runs</h4>
-    <span class="text-muted small ms-2">
-      Lifecycle log of every scheduled and manual job tick.
-    </span>
+    <span class="text-muted small ms-2">Lifecycle rows for every scheduled and manual job tick.</span>
   </div>
 
   <div class="card mb-3">
     <div class="card-body py-2">
-      <div class="row g-2 align-items-center">
-        <div class="col-md-3">
-          <small class="text-muted d-block">Cleanup</small>
-          {% if cleanup_enabled %}
-            <span class="badge bg-success"><i class="fas fa-check"></i> ON</span>
-            <small class="text-muted ms-1">retention {{ retention_days }}d</small>
-          {% else %}
-            <span class="badge bg-secondary"><i class="fas fa-pause"></i> OFF</span>
-            <small class="text-muted ms-1">would prune &gt; {{ retention_days }}d</small>
-          {% endif %}
-        </div>
-        <div class="col-md-9">
-          <small class="text-muted d-block">Recent counts (filtered window)</small>
-          <span class="badge bg-warning text-dark me-1">RUNNING {{ counts.RUNNING }}</span>
-          <span class="badge bg-success me-1">SUCCESS {{ counts.SUCCESS }}</span>
-          <span class="badge bg-info text-dark me-1">SKIPPED {{ counts.SKIPPED }}</span>
-          <span class="badge bg-danger me-1">FAILED {{ counts.FAILED }}</span>
-          <span class="badge bg-dark me-1">STALE_FAILED {{ counts.STALE_FAILED }}</span>
-          <span class="badge bg-secondary me-1">CANCELLED {{ counts.CANCELLED }}</span>
-        </div>
-      </div>
+      <small class="text-muted d-block mb-1">Counts in current window</small>
+      <span class="badge bg-warning text-dark me-1">RUNNING {{ counts.RUNNING }}</span>
+      <span class="badge bg-success me-1">SUCCESS {{ counts.SUCCESS }}</span>
+      <span class="badge bg-info text-dark me-1">SKIPPED {{ counts.SKIPPED }}</span>
+      <span class="badge bg-danger me-1">FAILED {{ counts.FAILED }}</span>
+      <span class="badge bg-dark me-1">STALE_FAILED {{ counts.STALE_FAILED }}</span>
+      <span class="badge bg-secondary me-1">CANCELLED {{ counts.CANCELLED }}</span>
     </div>
   </div>
 
   <form method="get" class="card mb-3">
     <div class="card-body py-2">
       <div class="row g-2 align-items-end">
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label form-label-sm mb-0">Job</label>
           <select name="job_id" class="form-select form-select-sm">
             <option value="">All jobs</option>
@@ -50,20 +34,28 @@
             {% endfor %}
           </select>
         </div>
-        <div class="col-md-3">
-          <label class="form-label form-label-sm mb-0">Status</label>
-          <select name="status" class="form-select form-select-sm">
-            <option value="">All statuses</option>
-            {% for s in valid_statuses %}
-              <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s }}</option>
-            {% endfor %}
-          </select>
+        <div class="col-md-2">
+          <label class="form-label form-label-sm mb-0">Last N hours</label>
+          <input type="number" name="hours" min="0" max="720" value="{{ hours }}" class="form-control form-control-sm">
+          <small class="text-muted">0 = no time filter</small>
         </div>
         <div class="col-md-2">
           <label class="form-label form-label-sm mb-0">Limit</label>
           <input type="number" name="limit" min="10" max="500" value="{{ limit }}" class="form-control form-control-sm">
         </div>
-        <div class="col-md-3 d-flex gap-2">
+        <div class="col-md-3">
+          <label class="form-label form-label-sm mb-0">Status (multi)</label>
+          <div class="d-flex flex-wrap gap-1">
+            {% for s in valid_statuses %}
+            <label class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" name="status" value="{{ s }}"
+                     {% if s in selected_statuses %}checked{% endif %}>
+              <small class="form-check-label">{{ s }}</small>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="col-md-2 d-flex gap-2">
           <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
           <a href="{{ url_for('admin_job_runs.job_runs_page') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
         </div>
@@ -86,6 +78,7 @@
             <th style="width:90px;">Trigger</th>
             <th style="width:120px;">Status</th>
             <th style="width:90px;" class="text-end">Duration</th>
+            <th style="width:160px;">Heartbeat</th>
             <th>Step / Progress</th>
             <th>Result / Error</th>
           </tr>
@@ -93,7 +86,11 @@
         <tbody>
           {% for r in rows %}
           <tr>
-            <td><small class="text-muted">{{ r.id }}</small></td>
+            <td>
+              <a href="{{ url_for('admin_job_runs.job_run_detail', run_id=r.id) }}" class="text-decoration-none">
+                <small>{{ r.id }}</small>
+              </a>
+            </td>
             <td class="text-nowrap"><small>{{ r.started_at.strftime('%Y-%m-%d %H:%M:%S') if r.started_at else '—' }}</small></td>
             <td>
               <code class="small">{{ r.job_id }}</code>
@@ -102,13 +99,9 @@
               {% endif %}
             </td>
             <td>
-              {% if r.trigger_source == 'scheduled' %}
-                <i class="fas fa-clock text-muted"></i> <small>auto</small>
-              {% elif r.trigger_source == 'manual' %}
-                <i class="fas fa-hand-pointer text-primary"></i> <small>manual</small>
-              {% else %}
-                <small class="text-muted">{{ r.trigger_source or '—' }}</small>
-              {% endif %}
+              {% if r.trigger_source == 'scheduled' %}<i class="fas fa-clock text-muted"></i> <small>auto</small>
+              {% elif r.trigger_source == 'manual' %}<i class="fas fa-hand-pointer text-primary"></i> <small>manual</small>
+              {% else %}<small class="text-muted">{{ r.trigger_source or '—' }}</small>{% endif %}
             </td>
             <td>
               {% set st = (r.status or '')|upper %}
@@ -124,6 +117,11 @@
               {% if r.duration_seconds is not none %}
                 {% if r.duration_seconds >= 60 %}<small>{{ '%d' % (r.duration_seconds // 60) }}m {{ '%d' % (r.duration_seconds % 60) }}s</small>
                 {% else %}<small>{{ '%.1f' % r.duration_seconds }}s</small>{% endif %}
+              {% else %}<small class="text-muted">—</small>{% endif %}
+            </td>
+            <td class="text-nowrap">
+              {% if r.last_heartbeat %}
+                <small>{{ r.last_heartbeat.strftime('%Y-%m-%d %H:%M:%S') }}</small>
               {% else %}<small class="text-muted">—</small>{% endif %}
             </td>
             <td>
@@ -147,13 +145,11 @@
                 <small class="text-muted" title="{{ r.result_summary }}">
                   {{ r.result_summary|string|truncate(160, True, '…') }}
                 </small>
-              {% else %}
-                <small class="text-muted">—</small>
-              {% endif %}
+              {% else %}<small class="text-muted">—</small>{% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="8" class="text-center text-muted py-4">
+          <tr><td colspan="9" class="text-center text-muted py-4">
             No job runs match the current filters.
           </td></tr>
           {% endfor %}
@@ -161,9 +157,10 @@
       </table>
     </div>
     <div class="card-footer py-2 text-muted small">
-      Times shown in UTC. Cleanup runs daily at 06:00 Europe/Nicosia when
-      <code>job_log_cleanup_enabled=true</code>; with the flag OFF a SKIPPED row
-      is recorded but no rows are deleted.
+      Times shown in UTC. Cleanup runs daily at 06:00 Africa/Cairo when
+      <code>job_log_cleanup_enabled=true</code>; with the flag OFF a SKIPPED
+      row is recorded but no rows are deleted. Click a row ID for full
+      result / metadata / error details.
     </div>
   </div>
 </div>

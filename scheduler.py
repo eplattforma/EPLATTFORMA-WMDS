@@ -110,7 +110,7 @@ def _tracked(job_id, job_name=None, trigger_source="scheduled"):
         token = _CURRENT_JOB_RUN_ID.set(run_id)
         try:
             try:
-                body()
+                body_result = body()
             except JobSkipped as skip:
                 reason = (str(skip) or "skipped")[:500]
                 finish_job_run(
@@ -127,7 +127,12 @@ def _tracked(job_id, job_name=None, trigger_source="scheduled"):
                     error_message=(str(e) or type(e).__name__)[:500],
                 )
                 raise
-            finish_job_run(run_id, status="SUCCESS")
+            # Phase 4: if the body returned a dict, persist it as
+            # ``result_summary`` so cleanup / future jobs can record
+            # structured outcome data (e.g.
+            # ``{rows_deleted, retention_days, cutoff_utc}``).
+            success_summary = body_result if isinstance(body_result, dict) else None
+            finish_job_run(run_id, status="SUCCESS", result_summary=success_summary)
         finally:
             _CURRENT_JOB_RUN_ID.reset(token)
 
@@ -1411,15 +1416,29 @@ def _register_job_funcs():
 def _run_log_cleanup():
     """Body func for the daily ``log_cleanup`` cron tick.
 
-    Pushes a Flask app context (the cleanup service uses ``db.engine``
-    which requires one) and delegates to ``services.maintenance.log_cleanup``.
-    The service raises ``JobSkipped`` when the flag is OFF so the
-    ``_tracked`` wrapper records a SKIPPED row instead of FAILED.
+    Reads ``job_log_cleanup_enabled`` (default ``false``) and raises
+    ``JobSkipped`` when the flag is OFF so the ``_tracked`` wrapper
+    records a SKIPPED row in ``job_runs`` (visible inactivity) rather
+    than failing.
+
+    When ON, calls ``services.maintenance.log_cleanup.delete_old_job_runs()``
+    and returns its summary dict so ``_tracked`` persists it as the
+    row's ``result_summary``.
     """
     from app import app as _flask_app
-    from services.maintenance.log_cleanup import run_log_cleanup
     with _flask_app.app_context():
-        run_log_cleanup()
+        from app import db as _db
+        from models import Setting
+        from services.maintenance.log_cleanup import delete_old_job_runs
+
+        try:
+            raw = Setting.get(_db.session, "job_log_cleanup_enabled", "false")
+        except Exception:
+            raw = "false"
+        enabled = str(raw).strip().lower() in ("true", "1", "yes", "on")
+        if not enabled:
+            raise JobSkipped("disabled by flag")
+        return delete_old_job_runs()
 
 
 class _JobstoreContext:

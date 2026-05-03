@@ -94,6 +94,20 @@ ALTER TABLE users DROP COLUMN IF EXISTS display_name;
 
 **Driver Mode invariant preserved.** No changes to `templates/driver/*`, `routes_driver.py`, or `routes_driver_api.py`. The override-ordering pipeline regression test (`tests/test_override_ordering_pipeline.py`) still passes.
 
+## Phase 4 — Job Runs UI & Log Cleanup (added 2026-05-03)
+
+| Change | What it does | One-flag rollback |
+|---|---|---|
+| `job_log_cleanup_enabled` (already seeded `false` in Phase 1) | Daily 06:00 Africa/Cairo cron is **always registered**. While `false`, each tick raises `JobSkipped("disabled by flag")` and `_tracked` records a SKIPPED row in `job_runs`, so the cron is visibly alive without deleting any history. Flipping to `'true'` activates pruning on the next morning's tick. | `Setting.set(db.session, 'job_log_cleanup_enabled', 'false')` — next tick records SKIPPED, no rows deleted. |
+| `job_runs_retention_days` (new key, default `90`) | Retention horizon read by `services.maintenance.log_cleanup.delete_old_job_runs()`. Predicate is `WHERE started_at < (NOW() - retention_days * '1 day')` — purely time-based, no status filter. A 0 or negative value is treated as a no-op (defensive pause-without-disable). The legacy `job_log_retention_days` key from Phase 1 is preserved for back-compat but no Phase 4 code reads it. | Set `job_runs_retention_days = 0` (or any non-positive) — cleanup body becomes a no-op while the cron still records SUCCESS rows. |
+| New `/admin/job-runs` admin page (list + `/admin/job-runs/<id>` detail) | Read-only view onto the `job_runs` table. Filters: job_id (dropdown of distinct values), multi-select status, "Last N hours" (default 24, 0 = no time filter), limit (clamped 10..500). Detail page shows full `result_summary` JSON, full `error_message`, `metadata`, and a link to any `parent_run_id`. | **No kill-switch by design** — the brief deliberately omits a UI flag so the page cannot be hidden out from under operators investigating an incident. Permission gating (`sync.view_logs`) is the only access control. To remove the page entirely, comment out the blueprint registration in `main.py`. |
+| Existing `/datawarehouse/logs` (file-based) menu label updated to "Sync Log Files" | The file-based syslog page is still useful for raw text troubleshooting and is kept in place; the relabel just disambiguates it from the new DB-backed Job Runs page. | Revert the two label edits in `datawarehouse_routes.py` (the route itself is unchanged). |
+| `_tracked(...)` now persists body return value as `result_summary` | When a tracked job body returns a `dict`, that dict is saved as the SUCCESS row's `result_summary`. Existing body funcs that return `None` are unaffected. Phase 4 cleanup uses this to record `{rows_deleted, retention_days, cutoff_utc}`. | This is a code change, not a flag. Revert `scheduler.py` `_tracked` to drop the `body_result` capture if needed. |
+
+**Permission posture preserved.** No new keys added to `ROLE_PERMISSIONS`. The new page reuses `sync.view_logs` (already granted to `warehouse_manager` and to `admin` via the `*` wildcard), so Phase 3 closeout's "no role-default change" property is intact.
+
+**Driver Mode invariant preserved (Phase 4).** Phase 4 touches no driver routes or templates. The override-ordering pipeline regression test continues to pass.
+
 ## Production Safety Rules
 
 1. Deploy infrastructure first with high-risk flags off (Phase 1 default).
@@ -113,4 +127,5 @@ If production issues occur, disable in this order:
 5. `forecast_watchdog_enabled = false` (Phase-2 watchdog only — existing 10-min stays)
 6. `job_log_cleanup_enabled = false`
 7. `permissions_enforcement_enabled = false`
-8. If needed, `legacy_replenishment_enabled = true`
+8. `job_runs_retention_days = 0` (Phase 4 — pause cleanup body without disabling cron)
+9. If needed, `legacy_replenishment_enabled = true`

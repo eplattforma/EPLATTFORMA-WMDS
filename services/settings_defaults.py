@@ -40,6 +40,12 @@ PHASE1_DEFAULTS = {
     "forecast_watchdog_enabled": "false",
     "job_log_cleanup_enabled": "false",
     "job_log_retention_days": "90",
+    # Phase 4 — canonical retention key consumed by
+    # ``services.maintenance.log_cleanup.delete_old_job_runs``.
+    # ``job_log_retention_days`` is preserved above as a legacy alias
+    # (already documented in ROLLBACK_AND_FLAGS.md / referenced by
+    # historical scripts) but Phase 4 code reads only this key.
+    "job_runs_retention_days": "90",
     "forecast_heartbeat_timeout_seconds": "2700",
     "forecast_watchdog_interval_minutes": "5",
     "forecast_max_duration_seconds": "3600",
