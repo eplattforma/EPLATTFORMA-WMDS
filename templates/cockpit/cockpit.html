@@ -137,19 +137,26 @@
       </div>
     </div>
     <div class="col-md col-6">
-      <div class="card kpi-tile h-100" id="liveCartTile" role="button" tabindex="0"
-           aria-expanded="false" aria-controls="liveCartPanel" onclick="toggleLiveCart()">
+      {# Live Cart KPI tile. Per scope decision (Ticket 2 close-out): no
+         inline-expand — cart line items aren't in our warehouse
+         (ASSUMPTION-045). Tile links straight to Magento when an admin URL
+         is available, otherwise falls back to /abandoned-carts. #}
+      {% set lc = data.kpis.live_cart %}
+      {% set lc_href = lc.magento_customer_url or '/abandoned-carts' %}
+      <a class="card kpi-tile h-100 text-decoration-none text-reset d-block"
+         href="{{ lc_href }}" target="_blank" rel="noopener"
+         id="liveCartTile" title="Open cart in {{ 'Magento' if lc.magento_customer_url else 'Abandoned Carts' }}">
         <div class="card-body py-3">
-          <div class="kpi-label">Live Cart <i class="fas fa-chevron-down small"></i></div>
-          <div class="kpi-value">€{{ '{:,.2f}'.format(data.kpis.live_cart.amount) }}</div>
+          <div class="kpi-label">Live Cart <i class="fas fa-external-link-alt small"></i></div>
+          <div class="kpi-value">€{{ '{:,.2f}'.format(lc.amount) }}</div>
           <div class="small">
-            {{ data.kpis.live_cart.sku_count }} item(s)
-            {% if data.kpis.live_cart.age_minutes is not none %}
-              · synced {{ data.kpis.live_cart.age_minutes }}m ago
+            {{ lc.sku_count }} item(s)
+            {% if lc.age_minutes is not none %}
+              · synced {{ lc.age_minutes }}m ago
             {% endif %}
           </div>
         </div>
-      </div>
+      </a>
     </div>
     <div class="col-md col-6">
       <div class="card kpi-tile h-100">
@@ -159,29 +166,6 @@
           <div class="small">{{ data.kpis.open_orders.count }} order(s)</div>
         </div>
       </div>
-    </div>
-  </div>
-
-  {# Live-cart inline panel (§11.9) — server-rendered. The cart contents
-     line-by-line are not available in our schema (crm_abandoned_cart_state
-     stores only amount + items count, ASSUMPTION-045) so we surface the
-     summary plus a deep link into the existing Abandoned Carts view. #}
-  <div class="card mb-3 d-none" id="liveCartPanel">
-    <div class="card-body py-2 small">
-      {% set lc = data.kpis.live_cart %}
-      {% if (lc.amount or 0) <= 0 %}
-        <em class="text-muted">No active cart for this customer.</em>
-      {% else %}
-        <strong>€{{ '{:,.2f}'.format(lc.amount) }}</strong>
-        · {{ lc.sku_count }} item(s)
-        {% if lc.age_minutes is not none %} · synced {{ lc.age_minutes }}m ago{% endif %}
-        {% if lc.is_addon %} · <span class="badge bg-info">add-on cart</span>{% endif %}
-        <a class="ms-2" href="/abandoned-carts" target="_blank" rel="noopener">Open in Abandoned Carts →</a>
-        {% if lc.magento_customer_url %}
-          <a class="ms-2" href="{{ lc.magento_customer_url }}" target="_blank" rel="noopener">Open customer in Magento →</a>
-        {% endif %}
-        <div class="text-muted mt-1">Per-line cart contents are not stored in our warehouse (ASSUMPTION-045) — open Magento for the SKU breakdown.</div>
-      {% endif %}
     </div>
   </div>
 
@@ -230,6 +214,15 @@
             {% else %}
               <div class="small text-muted">no target</div>
             {% endif %}
+            {# Brief §6.5: run-rate projection — period-end forecast at current pace. #}
+            {% if a.run_rate_projection is not none %}
+              <div class="small text-muted" title="Projected period-end at current run-rate">
+                run-rate €{{ '%.0f'|format(a.run_rate_projection) }}
+                {% if a.target %}
+                  ({{ '{:+.0f}'.format(a.run_rate_projection - a.target) }} vs target)
+                {% endif %}
+              </div>
+            {% endif %}
           </div>
         {% endfor %}
       </div>
@@ -249,8 +242,12 @@
           <div class="col-md-2"><label class="form-label small mb-0">Weekly ambition €</label>
             <input class="form-control form-control-sm" name="weekly_ambition" type="number" step="0.01"
                    value="{{ (target_state.active and target_state.active.weekly_ambition) or '' }}"></div>
-          <div class="col-md-3"><label class="form-label small mb-0">Notes</label>
-            <input class="form-control form-control-sm" name="notes"></div>
+          <div class="col-md-3"><label class="form-label small mb-0">
+              Notes {% if target_state.active %}<span class="text-danger" title="Required when changing an existing target">*</span>{% endif %}
+            </label>
+            <input class="form-control form-control-sm" name="notes"
+                   {% if target_state.active %}required{% endif %}
+                   placeholder="{% if target_state.active %}required for changes{% else %}optional{% endif %}"></div>
           <div class="col-md-12 mt-2">
             {% if has_permission('customers.propose_target') and not has_permission('customers.approve_target') %}
               <button class="btn btn-sm btn-primary" type="submit" data-action="propose">Propose</button>

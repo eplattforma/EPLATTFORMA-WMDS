@@ -191,10 +191,10 @@ def test_propose_approve_reject_workflow(real_customer):
     assert float(s["active"]["annual"]) == 12000.0
     assert s["pending_proposal"] is None
 
-    s = set_target_directly(cc, {"annual": 24000}, actor="mgr1")
+    s = set_target_directly(cc, {"annual": 24000, "notes": "raise"}, actor="mgr1")
     assert float(s["active"]["annual"]) == 24000.0
 
-    propose_target(cc, {"annual": 30000}, actor="am1")
+    propose_target(cc, {"annual": 30000, "notes": "stretch"}, actor="am1")
     s = reject_proposal(cc, reason="too high", actor="mgr1")
     assert s["pending_proposal"] is None
     assert float(s["active"]["annual"]) == 24000.0
@@ -235,7 +235,7 @@ def test_inline_edit_annual_only_preserves_explicit_cadences(real_customer):
     assert float(s["active"]["weekly_ambition"]) == 350.0
 
     # Annual-only inline edit must NOT overwrite the seasonal cadences
-    set_target_directly(cc, {"annual": 24000}, actor="mgr1")
+    set_target_directly(cc, {"annual": 24000, "notes": "annual bump"}, actor="mgr1")
     s = get_target(cc)
     assert float(s["active"]["annual"]) == 24000.0
     # Seasonal values intact — derived-from-annual would have given
@@ -260,7 +260,7 @@ def test_inline_edit_annual_only_fills_empty_cadences(real_customer):
     """), {"c": cc})
     _db.session.commit()
 
-    set_target_directly(cc, {"annual": 24000}, actor="mgr1")
+    set_target_directly(cc, {"annual": 24000, "notes": "fill cadences"}, actor="mgr1")
     s = get_target(cc)
     assert float(s["active"]["annual"]) == 24000.0
     assert float(s["active"]["monthly"]) == 2000.0
@@ -278,8 +278,8 @@ def test_audit_log_entries_for_full_workflow(real_customer):
     cc = real_customer
     propose_target(cc, {"annual": 1000}, actor="am1")
     approve_proposal(cc, actor="mgr1")
-    set_target_directly(cc, {"annual": 2000}, actor="mgr1")
-    propose_target(cc, {"annual": 3000}, actor="am1")
+    set_target_directly(cc, {"annual": 2000, "notes": "raise"}, actor="mgr1")
+    propose_target(cc, {"annual": 3000, "notes": "stretch"}, actor="am1")
     reject_proposal(cc, reason="nope", actor="mgr1")
     clear_target(cc, actor="mgr1")
 
@@ -302,7 +302,7 @@ def test_history_records_previous_values(real_customer):
     from services.cockpit_targets import set_target_directly
     cc = real_customer
     set_target_directly(cc, {"annual": 10000, "monthly": 800}, actor="mgr1")
-    set_target_directly(cc, {"annual": 20000, "monthly": 1700}, actor="mgr1")
+    set_target_directly(cc, {"annual": 20000, "monthly": 1700, "notes": "raise"}, actor="mgr1")
 
     rows = db.session.execute(text("""
         SELECT target_annual, target_monthly,
@@ -420,3 +420,22 @@ def test_search_template_does_not_use_unsafe_innerhtml_with_user_data():
     )
     # Positive check: the safe path uses textContent for the dynamic value
     assert "textContent" in src
+
+
+def test_notes_required_when_changing_existing_target(real_customer):
+    """Brief §6.6 / Ticket 2 close-out: edits to an existing target
+    must include notes. Initial creation does not require notes."""
+    from services.cockpit_targets import (
+        propose_target, set_target_directly,
+    )
+    cc = real_customer
+    # Initial creation — no notes required
+    set_target_directly(cc, {"annual": 12000}, actor="mgr1")
+    # Modification without notes — must raise on both entry points
+    with pytest.raises(ValueError, match="notes are required"):
+        set_target_directly(cc, {"annual": 18000}, actor="mgr1")
+    with pytest.raises(ValueError, match="notes are required"):
+        propose_target(cc, {"annual": 20000}, actor="am1")
+    # With notes — must succeed
+    s = set_target_directly(cc, {"annual": 18000, "notes": "raise"}, actor="mgr1")
+    assert float(s["active"]["annual"]) == 18000.0

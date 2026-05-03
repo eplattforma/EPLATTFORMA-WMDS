@@ -280,6 +280,12 @@ def propose_target(customer_code: str, payload: dict, actor: str) -> dict:
     now = _utc_now()
     existing = _get_existing_row(customer_code)
 
+    # Brief §6.6: changes to an existing target REQUIRE notes.
+    if existing and any(existing.get(k) is not None for k in
+                        ("target_weekly_ambition", "target_monthly",
+                         "target_quarterly", "target_annual")) and not notes:
+        raise ValueError("notes are required when changing an existing target")
+
     if existing:
         db.session.execute(text("""
             UPDATE customer_spend_target SET
@@ -330,6 +336,9 @@ def set_target_directly(customer_code: str, payload: dict, actor: str) -> dict:
         ("target_weekly_ambition", "target_monthly",
          "target_quarterly", "target_annual")
     )
+    # Brief §6.6: changes to an existing target REQUIRE notes.
+    if is_modification and not notes:
+        raise ValueError("notes are required when changing an existing target")
 
     if existing:
         db.session.execute(text("""

@@ -73,17 +73,9 @@ document.addEventListener('click', (ev) => {
   });
 });
 
-// ─── Live-cart inline panel (§11.9) ─────────────────────────────────────
-// Server-rendered: just toggle visibility. Cart line items are not stored
-// in our warehouse (ASSUMPTION-045) so there's nothing to fetch.
-function toggleLiveCart() {
-  const panel = document.getElementById('liveCartPanel');
-  const tile = document.getElementById('liveCartTile');
-  if (!panel || !tile) return;
-  const opening = panel.classList.contains('d-none');
-  panel.classList.toggle('d-none', !opening);
-  tile.setAttribute('aria-expanded', opening ? 'true' : 'false');
-}
+// Live Cart tile is a plain anchor — no client-side toggle.
+// Cart line items aren't stored in our warehouse (ASSUMPTION-045);
+// the tile links out to Magento (or /abandoned-carts as fallback).
 
 // ─── Target endpoints (unchanged from Ticket 1) ────────────────────────
 async function postJSON(url, body) {
