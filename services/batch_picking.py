@@ -70,49 +70,52 @@ def is_db_queue_enabled():
         return False
 
 
-def record_pick_to_queue(batch_id, invoice_no, item_code, picker, qty_picked):
-    """Phase 4 hook: when ``use_db_backed_picking_queue`` is ON, mark
-    the matching ``batch_pick_queue`` row(s) as picked. No-op when the
-    flag is OFF or when the row doesn't exist (legacy batches that
-    pre-date Phase 4 won't have queue rows). Caller is responsible for
-    commit (we use the ambient session)."""
-    if not is_db_queue_enabled():
-        return 0
+def is_db_backed_batch(batch_id):
+    """Per-batch dispatcher: a batch is DB-backed iff it has at least
+    one row in ``batch_pick_queue``. This decouples pick-time behaviour
+    from the global feature flag, so a batch created while the flag was
+    ON keeps writing to its queue even after the flag is flipped OFF
+    mid-shift (and vice-versa: legacy batches never start writing).
+    """
     try:
-        from timezone_utils import get_utc_now
-        result = db.session.execute(
-            text(
-                "UPDATE batch_pick_queue "
-                "SET status = 'picked', picked_by = :picker, "
-                "    picked_at = :now, qty_picked = :qty "
-                "WHERE batch_session_id = :bid "
-                "  AND invoice_no = :inv "
-                "  AND item_code = :ic "
-                "  AND status = 'pending'"
-            ),
-            {
-                "picker": picker,
-                "now": get_utc_now(),
-                "qty": qty_picked,
-                "bid": batch_id,
-                "inv": invoice_no,
-                "ic": item_code,
-            },
-        )
-        # Touch last_activity_at on the session so drain stuck-detection
-        # is accurate.
-        db.session.execute(
-            text(
-                "UPDATE batch_picking_sessions "
-                "SET last_activity_at = :now WHERE id = :bid"
-            ),
-            {"now": get_utc_now(), "bid": batch_id},
-        )
-        return result.rowcount or 0
-    except Exception as e:
-        logger.warning("record_pick_to_queue failed for batch=%s inv=%s ic=%s: %s",
-                       batch_id, invoice_no, item_code, e)
+        n = db.session.execute(
+            text("SELECT 1 FROM batch_pick_queue WHERE batch_session_id = :bid LIMIT 1"),
+            {"bid": batch_id},
+        ).scalar()
+        return n is not None
+    except Exception:
+        return False
+
+
+def record_pick_to_queue(batch_id, invoice_no, item_code, picker, qty_picked):
+    """Mark the matching ``batch_pick_queue`` row picked + touch
+    ``last_activity_at``. Dispatch is per-batch (queue-row existence),
+    NOT the global flag — durable resume must work even if the flag
+    flips mid-shift. Returns rowcount; 0 means legacy batch (no-op).
+    Errors are re-raised so failures are operationally visible.
+    """
+    if not is_db_backed_batch(batch_id):
         return 0
+    from timezone_utils import get_utc_now
+    now = get_utc_now()
+    result = db.session.execute(
+        text(
+            "UPDATE batch_pick_queue "
+            "SET status = 'picked', picked_by = :picker, "
+            "    picked_at = :now, qty_picked = :qty "
+            "WHERE batch_session_id = :bid "
+            "  AND invoice_no = :inv "
+            "  AND item_code = :ic "
+            "  AND status = 'pending'"
+        ),
+        {"picker": picker, "now": now, "qty": qty_picked,
+         "bid": batch_id, "inv": invoice_no, "ic": item_code},
+    )
+    db.session.execute(
+        text("UPDATE batch_picking_sessions SET last_activity_at = :now WHERE id = :bid"),
+        {"now": now, "bid": batch_id},
+    )
+    return result.rowcount or 0
 
 
 def is_claim_required():
@@ -446,6 +449,22 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
     except Exception:
         db.session.rollback()
         raise
+
+
+def can_claim(batch, user):
+    """Authorization for /picker/batch/claim: admins/WMs may claim any
+    non-terminal batch; pickers may claim only batches that are
+    unassigned, unclaimed, or already assigned/claimed to themselves.
+    Returns (ok: bool, reason: str)."""
+    if user.role in ('admin', 'warehouse_manager'):
+        return True, ""
+    assigned = (batch.assigned_to or "").strip()
+    claimed = (getattr(batch, 'claimed_by', None) or "").strip()
+    if assigned and assigned != user.username:
+        return False, f"Batch is assigned to {assigned}; ask an admin to reassign."
+    if claimed and claimed != user.username:
+        return False, f"Batch already claimed by {claimed}."
+    return True, ""
 
 
 def claim_batch(batch_id, claimed_by):

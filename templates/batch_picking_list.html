@@ -78,10 +78,14 @@
                             </td>
                             <td>{{ batch.created_at.strftime('%d/%m/%y %H:%M') }}</td>
                             <td>
-                                {# Phase 4 claim flow: when claim_required is ON and the
-                                   batch has not been claimed yet, show a Claim button. #}
-                                {% set needs_claim = claim_required and not batch.claimed_by %}
-                                {% if needs_claim %}
+                                {# Phase 4 claim flow.
+                                   - If claim_required is ON and the batch has no claimed_by, show Claim.
+                                   - Admin/WM in picker mode also see Claim for any unassigned
+                                     or other-assignee batch so they can intervene. #}
+                                {% set is_admin_like = (current_user.role in ['admin','warehouse_manager']) %}
+                                {% set needs_claim = (claim_required and not batch.claimed_by) %}
+                                {% set admin_can_claim = (is_admin_like and (not batch.claimed_by) and (not batch.assigned_to or batch.assigned_to != current_username)) %}
+                                {% if needs_claim or admin_can_claim %}
                                   <form method="POST"
                                         action="{{ url_for('admin_batch_phase4.claim_batch_route', batch_id=batch.id) }}"
                                         style="display:inline">
@@ -126,13 +130,16 @@
 
 <script>
 function deleteBatch(batchId, batchName) {
-    if (confirm(`Are you sure you want to delete batch "${batchName}"? This action cannot be undone.`)) {
-        // Create a form and submit it to delete the batch
+    if (confirm(`Cancel batch "${batchName}"? Locks will be released and audit history preserved.`)) {
         const form = document.createElement('form');
         form.method = 'POST';
-        form.action = '/batch/delete/' + batchId;
+        form.action = '/admin/batch/cancel/' + batchId;
         form.style.display = 'none';
-        
+        const reason = document.createElement('input');
+        reason.type = 'hidden';
+        reason.name = 'reason';
+        reason.value = 'cancelled via picker batch list UI';
+        form.appendChild(reason);
         document.body.appendChild(form);
         form.submit();
     }

@@ -429,13 +429,25 @@ def batch_delete(batch_id):
         flash('Cannot delete completed/archived batches.', 'warning')
         return redirect(url_for('batch.batch_picking_manage'))
 
+    # Truly-empty contract — anything else routes through cancel.
     picked_count = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
-    if picked_count > 0:
+    sess_inv_count = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).count()
+    locks_count = InvoiceItem.query.filter_by(locked_by_batch_id=batch_id).count()
+    queue_count = 0
+    try:
+        queue_count = db.session.execute(
+            text("SELECT COUNT(*) FROM batch_pick_queue WHERE batch_session_id = :bid"),
+            {"bid": batch_id},
+        ).scalar() or 0
+    except Exception:
+        queue_count = 0
+
+    if picked_count or sess_inv_count or locks_count or queue_count:
         try:
             _cancel_batch(batch_id, current_user.username,
-                          reason='requested via batch_delete on non-empty batch')
-            flash(f'Batch "{batch.name}" had {picked_count} picked item(s); '
-                  'cancelled instead of hard-deleted to preserve audit.', 'info')
+                          reason=f'Hard-delete on non-empty batch (picks={picked_count}, '
+                                 f'invoices={sess_inv_count}, locks={locks_count}, queue={queue_count})')
+            flash(f'Batch "{batch.name}" cancelled instead of hard-deleted (audit preserved).', 'info')
         except Exception as e:
             flash(f'Error cancelling batch: {e}', 'danger')
         return redirect(url_for('batch.batch_picking_manage'))
@@ -1396,13 +1408,10 @@ def start_batch_picking(batch_id):
         flash('You are not assigned to this batch picking session.', 'danger')
         return redirect(url_for('batch.picker_batch_list'))
 
-    # Phase 4: when ``batch_claim_required`` is ON, the picker must
-    # explicitly claim the batch before starting. Legacy auto-assignment
-    # is not sufficient — claimed_by must be set. Admin/WM bypass.
+    # Phase 4: when ``batch_claim_required`` is ON, ALL users (including
+    # admin / WM acting as picker) must explicitly claim before starting.
     from services.batch_picking import is_claim_required as _is_claim_required
-    if (_is_claim_required()
-            and current_user.role not in ['admin', 'warehouse_manager']
-            and not getattr(batch_session, 'claimed_by', None)):
+    if _is_claim_required() and not getattr(batch_session, 'claimed_by', None):
         flash('This batch requires explicit claim. Please claim before picking.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
 
@@ -1972,17 +1981,20 @@ def api_batch_arrived(batch_id):
 @login_required
 def confirm_batch_item(batch_id):
     """Confirm a picked item in a batch - redirects to confirmation screen"""
-    # Only picker users can access this endpoint
     if current_user.role not in ['admin', 'warehouse_manager'] and current_user.role != 'picker':
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
 
-    # Get the batch session
     batch_session = BatchPickingSession.query.get_or_404(batch_id)
-    
-    # Check if this picker is assigned to this batch
+
     if current_user.role not in ['admin', 'warehouse_manager'] and batch_session.assigned_to != current_user.username:
         flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+
+    # Phase 4: claim-required gate applies to ALL pick actions
+    from services.batch_picking import is_claim_required as _is_claim_required
+    if _is_claim_required() and not getattr(batch_session, 'claimed_by', None):
+        flash('This batch requires explicit claim before picking.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
 
     # CRUCIAL FIX: Use our fixed item list from the session
@@ -2080,6 +2092,12 @@ def complete_batch_confirm(batch_id):
     # Check if this picker is assigned to this batch
     if current_user.role not in ['admin', 'warehouse_manager'] and batch_session.assigned_to != current_user.username:
         flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+
+    # Phase 4: claim-required gate on the final pick-commit step too
+    from services.batch_picking import is_claim_required as _is_claim_required
+    if _is_claim_required() and not getattr(batch_session, 'claimed_by', None):
+        flash('This batch requires explicit claim before picking.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
 
     # CRUCIAL FIX: Use our fixed item list from the session
@@ -2796,14 +2814,33 @@ def delete_batch(batch_id):
         return redirect(url_for('batch.picker_batch_list'))
 
     batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    label = batch_session.batch_number or f"BATCH-{batch_session.id}"
 
+    # Truly-empty contract: no picked rows, no queue rows, no session
+    # invoice links, no active locks. Anything else routes through cancel.
     picked_items_count = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
-    if picked_items_count > 0:
-        flash(f'Cannot delete batch "{batch_session.batch_number or "BATCH-" + str(batch_session.id)}" - it has {picked_items_count} picked items. Use Cancel instead.', 'warning')
-        return redirect(url_for('batch.picker_batch_list'))
+    sess_inv_count = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).count()
+    locks_count = InvoiceItem.query.filter_by(locked_by_batch_id=batch_id).count()
+    queue_count = 0
+    try:
+        queue_count = db.session.execute(
+            text("SELECT COUNT(*) FROM batch_pick_queue WHERE batch_session_id = :bid"),
+            {"bid": batch_id},
+        ).scalar() or 0
+    except Exception:
+        queue_count = 0
 
-    if batch_session.status not in ['Created']:
-        flash(f'Cannot delete batch "{batch_session.batch_number or "BATCH-" + str(batch_session.id)}" - it is not in "Created" status. Use Cancel instead.', 'warning')
+    if picked_items_count or sess_inv_count or locks_count or queue_count or batch_session.status not in ['Created']:
+        flash(f'Batch "{label}" is not truly empty (picks={picked_items_count}, '
+              f'invoices={sess_inv_count}, locks={locks_count}, queue={queue_count}, '
+              f'status={batch_session.status}). Routing through Cancel to preserve audit.', 'info')
+        try:
+            from services.batch_picking import cancel_batch as _cancel_batch
+            _cancel_batch(batch_id, current_user.username,
+                          reason='Hard-delete request on non-empty batch — routed to cancel')
+            flash(f'Batch "{label}" cancelled.', 'success')
+        except Exception as e:
+            flash(f'Cancel failed: {e}', 'danger')
         return redirect(url_for('batch.picker_batch_list'))
 
     batch_name = batch_session.batch_number or f"BATCH-{batch_session.id}"

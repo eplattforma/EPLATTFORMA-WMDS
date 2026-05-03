@@ -20,10 +20,12 @@ from services import batch_status
 from services.batch_picking import (
     BatchConflict,
     bulk_unlock_orphans,
+    can_claim,
     cancel_batch,
     claim_batch,
     find_orphaned_locks,
 )
+from models import BatchPickingSession
 from services.maintenance import drain
 from services.permissions import require_permission
 
@@ -39,6 +41,11 @@ admin_batch_phase4_bp = Blueprint("admin_batch_phase4", __name__)
 @login_required
 @require_permission("picking.claim_batch")
 def claim_batch_route(batch_id):
+    batch = BatchPickingSession.query.get_or_404(batch_id)
+    ok, reason = can_claim(batch, current_user)
+    if not ok:
+        flash(reason, "danger")
+        return redirect(request.referrer or url_for("batch.picker_batch_list"))
     try:
         result = claim_batch(batch_id, current_user.username)
         flash(
@@ -48,8 +55,6 @@ def claim_batch_route(batch_id):
         )
     except ValueError as e:
         flash(str(e), "warning")
-    except Exception as e:
-        flash(f"Failed to claim batch: {e}", "danger")
     return redirect(request.referrer or url_for("batch.picker_batch_list"))
 
 
