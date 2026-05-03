@@ -378,6 +378,27 @@ def test_get_target_exposes_display_names_for_actors(real_customer):
     assert s["active"]["approved_by_display_name"] == "mgr-no-such-user"
 
 
+def test_approval_writes_two_history_rows(real_customer):
+    """Brief §10.3: approval creates BOTH the ``approved`` event row AND
+    an ``active_snapshot`` row capturing the post-approval active state.
+    """
+    from services.cockpit_targets import (
+        propose_target, approve_proposal, get_target_history,
+    )
+    cc = real_customer
+    propose_target(cc, {"annual": 18000}, actor="am1")
+    approve_proposal(cc, actor="mgr1")
+    h = get_target_history(cc, limit=20)
+    approved_rows = [r for r in h if r["event"] == "approved"]
+    snapshot_rows = [r for r in h if r["event"] == "active_snapshot"]
+    assert len(approved_rows) >= 1
+    assert len(snapshot_rows) >= 1
+    # The active-state snapshot must carry the just-approved cadences.
+    snap = snapshot_rows[0]
+    assert float(snap["target_annual"]) == 18000.0
+    assert float(snap["target_monthly"]) == 1500.0
+
+
 def test_search_template_does_not_use_unsafe_innerhtml_with_user_data():
     """Stored-XSS regression: the search.html live-search JS must NOT
     interpolate API response strings (customer name/code) into

@@ -486,7 +486,14 @@ def approve_proposal(customer_code: str, actor: str) -> dict:
            "w": cad["weekly_ambition"], "m": cad["monthly"],
            "q": cad["quarterly"], "y": cad["annual"]})
 
+    # Brief §10.3: "Two history rows: customer.target.approved + an
+    # active-state snapshot." The first row records the manager action;
+    # the second is an append-only snapshot of the post-approval active
+    # state so the audit trail can distinguish "manager approved X" from
+    # "the active target is now X".
     _insert_history(customer_code, "approved", actor, cad,
+                    previous=existing)
+    _insert_history(customer_code, "active_snapshot", actor, cad,
                     previous=existing)
     _emit_audit("customer.target.approved", actor, customer_code,
                 {"cadences": {k: str(v) if v is not None else None
