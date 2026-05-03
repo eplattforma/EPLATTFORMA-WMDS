@@ -426,3 +426,75 @@ Rationale: `is_order_ready()` and the dispatch readiness checks intentionally tr
 **Safer alternative considered:** Move the overlay to a dedicated `templates/driver/loading.html`. Deferred to Task #25 (driver cockpit) where a fuller driver UX is planned.
 **Feature flag / rollback:** Overlay is hidden when `cooler_driver_view_enabled=false` (the production default).
 **Reversibility:** High — the overlay block is a single `{% if %}` section.
+
+---
+
+## ASSUMPTION-034: Cockpit `vw_customer_offer_opportunity` view re-pointed to the actual schema
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 1 (Task #24)
+**Files affected:** `migrations/cockpit_schema.py` (`_OFFER_OPPORTUNITY_VIEW_PG`)
+**Decision made:** The view from cockpit-brief Section 10.2 was rewritten against the codebase's real names, not the brief's placeholder names. Substitutions:
+  - `dw_invoice_lines` → `dw_invoice_line` (singular, see `models.DwInvoiceLine`)
+  - `il.revenue_excl_vat` → `l.line_total_excl` (no `revenue_excl_vat` column exists)
+  - `il.invoice_date` → JOIN to `dw_invoice_header` for `invoice_date_utc0` (date does not live on the line)
+  - `dw_customers` → `ps_customers` (no `dw_customers` table; PSCustomer is the canonical customer dim)
+  - `reporting_group_code` → `reporting_group` (TEXT column on `ps_customers`)
+  - Added `WHERE deleted_at IS NULL` on `ps_customers` JOIN (PSCustomer carries SoftDeleteMixin)
+The view's structural intent — customer/SKU pairs ≥ €100 90d revenue, no active own offer, ≥ 3 peers offering — is preserved verbatim.
+**Reason:** The brief explicitly told us to verify column names before running and adjust; following the brief literally would have produced an unparseable view. The semantics of the substituted columns are 1:1 (line_total_excl is the canonical net-of-VAT line revenue used elsewhere in `routes_customer_analytics.py`).
+**Safer alternative considered:** Materialise the view as a table with a refresh job. Deferred — Section 15 of the brief lists materialisation as out-of-scope unless performance demands it.
+**Feature flag / rollback:** Gated by `cockpit_enabled=false` (production default). View is `CREATE OR REPLACE` so re-runs are safe.
+**Reversibility:** High — `DROP VIEW vw_customer_offer_opportunity;`.
+
+---
+
+## ASSUMPTION-035: Cockpit `customer_spend_target` cadence auto-population from annual
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 1 (Task #24)
+**Files affected:** `services/cockpit_targets.py` (`_normalize_cadences`, `set_target_directly`, `propose_target`)
+**Decision made:** When a target payload supplies only `annual`, `services.cockpit_targets._normalize_cadences` derives the missing cadences as `monthly = annual / 12`, `quarterly = annual / 4`, `weekly_ambition = annual / 52` (rounded to cents). Explicit non-empty values from the payload are preserved untouched. On UPDATE in `set_target_directly`, the SQL uses `COALESCE(:new, existing)` so an absent cadence in the payload leaves the stored value alone — only the derived-from-annual fill applies, never an unintended NULL-out.
+**Reason:** Brief Section 10.5 calls for inline-edit on the admin page using just the annual cell. AMs and managers think in annual targets first; the other cadences are mechanical breakdowns. Avoids a four-input mandatory form for the common case.
+**Safer alternative considered:** Reject payloads missing any cadence (force four explicit inputs). Rejected — brief explicitly asks for the auto-population.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`. Easily tunable — change the divisors in one helper.
+**Reversibility:** High — single function.
+
+---
+
+## ASSUMPTION-036: Cockpit run-rate-vs-annual computed as `90d_sales × 4`
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 1 (Task #24)
+**Files affected:** `services/cockpit_targets.py` (`list_all_targets`)
+**Decision made:** The admin-page "Run-rate annual" column is computed as the customer's last-90-day sales (from `dw_invoice_line`/`dw_invoice_header` with `line_total_excl`) multiplied by 4. `% of target` and `gap to annual` derive from this number against the active annual target. Per-period achievement on the cockpit page (`compute_achievement`) uses the calendar-aware formula (`actual / days_in_period × full_period_days`) — only the admin-list rollup uses the simpler ×4 because it's a one-shot snapshot ranking, not a live KPI.
+**Reason:** Mirrors the "rolling-quarter ↔ annualised" convention already in use by the existing analytics suite (`routes_customer_analytics.py`). Keeps the admin page's primary ranking metric (gap-to-annual descending) deterministic and computable in one SQL query without per-row period arithmetic.
+**Safer alternative considered:** Use trailing-12-months sales as the projection. Deferred — Phase-2 cockpit work (Ticket 2) introduces TTM tooling.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`.
+**Reversibility:** High — single helper.
+
+---
+
+## ASSUMPTION-037: Cockpit permission keys exposed in user-permissions editor (unassigned by default)
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 1 (Task #24, code-review follow-up)
+**Files affected:** `routes.py` (`PERMISSION_EDITOR_GROUPS`)
+**Decision made:** The five `COCKPIT_PERMISSION_KEYS` are added to `PERMISSION_EDITOR_GROUPS` under a new "AM Cockpit (gated by cockpit_enabled flag)" group so that the existing `manage_user_permissions` editor surfaces them. Default state remains **unassigned** for every user (no role grants them) — admins still receive them only via the `*` wildcard. The brief Section 14 requires Claudio to assign them per-user at rollout; without exposing them in `ALL_EDITOR_KEYS`, the editor's submitted-key filter (`routes.py` line ~1747) would silently drop the cockpit checkboxes, making them un-grantable.
+**Reason:** Discovered during architect review of Ticket 1. The brief's "registered, unassigned" wording requires registration in *both* the runtime permission registry (`COCKPIT_PERMISSION_KEYS`) and the editor key universe — runtime alone isn't enough for the rollout flow.
+**Safer alternative considered:** Build a separate cockpit-only permission editor route. Rejected — duplicating the editor would diverge from the existing per-user flow Claudio uses today.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`. The keys are visible in the editor regardless of the flag (so they can be pre-assigned ahead of enable), but they have no effect until the master flag is on.
+**Reversibility:** High — remove the group entry from `PERMISSION_EDITOR_GROUPS`.
+
+---
+
+## ASSUMPTION-038: Cockpit target writes are transactional + append-only, not API-idempotent
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 1 (Task #24, code-review follow-up)
+**Files affected:** `services/cockpit_targets.py`
+**Decision made:** Cockpit target write APIs (`propose_target`, `approve_proposal`, `reject_proposal`, `set_target_directly`) commit transactionally inside a single SQLAlchemy session, but they are **not** retry-idempotent: a second call to `approve_proposal` after a successful first call raises `ValueError("No pending proposal...")`, and repeated `set_target_directly` calls append a new row to `customer_spend_target_history` each time even when the payload is unchanged. This is an intentional consequence of the append-only audit log called for in brief Section 10.4 — the history table is the source of truth for "who changed what when," and dedupe would erase legitimate double-clicks by an AM/manager from the audit trail.
+**Reason:** Architect raised this as a gap; on review, the brief explicitly mandates an append-only audit log per change attempt. Caller-side dedupe (CSRF tokens + the existing flask-wtf form-token reuse protection) handles the accidental-double-submit case at the HTTP layer; the service layer correctly preserves every authenticated event.
+**Safer alternative considered:** Add an `event_id` request token + `INSERT ... ON CONFLICT DO NOTHING` dedupe on the history table. Deferred — Tickets 2/3 will introduce richer client UX where this could be reconsidered alongside the wider write surface.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`. No DB schema change needed to revisit later.
+**Reversibility:** High — change a single helper.

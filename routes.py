@@ -1694,6 +1694,11 @@ PERMISSION_EDITOR_GROUPS = [
     ("Settings", [
         "settings.manage_users", "settings.manage_permissions",
     ]),
+    ("AM Cockpit (gated by cockpit_enabled flag)", [
+        "menu.cockpit", "customers.use_cockpit",
+        "customers.propose_target", "customers.approve_target",
+        "customers.ask_claude",
+    ]),
 ]
 ALL_EDITOR_KEYS = [k for _, ks in PERMISSION_EDITOR_GROUPS for k in ks]
 

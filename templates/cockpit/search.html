@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Cockpit — Pick a customer{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <h2 class="mb-3"><i class="fas fa-rocket me-2"></i>Account Manager Cockpit</h2>
+  <p class="text-muted">Search by customer code or company name to open the cockpit.</p>
+
+  <form method="GET" action="" class="mb-3" onsubmit="return cockpitSubmit(event)">
+    <div class="input-group">
+      <input id="cockpit-search" type="search" class="form-control"
+             placeholder="e.g. 12345 or HORECA Demo Ltd" autocomplete="off" autofocus>
+      <button class="btn btn-primary" type="submit">Search</button>
+    </div>
+  </form>
+
+  <div id="cockpit-results" class="list-group"></div>
+</div>
+
+<script>
+let _t = null;
+async function runSearch(q) {
+  if (!q) { document.getElementById('cockpit-results').innerHTML = ''; return; }
+  const r = await fetch('/cockpit/api/search?q=' + encodeURIComponent(q));
+  if (!r.ok) return;
+  const data = await r.json();
+  const box = document.getElementById('cockpit-results');
+  if (!data.items.length) {
+    box.innerHTML = '<div class="text-muted small p-2">No matches.</div>';
+    return;
+  }
+  box.innerHTML = data.items.map(it =>
+    `<a class="list-group-item list-group-item-action" href="/cockpit/${encodeURIComponent(it.code)}">
+       <strong>${it.code}</strong> — ${it.name || '(no name)'}</a>`
+  ).join('');
+}
+function cockpitSubmit(e) {
+  e.preventDefault();
+  runSearch(document.getElementById('cockpit-search').value.trim());
+  return false;
+}
+document.getElementById('cockpit-search').addEventListener('input', e => {
+  clearTimeout(_t);
+  const q = e.target.value.trim();
+  _t = setTimeout(() => runSearch(q), 250);
+});
+</script>
+{% endblock %}

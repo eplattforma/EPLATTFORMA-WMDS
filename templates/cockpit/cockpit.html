@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Cockpit — {{ customer_code }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center mb-3">
+    <h3 class="mb-0"><i class="fas fa-rocket me-2"></i>Cockpit · {{ customer_code }}</h3>
+    <a href="/cockpit/" class="btn btn-sm btn-outline-secondary ms-3">← Search</a>
+  </div>
+
+  <div class="alert alert-info">
+    <strong>Ticket 1 scaffold.</strong> The full cockpit lands in Ticket 2.
+    The Targets card below is fully functional.
+  </div>
+
+  {# ── Target Achievement card ─────────────────────────────────────── #}
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center">
+      <strong><i class="fas fa-bullseye me-2"></i>Spend Target</strong>
+      <span class="ms-auto small text-muted">
+        Status: <code>{{ (target_state.active and 'active')
+                    or (target_state.pending_proposal and 'proposed')
+                    or 'no_target' }}</code>
+      </span>
+    </div>
+    <div class="card-body">
+      {% if target_state.pending_proposal %}
+        <div class="alert alert-warning py-2 mb-3">
+          <strong>Pending proposal</strong> by
+          {{ target_state.pending_proposal.proposed_by }} on
+          {{ target_state.pending_proposal.proposed_at }} ·
+          annual €{{ target_state.pending_proposal.annual or '–' }}
+          {% if target_state.pending_proposal.proposed_notes %}
+            <br><em>{{ target_state.pending_proposal.proposed_notes }}</em>
+          {% endif %}
+          {% if has_permission('customers.approve_target') %}
+            <div class="mt-2">
+              <button class="btn btn-sm btn-success" onclick="targetAct('approve')">Approve</button>
+              <button class="btn btn-sm btn-outline-danger ms-1" onclick="targetReject()">Reject…</button>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div class="row text-center mb-3">
+        {% for period, label in [('mtd','MTD'), ('qtd','QTD'), ('ytd','YTD'), ('weekly_average','Weekly avg')] %}
+          {% set a = achievement[period] %}
+          <div class="col">
+            <div class="small text-muted">{{ label }}</div>
+            <div class="fs-5">€{{ '%.0f'|format(a.actual) }}</div>
+            {% if a.target %}
+              <div class="small">target €{{ '%.0f'|format(a.target) }}</div>
+              <div class="small {{ 'text-success' if a.on_pace else 'text-danger' }}">
+                {{ a.pct }}% · gap €{{ '%.0f'|format(a.gap) }}
+              </div>
+            {% else %}
+              <div class="small text-muted">no target</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <details>
+        <summary class="small text-muted">Edit target</summary>
+        <form class="row g-2 align-items-end mt-2" onsubmit="return targetSubmit(event)">
+          <div class="col-md-2"><label class="form-label small mb-0">Annual €</label>
+            <input class="form-control form-control-sm" name="annual" type="number" step="0.01"
+                   value="{{ (target_state.active and target_state.active.annual) or '' }}"></div>
+          <div class="col-md-2"><label class="form-label small mb-0">Quarterly €</label>
+            <input class="form-control form-control-sm" name="quarterly" type="number" step="0.01"
+                   value="{{ (target_state.active and target_state.active.quarterly) or '' }}"></div>
+          <div class="col-md-2"><label class="form-label small mb-0">Monthly €</label>
+            <input class="form-control form-control-sm" name="monthly" type="number" step="0.01"
+                   value="{{ (target_state.active and target_state.active.monthly) or '' }}"></div>
+          <div class="col-md-2"><label class="form-label small mb-0">Weekly ambition €</label>
+            <input class="form-control form-control-sm" name="weekly_ambition" type="number" step="0.01"
+                   value="{{ (target_state.active and target_state.active.weekly_ambition) or '' }}"></div>
+          <div class="col-md-3"><label class="form-label small mb-0">Notes</label>
+            <input class="form-control form-control-sm" name="notes"></div>
+          <div class="col-md-12 mt-2">
+            {% if has_permission('customers.propose_target') and not has_permission('customers.approve_target') %}
+              <button class="btn btn-sm btn-primary" type="submit" data-action="propose">Propose</button>
+            {% endif %}
+            {% if has_permission('customers.approve_target') %}
+              <button class="btn btn-sm btn-success" type="submit" data-action="set">Set directly</button>
+              <button class="btn btn-sm btn-outline-primary" type="submit" data-action="propose">Propose</button>
+            {% endif %}
+          </div>
+        </form>
+      </details>
+    </div>
+  </div>
+
+  <div class="text-muted small">
+    Customer: <code>{{ customer_code }}</code> ·
+    All other cockpit panels arrive in Ticket 2.
+  </div>
+</div>
+
+<script>
+const CC = {{ customer_code|tojson }};
+
+async function postJSON(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {}),
+  });
+  return [r.ok, await r.json().catch(() => ({}))];
+}
+
+function readForm(form) {
+  const out = {};
+  new FormData(form).forEach((v, k) => { if (v !== '') out[k] = v; });
+  return out;
+}
+
+async function targetSubmit(e) {
+  e.preventDefault();
+  const action = document.activeElement.dataset.action || 'propose';
+  const body = readForm(e.target);
+  const url = `/cockpit/api/${encodeURIComponent(CC)}/target/${action}`;
+  const [ok, data] = await postJSON(url, body);
+  if (!ok) { alert('Failed: ' + (data.error || 'unknown')); return false; }
+  location.reload();
+  return false;
+}
+
+async function targetAct(action) {
+  const url = `/cockpit/api/${encodeURIComponent(CC)}/target/${action}`;
+  const [ok, data] = await postJSON(url, {});
+  if (!ok) { alert('Failed: ' + (data.error || 'unknown')); return; }
+  location.reload();
+}
+
+async function targetReject() {
+  const reason = prompt('Reason for rejection?');
+  if (reason === null) return;
+  const url = `/cockpit/api/${encodeURIComponent(CC)}/target/reject`;
+  const [ok, data] = await postJSON(url, {reason: reason});
+  if (!ok) { alert('Failed: ' + (data.error || 'unknown')); return; }
+  location.reload();
+}
+</script>
+{% endblock %}

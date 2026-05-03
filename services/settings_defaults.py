@@ -64,6 +64,11 @@ PHASE1_DEFAULTS = {
     "cooler_picking_enabled": "false",
     "cooler_labels_enabled": "false",
     "cooler_driver_view_enabled": "false",
+
+    # Cockpit (Account-Manager Cockpit, default OFF — see ROLLBACK_AND_FLAGS.md).
+    # When ``false`` the entire ``/cockpit/...`` URL space returns HTTP 404 and
+    # the menu entry is hidden; permission keys are registered but unassigned.
+    "cockpit_enabled": "false",
 }
 
 

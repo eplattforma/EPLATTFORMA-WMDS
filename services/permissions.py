@@ -54,6 +54,17 @@ ROLE_PERMISSIONS = {
     ],
 }
 
+# Cockpit Ticket 1 — permission keys registered but intentionally unassigned.
+# Claudio grants them to specific users at rollout (cockpit-brief Section 14).
+# Admins continue to receive them via the ``*`` wildcard above.
+COCKPIT_PERMISSION_KEYS = [
+    "menu.cockpit",
+    "customers.use_cockpit",
+    "customers.propose_target",
+    "customers.approve_target",
+    "customers.ask_claude",
+]
+
 
 def _is_enforcement_enabled():
     try:

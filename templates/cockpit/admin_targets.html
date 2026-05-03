@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Cockpit — Targets admin{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center mb-3">
+    <h3 class="mb-0"><i class="fas fa-bullseye me-2"></i>Spend Targets · Admin</h3>
+    <a href="/cockpit/" class="btn btn-sm btn-outline-secondary ms-3">← Cockpit search</a>
+  </div>
+
+  <form class="row g-2 align-items-end mb-3" method="GET">
+    <div class="col-auto">
+      <label class="form-label small mb-0">Status</label>
+      <select class="form-select form-select-sm" name="status">
+        {% for v, lbl in [('','All'), ('active','Active'), ('pending','Pending'), ('no_target','No target')] %}
+          <option value="{{ v }}" {% if filters.get('status') == v %}selected{% endif %}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Agent code</label>
+      <input class="form-control form-control-sm" name="agent" value="{{ filters.get('agent','') }}">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">District (town)</label>
+      <input class="form-control form-control-sm" name="district" value="{{ filters.get('district','') }}">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Classification</label>
+      <input class="form-control form-control-sm" name="classification" value="{{ filters.get('classification','') }}">
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Apply</button></div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Code</th><th>Customer</th><th>Class</th><th>District</th><th>Agent</th>
+          <th class="text-end">90d sales €</th>
+          <th class="text-end">Run-rate annual €</th>
+          <th class="text-end">Annual target €</th>
+          <th class="text-end">% of target</th>
+          <th class="text-end">Gap to annual €</th>
+          <th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td><a href="/cockpit/{{ r.customer_code }}">{{ r.customer_code }}</a></td>
+            <td>{{ r.customer_name }}</td>
+            <td>{{ r.classification or '' }}</td>
+            <td>{{ r.district or '' }}</td>
+            <td>{{ r.agent_name or r.agent_code or '' }}</td>
+            <td class="text-end">{{ '%.0f'|format(r.sales_90d) }}</td>
+            <td class="text-end">{{ '%.0f'|format(r.run_rate_annual) }}</td>
+            <td class="text-end">
+              <input type="number" step="0.01" class="form-control form-control-sm text-end"
+                     style="max-width: 130px; display: inline-block;"
+                     value="{{ r.annual or '' }}"
+                     onchange="setAnnual('{{ r.customer_code }}', this.value)">
+            </td>
+            <td class="text-end {% if r.pct_of_annual_target and r.pct_of_annual_target < 80 %}text-danger{% endif %}">
+              {{ r.pct_of_annual_target if r.pct_of_annual_target is not none else '–' }}
+            </td>
+            <td class="text-end">
+              {{ ('%.0f'|format(r.gap_to_annual)) if r.gap_to_annual is not none else '–' }}
+            </td>
+            <td><span class="badge bg-secondary">{{ r.status or 'no_target' }}</span></td>
+            <td><a href="/cockpit/{{ r.customer_code }}" class="btn btn-sm btn-outline-secondary">Open</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="12" class="text-center text-muted py-4">No customers match the filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function setAnnual(code, val) {
+  if (val === '' || val === null) return;
+  const r = await fetch(`/cockpit/api/${encodeURIComponent(code)}/target/set`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({annual: val}),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    alert('Failed: ' + (d.error || r.status));
+  }
+}
+</script>
+{% endblock %}

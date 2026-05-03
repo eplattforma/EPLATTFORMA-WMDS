@@ -294,6 +294,19 @@ app.register_blueprint(admin_job_runs_bp)
 from routes_admin_batch_phase4 import admin_batch_phase4_bp
 app.register_blueprint(admin_batch_phase4_bp)
 
+# ── Cockpit (Ticket 1 scaffold) ──────────────────────────────────────
+# Master flag ``cockpit_enabled`` (default false in services/settings_defaults.py)
+# hides every /cockpit/... route with HTTP 404 until the operator flips it on.
+try:
+    with app.app_context():
+        from migrations.cockpit_schema import ensure_cockpit_schema
+        ensure_cockpit_schema()
+    from blueprints.cockpit import cockpit_bp
+    app.register_blueprint(cockpit_bp)
+    logging.info("Cockpit blueprint registered (master flag controls visibility)")
+except Exception as e:
+    logging.warning(f"Cockpit blueprint not registered: {e}")
+
 
 @app.context_processor
 def _inject_phase4_drain_banner():

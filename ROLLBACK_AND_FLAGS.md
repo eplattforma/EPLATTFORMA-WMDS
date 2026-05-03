@@ -193,3 +193,40 @@ Insert before existing step 3:
 - `2e. summer_cooler_mode_enabled = false` (new batches stop snapshotting cooler zones)
 
 In-flight cooler boxes already opened before the flag flip are not auto-closed; the operator closes them via `/cooler/box/<id>/close` or leaves them open until the order ships (the close is idempotent — see P5-32).
+
+---
+
+## Cockpit — Ticket 1 (Account-Manager Cockpit scaffold, Task #24)
+
+### New flag (default `false`)
+
+| Flag | Default | What it gates |
+|---|---|---|
+| `cockpit_enabled` | `false` | Master flag for the entire `/cockpit/...` URL space. When `false`, every cockpit route returns HTTP 404 (the URL space is hidden, not forbidden) and the "AM Cockpit" menu entry under Customers is hidden via `has_permission('menu.cockpit')` (no-op while permission keys are unassigned). |
+
+### New permission keys (registered, intentionally unassigned)
+
+`menu.cockpit`, `customers.use_cockpit`, `customers.propose_target`,
+`customers.approve_target`, `customers.ask_claude`. Listed in
+`services.permissions.COCKPIT_PERMISSION_KEYS`. **No role grants them by
+default** — admins receive them via the `*` wildcard. Claudio assigns
+them per-user at rollout (cockpit-brief Section 14). Until then, AMs and
+managers see the same UX as today.
+
+### Schema (additive — `migrations/cockpit_schema.py`)
+
+- `customer_spend_target` — one row per customer (PK `customer_code_365` → `ps_customers`); cadence columns + `status` ∈ {`active`, `proposed`, `no_target`} + proposed/approved/last-modified actor + timestamps.
+- `customer_spend_target_history` — append-only audit log; one row per `customer.target.{proposed,set,approved,active_snapshot,rejected}` event.
+- `vw_customer_offer_opportunity` (Postgres only) — read-only view returning customer-SKU pairs where the customer bought ≥ €100 in the last 90 days, has no active offer, and ≥ 3 peers in the same `reporting_group` do. Computed on read (cockpit-brief 10.2 — re-pointed to actual schema; see ASSUMPTION-034). SQLite skips the view; the cockpit service degrades to an empty list, never raises.
+
+Idempotent: `CREATE TABLE IF NOT EXISTS` + `CREATE OR REPLACE VIEW`. Wired into `main.py` immediately after the Phase 5 schema runner so cold boot under both Postgres and SQLite ensures the schema before the blueprint is registered.
+
+### Rollback
+
+1. Set `cockpit_enabled = false` (already the default). All routes return 404; menu entry vanishes.
+2. (Optional) Revoke the five permission keys from any users granted them.
+3. (Optional, destructive) `DROP VIEW vw_customer_offer_opportunity; DROP TABLE customer_spend_target_history; DROP TABLE customer_spend_target;`. Tickets 2 and 3 add no further schema, only services.
+
+### Emergency disable order (updated, appended after Phase 5 block)
+
+- `3a. cockpit_enabled = false` (entire `/cockpit/...` URL space returns 404; menu entry hidden; existing customer reports — Customer 360, Benchmark, Peer Analytics, Pricing Analytics, Abandoned Carts, CRM Dashboard — keep working unchanged).
