@@ -263,6 +263,10 @@ app.register_blueprint(communications_bp)
 from blueprints.replenishment_mvp import replenishment_bp
 app.register_blueprint(replenishment_bp)
 
+from blueprints.cooler_picking import cooler_bp, register_template_helpers as _register_cooler_helpers
+app.register_blueprint(cooler_bp)
+_register_cooler_helpers(app)
+
 from blueprints.forecast_workbench import forecast_bp
 app.register_blueprint(forecast_bp)
 
@@ -387,6 +391,12 @@ if _db_available:
         update_phase4_batch_picking_schema()
     except Exception as e:
         logging.error(f"Phase 4 batch picking schema updater failed: {e}")
+
+    try:
+        from update_phase5_cooler_picking_schema import update_phase5_cooler_picking_schema
+        update_phase5_cooler_picking_schema()
+    except Exception as e:
+        logging.error(f"Phase 5 cooler picking schema updater failed: {e}")
 
     try:
         from update_batch_number_schema import update_database_schema as update_batch_number_schema

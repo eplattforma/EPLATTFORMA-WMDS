@@ -37,3 +37,40 @@ Format: each gap has a short ID, severity, where it was discovered, the current 
   - The auto-seeder grants admin `*` and is idempotent (`tests/test_permissions.py::test_seeder_grants_admin_star_and_is_idempotent`).
 **Recommended future fix:** None. This is the system working as designed; the residual is a documentation artefact, not a code or test gap. If a future operator ever wants per-domain admin separation (e.g. a "warehouse super-admin" who is *not* allowed into Settings), that would require a new role + a removal of `*` from that role, at which point this RR is automatically retired by the new role's allow/deny matrix.
 **Why not now:** This is not a fix in waiting — there is nothing to fix. The entry exists only so that the closeout's "1 ALLOW + 1 DENY per role" literal wording has an explicit, signed-off carve-out for `admin`.
+
+---
+
+## GAP-P5-01: Cooler-box auto-close on flag flip (deferred)
+
+**Date raised:** 2026-05-03
+**Phase:** Phase 5 (Cooler Picking, Reduced Scope)
+**Severity:** Low (operational, not safety)
+**Description:** When the operator flips `cooler_picking_enabled` from `true` back to `false` mid-shift, any cooler boxes that were opened while the flag was on remain in the `Open` state. They do not auto-close, and they do not appear in the operator UI any more (the blueprint endpoints become unreachable from the dashboard) until the operator manually re-enables the flag or closes them via direct URL `/cooler/box/<id>/close`.
+**Why deferred:** Auto-closing on flag flip would require a watcher / scheduler hook and a "close reason" column on `cooler_boxes`. The reduced-scope phase explicitly excluded background workers (see SCHEDULING.md — no new jobs in Phase 5). The current behaviour is safe (orphan boxes do not block dispatch — they only show in the orphan-locks reconciliation UI).
+**Workaround:** Operator visits `/cooler/box/<id>/close` directly, or re-enables the flag long enough to close from the dashboard, then disables again.
+
+---
+
+## GAP-P5-02: PDF Polish — barcode font fallback
+
+**Date raised:** 2026-05-03
+**Phase:** Phase 5 (Cooler Picking, Reduced Scope)
+**Severity:** Cosmetic
+**Description:** `services/cooler_pdf.py` uses ReportLab's default Helvetica family. The QR code is reliable, but the human-readable label below long invoice numbers can wrap awkwardly. A monospace font would render the wrapped lines more cleanly.
+**Why deferred:** Aesthetic polish only; QR code is the operator's actual scan target. Out of reduced scope.
+
+---
+
+## GAP-P5-03: Cross-file pytest run leaks locked-rows from Phase 5 into Phase 4
+
+**Date raised:** 2026-05-03
+**Phase:** Phase 5 (Cooler Picking, Reduced Scope)
+**Severity:** Test-tooling only (no production impact)
+**Description:** When `tests/test_phase5_cooler_picking.py` and `tests/test_phase4_batch_picking.py` are run together in the **same** pytest process, the in-memory SQLite database is shared across the two suites' fixtures (SQLAlchemy connection-pool reuse), so item locks created during Phase 5 batch-creation tests carry over and trip the conflict guard in Phase 4 cancel/audit tests. Running each suite in its own pytest process (which is what the configured `override-pipeline` workflow and the documented release-test command do) shows them all green.
+**Why deferred:** Fixing requires a session-scoped fixture rewrite in the shared `tests/conftest.py` (engine disposal between files) — a test-infrastructure change that is out of reduced-scope for the picking phase and would touch every other test suite in the repo.
+**Workaround:** Run the suites in separate invocations:
+```
+pytest tests/test_phase5_cooler_picking.py
+pytest tests/test_phase4_batch_picking.py
+pytest tests/test_override_ordering_pipeline.py
+```

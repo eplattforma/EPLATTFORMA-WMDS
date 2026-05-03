@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Cooler Picking{% endblock %}
+{% block content %}
+<div class="container my-4">
+  <h2 class="mb-3">Cooler Picking — Routes With Pending Items</h2>
+  {% if not routes %}
+    <div class="alert alert-info">No cooler picking work pending.</div>
+  {% else %}
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th>Delivery date</th>
+          <th class="text-end">Pending</th>
+          <th class="text-end">Picked</th>
+          <th class="text-end">Exception</th>
+          <th class="text-end">Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in routes %}
+          <tr>
+            <td>{{ r.route_id }}</td>
+            <td>{{ r.delivery_date }}</td>
+            <td class="text-end">{{ r.pending }}</td>
+            <td class="text-end">{{ r.picked }}</td>
+            <td class="text-end">{{ r.exception }}</td>
+            <td class="text-end">{{ r.total }}</td>
+            <td>
+              <a class="btn btn-sm btn-primary"
+                 href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}">
+                Open
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

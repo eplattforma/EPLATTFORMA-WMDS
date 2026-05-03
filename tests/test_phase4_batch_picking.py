@@ -45,6 +45,7 @@ def _ensure_queue_table(db):
                 picked_by VARCHAR(64),
                 picked_at TIMESTAMP,
                 cancelled_at TIMESTAMP,
+                wms_zone VARCHAR(50),
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )

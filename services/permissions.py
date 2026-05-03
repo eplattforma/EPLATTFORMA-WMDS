@@ -43,6 +43,7 @@ ROLE_PERMISSIONS = {
     ],
     "picker": [
         "menu.picking", "picking.perform", "picking.claim_batch",
+        "cooler.pick",
     ],
     # Note: ``picking.delete_empty_batch`` (Phase 4) is intentionally NOT
     # in any role's grant list — only admins (via the ``*`` wildcard) and

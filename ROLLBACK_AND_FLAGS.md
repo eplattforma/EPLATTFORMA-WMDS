@@ -165,3 +165,31 @@ Insert before existing step 3:
 - `2a. maintenance_mode = 'normal'` (release any drain hold)
 - `2b. batch_claim_required = false` (auto-assign returns)
 - `2c. use_db_backed_picking_queue = false` (legacy queue resumes)
+
+---
+
+## Phase 5 — Cooler Picking (Reduced Scope, Task #22)
+
+### New / re-affirmed flags (all default `false`)
+| Setting key | Default | Effect when `true` |
+|---|---|---|
+| `summer_cooler_mode_enabled` | `false` | `create_batch_atomic` routes SENSITIVE rows to `pick_zone_type='cooler'` and snapshots `wms_zone` from `dw_items.zone_in_warehouse`. |
+| `cooler_picking_enabled` | `false` | `cooler_bp` blueprint endpoints (`/cooler/...`) become operator-visible; `route_detail.html` renders the cooler-boxes overlay; driver-loading overlay shows cooler box counts. |
+
+### New permission keys
+- `cooler.pick` — granted to `picker`, `warehouse_manager`, `admin` via wildcard.
+- `cooler.manage_boxes` — granted to `warehouse_manager` (via `cooler.*`) and `admin` (via `*`). **NOT** granted to `picker`.
+
+### Schema (additive — `update_phase5_cooler_picking_schema.py`)
+- New tables `cooler_boxes`, `cooler_box_items` with FK to `batch_picking_sessions.id`.
+- `batch_pick_queue` gains nullable `pick_zone_type VARCHAR(20)` and `wms_zone VARCHAR(50)`.
+
+### Rollback
+1. Set `summer_cooler_mode_enabled = false` and `cooler_picking_enabled = false` (already the default).
+2. Schema is additive — no data migration needed to revert. Code can be reverted without touching the new tables.
+
+### Emergency disable order (updated, after Phase 4 block)
+- `2d. cooler_picking_enabled = false` (overlay + cooler endpoints disappear from operator UI)
+- `2e. summer_cooler_mode_enabled = false` (new batches stop snapshotting cooler zones)
+
+In-flight cooler boxes already opened before the flag flip are not auto-closed; the operator closes them via `/cooler/box/<id>/close` or leaves them open until the order ships (the close is idempotent — see P5-32).

@@ -2548,8 +2548,13 @@ def admin_update_invoice_items(invoice_no):
     # Update invoice status intelligently based on the new status system
     # Only update status if the order is in early stages (not_started, picking, ready_for_dispatch)
     # Don't touch orders that are shipped, out_for_delivery, delivered, etc.
-    all_picked = all(item.is_picked for item in invoice.items)
-    
+    # Phase 5: route readiness through services.order_readiness so cooler
+    # queue + cooler-box closure are honoured when summer_cooler_mode is on.
+    # When the invoice never went through the new pipeline this falls
+    # back to the legacy is_picked check, preserving prior behaviour.
+    from services.order_readiness import is_order_ready
+    all_picked = is_order_ready(invoice_no)
+
     if invoice.status in ['not_started', 'picking']:
         # Early stage orders - update to ready_for_dispatch if all picked
         if all_picked:

@@ -117,3 +117,10 @@ warm-up:
 
 Each catch-up respects an in-flight `RUNNING` log row from the previous
 worker to avoid double-fire.
+
+## Phase 5 — Cooler Picking (Reduced Scope, Task #22)
+
+**No new scheduled jobs.** Cooler boxes are operator-driven (open/assign/close
+via `/cooler/...` endpoints). There is no watchdog, no auto-close worker, and
+no nightly reconciliation. Orphaned `Open` boxes left after a flag-down event
+surface in the existing orphan-locks reconciliation UI; see GAP-P5-01.

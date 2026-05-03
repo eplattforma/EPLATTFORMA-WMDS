@@ -390,6 +390,44 @@
     </div>
     {% endif %}
 
+    {# Phase 5: Cooler boxes overlay (read-only, gated by cooler_driver_view_enabled). #}
+    {% if cooler_driver_view_enabled is defined and cooler_driver_view_enabled() %}
+        {% set _cooler_boxes = cooler_boxes_for_route(route.id, route.delivery_date) %}
+        {% if _cooler_boxes %}
+        <div class="cooler-boxes-section mt-4" id="cooler-boxes-section">
+            <h5 class="mb-3">
+                <i class="fas fa-snowflake me-2"></i>Cooler boxes for this route
+                <span class="badge bg-info ms-2">{{ _cooler_boxes|length }}</span>
+            </h5>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Box #</th><th>Stop range</th><th>Items</th>
+                            <th>Status</th><th>Manifest</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cb in _cooler_boxes %}
+                        <tr>
+                            <td>BOX {{ cb.box_no }}</td>
+                            <td>
+                                {% if cb.first_stop_sequence is not none and cb.last_stop_sequence is not none %}
+                                    {{ cb.first_stop_sequence|round(0, 'floor')|int }} – {{ cb.last_stop_sequence|round(0, 'floor')|int }}
+                                {% else %}-{% endif %}
+                            </td>
+                            <td>{{ cb.item_count }}</td>
+                            <td><span class="badge bg-secondary">{{ cb.status }}</span></td>
+                            <td><a class="btn btn-sm btn-outline-primary" href="{{ cb.manifest_url }}" target="_blank">PDF</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    {% endif %}
+
     <!-- Stops List -->
     {% if stops|length == 0 %}
     <div class="alert alert-info mt-4">

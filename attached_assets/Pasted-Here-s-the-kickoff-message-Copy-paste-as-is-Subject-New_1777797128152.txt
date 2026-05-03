@@ -1,0 +1,30 @@
+Here's the kickoff message. Copy-paste as-is.
+
+Subject: New project — Account Manager Cockpit (additive customer view + Greek AI recommendations)
+Hi,
+Attaching the implementation brief for a new project: Account Manager Cockpit. It's a single comprehensive customer view that combines existing data with new analytics (editable spend targets at 4 cadences, "offers he could get" detection, GP-based ranking, PVM decomposition, churn risk by category, engagement score) and Greek-language recommendations from Claude.
+Important — read before starting:
+
+This is purely additive. It does NOT replace, modify, or deprecate any existing customer report. Every existing URL (/crm/dashboard, /crm/review-ordering, /abandoned-carts, /customer-benchmark, /analytics/customers/<code>, /peer-analytics/<code>, /pricing-analytics/customer/<code>, /analytics/top-opportunities, /analytics/) must continue to work identically to today. The cockpit is a new menu entry alongside the existing ones, not a replacement. Consolidation of old reports is a separate decision I'll make in 4–6 weeks based on real usage of the cockpit.
+Hard prerequisite: WMDS Operational Development Batch Phase 1 must be shipped first. The cockpit depends on @require_permission, display_name, the settings table API, and is_active. Section 3 of the brief has a 30-second grep check to verify. If Phase 1 isn't shipped, do not start cockpit work — notify me.
+Three tickets, ship them sequentially. Ticket 1 (scaffold + targets + new SQL view) → Ticket 2 (the cockpit page) → Ticket 3 (Greek Claude advice). Each has explicit acceptance criteria. Don't start Ticket N+1 until Ticket N's criteria are met.
+
+Before writing any code, please answer the 10 questions in Section 16 of the brief in a single batched reply. Some can be resolved by reading the codebase, some need my input. Don't guess on any of them — particularly the column names for gross_profit, the reporting-group join, and the AM ↔ customer mapping. Wrong assumptions there will cascade into bad data on the page.
+Provider note (Section 12): The cockpit uses Claude (Anthropic), not OpenAI. The existing ai_feedback_service.py (OpenAI) stays untouched and continues to serve the legacy "Ask AI" button on Customer Benchmark. The new services/claude_advice_service.py is a sibling, not a replacement. They share the ai_feedback_cache table with a cockpit_ key prefix so they can't collide. Do not modify ai_feedback_service.py.
+Do-not-touch list (Section 7): All existing customer-report files. Read them freely for context, do not edit. Where existing logic is inlined in route handlers, replicate the SQL faithfully into services/cockpit_data.py rather than refactoring the original. Replication is the price of additivity here — accept it.
+Conventions to follow from the operational batch:
+
+Settings table for the feature flag (cockpit_enabled, default false)
+ROLLBACK_AND_FLAGS.md entries for every new flag
+Assumptions log in the same numbered format
+display_name everywhere user-visible — no raw usernames in the UI
+Additive migrations only, fully reversible
+
+Definition of Done per ticket matches the operational batch's pattern: acceptance criteria met, coexistence checklist passes (Section 13), ROLLBACK_AND_FLAGS.md updated, assumptions log delivered, files-changed list provided.
+Rollout is my responsibility, not yours. Ship all three tickets with cockpit_enabled = false after deploy. I'll toggle it on for myself first, then for 1–2 sales managers, then broaden.
+Please confirm receipt and reply with:
+
+Whether operational batch Phase 1 is shipped (run the grep checks in Section 3)
+Your answers to the 10 questions in Section 16
+Estimated timing for Ticket 1, then 2, then 3
+Any disagreements with the brief — better to surface them now than mid-build

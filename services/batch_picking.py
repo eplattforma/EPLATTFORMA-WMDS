@@ -173,6 +173,35 @@ def rebuild_items_from_queue(batch_id):
     return rebuilt
 
 
+def is_summer_cooler_mode_enabled():
+    """Read ``summer_cooler_mode_enabled`` flag (defaults OFF). When ON,
+    items with ``DwItem.wms_zone = 'SENSITIVE'`` are excluded from the
+    normal picking queue and routed to the cooler queue
+    (``pick_zone_type = 'cooler'``)."""
+    try:
+        return Setting.get(db.session, "summer_cooler_mode_enabled", "false").lower() == "true"
+    except Exception:
+        return False
+
+
+def _wms_zone_for_item_codes(item_codes):
+    """Return ``{item_code: wms_zone}`` for the given codes, sourced from
+    ``DwItem``. Items with no DW row (or ``wms_zone IS NULL``) get an
+    empty string so the snapshot column is non-null and predictable.
+    """
+    if not item_codes:
+        return {}
+    try:
+        from models import DwItem
+        rows = db.session.query(
+            DwItem.item_code_365, DwItem.wms_zone
+        ).filter(DwItem.item_code_365.in_(list(item_codes))).all()
+        return {code: (zone or "") for code, zone in rows}
+    except Exception as e:
+        logger.debug("wms_zone lookup failed: %s", e)
+        return {}
+
+
 def is_claim_required():
     """Read ``batch_claim_required`` flag (defaults OFF). When ON, a
     picker must explicitly claim a batch before starting to pick — the
@@ -354,15 +383,32 @@ def create_batch_atomic(filters, created_by, mode="Sequential", name=None,
         # Step 6: queue rows (idempotent insert via ORM; the table is new in Phase 4
         # so we hand-write SQL rather than declare an ORM model — keeps the legacy
         # session path completely untouched when the flag is OFF).
+        #
+        # Phase 5 trigger: when ``summer_cooler_mode_enabled`` is true,
+        # rows for items where ``DwItem.wms_zone = 'SENSITIVE'`` are
+        # written with ``pick_zone_type = 'cooler'`` regardless of the
+        # caller's requested ``pick_zone_type``. The wms_zone value is
+        # snapshotted onto the queue row so a later mid-pick
+        # reclassification of ``DwItem.wms_zone`` does not retroactively
+        # move the row between cooler and normal.
+        cooler_mode = is_summer_cooler_mode_enabled()
+        zone_lookup = (
+            _wms_zone_for_item_codes({i.item_code for i in free})
+            if cooler_mode else {}
+        )
         for seq, item in enumerate(free, start=1):
+            wms_zone = zone_lookup.get(item.item_code, "")
+            row_pzt = pick_zone_type
+            if cooler_mode and wms_zone == "SENSITIVE":
+                row_pzt = "cooler"
             db.session.execute(
                 text(
                     """
                     INSERT INTO batch_pick_queue (
                         batch_session_id, invoice_no, item_code, pick_zone_type,
-                        sequence_no, status, qty_required
+                        sequence_no, status, qty_required, wms_zone
                     ) VALUES (
-                        :sid, :inv, :code, :pzt, :seq, 'pending', :qty
+                        :sid, :inv, :code, :pzt, :seq, 'pending', :qty, :zone
                     )
                     """
                 ),
@@ -370,9 +416,10 @@ def create_batch_atomic(filters, created_by, mode="Sequential", name=None,
                     "sid": session_obj.id,
                     "inv": item.invoice_no,
                     "code": item.item_code,
-                    "pzt": pick_zone_type,
+                    "pzt": row_pzt,
                     "seq": seq,
                     "qty": float(item.qty) if item.qty is not None else None,
+                    "zone": wms_zone or None,
                 },
             )
 

@@ -246,3 +246,29 @@ Format defined in Section 3 of the brief.
 **Safer alternative considered:** Per-batch engine column + dispatcher. Rejected as scope creep for a shadow-rollout phase.
 **Feature flag / rollback:** Operator flips `use_db_backed_picking_queue` and waits for in-flight batches to drain (or uses the new drain workflow + `force_pause_stuck_batches` to accelerate it).
 **Reversibility:** High — flag is a single Setting row.
+
+---
+
+## ASSUMPTION-023: Phase 5 cooler routing read at batch-creation time
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 (Cooler Picking, Reduced Scope)
+**Files affected:** `services/batch_picking.py::create_batch_atomic`
+**Decision made:** `summer_cooler_mode_enabled` is read once when the batch is created, and the resulting `pick_zone_type` / `wms_zone` values are persisted on each `batch_pick_queue` row. Flipping the flag mid-shift does not retroactively reclassify rows in already-created batches. This mirrors ASSUMPTION-022 (`use_db_backed_picking_queue`) — the per-row decision is frozen at creation, not re-evaluated on every pick.
+**Reason:** Avoids an entire class of "row was normal at creation, now it's cooler — where do we put it?" race conditions and keeps the legacy queue path identical for batches created while the flag is off.
+**Safer alternative considered:** Re-classify on every read. Rejected — would require a per-row reload against `dw_items` on every pick action and would still be ambiguous if a row is mid-pick when the flag flips.
+**Feature flag / rollback:** Operator flips `summer_cooler_mode_enabled` and waits for in-flight batches to drain (same operator pattern as Phase 4).
+**Reversibility:** High — flag is a single Setting row; `pick_zone_type` / `wms_zone` columns stay populated for historical rows but are simply ignored by the legacy code path.
+
+---
+
+## ASSUMPTION-024: Cooler-box close stamps stop range from box items, not from batch
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 (Cooler Picking, Reduced Scope)
+**Files affected:** `blueprints/cooler_picking.py::box_close`, `services/cooler_pdf.py::route_manifest`
+**Decision made:** When a cooler box is closed, `cooler_boxes.stop_seq_min` / `stop_seq_max` are computed from the `RouteStop.seq_no` values of the invoices whose items are in **that box**, not from the parent batch's full route range. Boxes carrying items for stops 3–7 of a route that spans 1–12 will be stamped 3..7, not 1..12.
+**Reason:** Drivers load boxes onto the truck in stop order. The box-level range is what the driver actually needs printed on the manifest; the batch-level range is irrelevant once items are physically separated into boxes.
+**Safer alternative considered:** Stamp the full batch range. Rejected — would force the driver to scan every box at every stop instead of pulling only the boxes whose printed range covers the current stop.
+**Feature flag / rollback:** None — purely additive metadata.
+**Reversibility:** High — columns are nullable; clearing them just hides the printed range on the manifest.

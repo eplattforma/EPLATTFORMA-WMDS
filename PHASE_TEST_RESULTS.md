@@ -337,3 +337,26 @@ The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` 
 | P4-28     | Audit-trail integrity (3 rows) | 1/1 |
 
 **Production posture:** Every Phase 4 flag stays seeded `false` (`use_db_backed_picking_queue`, `batch_claim_required`, plus the existing `summer_cooler_mode_enabled`/`cooler_picking_enabled` from Phase 5). The legacy in-memory queue path is the live default; the new path is exercised only by tests. Driver Mode invariant is preserved — no driver routes touched.
+
+---
+
+# Phase 5 — Cooler Picking (Reduced Scope, Task #22)
+
+**Date:** 2026-05-03
+**Test file:** `tests/test_phase5_cooler_picking.py`
+**Result:** ✅ **33 / 33 PASSED** (~11s, in-memory SQLite)
+**Phase 4 regression:** ✅ `tests/test_phase4_batch_picking.py` 30/30 PASSED.
+**Override-pipeline regression:** ✅ still passing.
+**App boot:** ✅ `update_phase5_cooler_picking_schema` logged success (cooler_boxes + cooler_box_items tables + indexes ensured; batch_pick_queue.pick_zone_type / wms_zone columns ensured).
+
+| Cell range | Area | Pass |
+|---|---|---|
+| P5-01..05 | Sensitive routing under flag (`pick_zone_type`, `wms_zone` snapshot) | 5/5 |
+| P5-06..11 | Cooler box lifecycle (open → assign item → close → stop range stamp) | 6/6 |
+| P5-12..15 | Order-readiness (normal-only / cooler-only / mixed / partial) | 4/4 |
+| P5-16..21 | Permissions (`cooler.pick`, `cooler.manage_boxes`, `cooler.*`) | 6/6 |
+| P5-22..26 | PDF artefact generation (label, manifest, route manifest) | 5/5 |
+| P5-27..30 | Driver-loading overlay flag-gating + manifest counts | 4/4 |
+| P5-31..33 | Exception path (oversize box, double-close, missing readiness) | 3/3 |
+
+**Production posture:** Both Phase 5 flags stay seeded `false` (`summer_cooler_mode_enabled`, `cooler_picking_enabled`). Sensitive items continue to flow through the normal pick zone with no `wms_zone` snapshot until the operator flips the flag. The Driver Mode invariant is preserved — `route_detail.html` shows the cooler boxes overlay only when both flags are true.
