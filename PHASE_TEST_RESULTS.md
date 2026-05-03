@@ -281,18 +281,34 @@ Total automated assertions covering Section 1.4: **22 wildcard-removal + 14 enfo
 
 ### Sign-off
 
-This is the **agent attestation** for Task #16's documentation/test/code closeout package only. It is the final authority on whether the closeout artefacts (this document + the matrix test + the captured snapshot + the reconciled flag posture + the ASSUMPTIONS / KNOWN_GAPS entries) are complete and consistent. It does **not** authorise any production behaviour change.
+The closeout package has two layers of sign-off: the agent attestation (that the artefacts are internally consistent and the tests pass) and the **owner approval** (that the project owner explicitly accepts the three deviations from the brief's literal wording). Both are recorded below.
 
-- **Closeout artefact status:** ✅ **SIGNED OFF** by Replit Agent (Build mode, Task #16) on 2026-05-02.
-- **What is signed off:**
-  - Section 1.1 `_role_ok` audit (with the deviation note for the helper-body migration approach).
-  - Section 1.2 flag posture reconciliation to Option A.
-  - Section 1.3 7×5 matrix + captured HTTP status codes + per-role evidence completeness table + Residual Risk RR-001.
-  - Section 1.4 20-scenario verification mapping.
-  - Section 1.5 commit references + per-role test evidence summary.
-  - The new `tests/test_phase3_closeout_matrix.py` (37 tests, all passing).
-  - The new `PHASE3_CLOSEOUT_MATRIX.txt` snapshot.
-- **What is NOT signed off here (separate operational decision):** The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` in the production database is an **operator action**, not a closeout artefact. The closeout deliberately leaves the seeded default at `'false'` (Option A — see Section 1.2). When the operator decides to flip the flag, the path is a single Setting row update from the Settings UI; the rollback path is the same row, flipped back. Both paths are documented in `ROLLBACK_AND_FLAGS.md` (line 27 + Phase 3 section).
-- **Scope guarantees:** No production flag flips performed. No production database writes performed. No Phase 4/5 work performed.
+#### Agent attestation
 
-**Closeout package: ✅ COMPLETE. Operator flag flip: pending operator decision (out of scope for Task #16).**
+- **Status:** ✅ **SIGNED OFF** by Replit Agent (Build mode, Task #16) on 2026-05-02.
+- **Scope of attestation:** Section 1.1 `_role_ok` audit + deviation note · Section 1.2 flag-posture reconciliation to Option A · Section 1.3 7×5 matrix + captured HTTP status codes + per-role evidence completeness table + RR-001 · Section 1.4 20-scenario mapping · Section 1.5 commit references + per-role test evidence summary · `tests/test_phase3_closeout_matrix.py` (37 tests, all passing) · `PHASE3_CLOSEOUT_MATRIX.txt` snapshot.
+
+#### Owner approval (recorded)
+
+The closeout package was surfaced to the project owner on 2026-05-02 with three explicit decisions requiring approval. The owner's response, captured via the Replit interactive query interface, is recorded verbatim below.
+
+**Question put to the owner (2026-05-02):**
+> Phase 3 closeout package needs your explicit sign-off before I can mark Task #16 complete. The validator wants a recorded owner approval (not just my agent attestation) on these three decisions. Do you approve all three?
+> (1) Option A flag posture: `services/settings_defaults.py` ships `permissions_enforcement_enabled = 'false'` as the seeded default. You will manually flip it to `'true'` from the Settings UI in production when ready. No automatic flip.
+> (2) `_role_ok` comms/sms helper-body deviation: instead of annotating each of the 26 call sites with comments or replacing them with `@require_permission`, I migrated the helper body once to `has_permission(current_user, 'menu.communications')`. Live HTTP-level proof is the `menu.communications` row of the captured matrix (admin/wm/crm_admin → 200; picker/driver → 403). Documented in ASSUMPTION-018.
+> (3) Admin DENY carve-out (Residual Risk RR-001): admin holds the `*` wildcard so no `@require_permission` decorator can deny them. The closeout's literal "1 ALLOW + 1 DENY per role" wording therefore has an explicit carve-out for admin: 7× ALLOW (admin is not accidentally locked out — the go-live property) + 0× DENY (design-impossible). Documented in PHASE_TEST_RESULTS.md Section 1.3 + KNOWN_GAPS.md.
+
+**Owner response (2026-05-02):** ✅ **"Yes" — Approve all three (Option A + helper-body deviation + RR-001 carve-out).**
+
+This response is the recorded owner approval for:
+1. **Option A flag posture** — seeded `'false'`, operator-driven flip.
+2. **Helper-body migration deviation** — single helper-body change accepted in lieu of per-call-site annotations across 26 sites.
+3. **RR-001 admin DENY carve-out** — 7× ALLOW + 0× DENY for admin accepted as the production-correct behaviour for the `*`-wildcard role.
+
+#### What is NOT signed off here (separate operational decision)
+
+The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` in the production database is an **operator action**, not a closeout artefact. The closeout deliberately leaves the seeded default at `'false'` (Option A — see Section 1.2). When the operator decides to flip the flag, the path is a single Setting row update from the Settings UI; the rollback path is the same row, flipped back. Both paths are documented in `ROLLBACK_AND_FLAGS.md` (line 27 + Phase 3 section).
+
+**Scope guarantees:** No production flag flips performed. No production database writes performed. No Phase 4/5 work performed.
+
+**Closeout package: ✅ COMPLETE — agent-attested AND owner-approved. Operator flag flip: pending operator decision (out of scope for Task #16).**
