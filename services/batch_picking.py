@@ -440,37 +440,46 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
         )
 
     try:
-        # Release locks for unpicked items only (preserve picked for audit)
-        released = db.session.query(InvoiceItem).filter(
-            InvoiceItem.locked_by_batch_id == batch_id,
-            InvoiceItem.is_picked.is_(False),
-        ).update(
-            {InvoiceItem.locked_by_batch_id: None},
-            synchronize_session=False,
-        )
-
-        # Flip non-picked queue rows to cancelled. For DB-backed batches
-        # this is REQUIRED — failure must rollback. For legacy batches
-        # (no queue rows) the UPDATE is a no-op. We bind Python UTC
-        # values rather than NOW() so the call is portable across
-        # Postgres/SQLite and deterministic for tests.
         _now = get_utc_now()
         db_backed = is_db_backed_batch(batch_id)
-        try:
+
+        if db_backed:
+            # DB-backed batches: cancel ONLY pending rows. picked/skipped/
+            # exception rows must remain untouched for audit. Lock release
+            # is keyed to the actually-cancelled (invoice_no, item_code)
+            # tuples so queue state and lock state stay in sync.
+            pending = db.session.execute(
+                text("SELECT invoice_no, item_code FROM batch_pick_queue "
+                     "WHERE batch_session_id = :sid AND status = 'pending'"),
+                {"sid": batch_id},
+            ).fetchall()
             db.session.execute(
-                text(
-                    "UPDATE batch_pick_queue "
-                    "SET status = 'cancelled', cancelled_at = :now, updated_at = :now "
-                    "WHERE batch_session_id = :sid "
-                    "  AND status NOT IN ('picked', 'cancelled')"
-                ),
+                text("UPDATE batch_pick_queue "
+                     "SET status = 'cancelled', cancelled_at = :now, updated_at = :now "
+                     "WHERE batch_session_id = :sid AND status = 'pending'"),
                 {"sid": batch_id, "now": _now},
             )
-        except Exception as e:
-            if db_backed:
-                logger.error(f"cancel_batch: queue update FAILED for DB-backed batch {batch_id}: {e}")
-                raise
-            logger.debug(f"cancel_batch: queue update skipped (legacy batch, no queue): {e}")
+            released = 0
+            for row in pending:
+                released += db.session.query(InvoiceItem).filter(
+                    InvoiceItem.invoice_no == row.invoice_no,
+                    InvoiceItem.item_code == row.item_code,
+                    InvoiceItem.locked_by_batch_id == batch_id,
+                    InvoiceItem.is_picked.is_(False),
+                ).update(
+                    {InvoiceItem.locked_by_batch_id: None},
+                    synchronize_session=False,
+                )
+        else:
+            # Legacy batches (no queue rows): release unpicked locks
+            # held by this batch.
+            released = db.session.query(InvoiceItem).filter(
+                InvoiceItem.locked_by_batch_id == batch_id,
+                InvoiceItem.is_picked.is_(False),
+            ).update(
+                {InvoiceItem.locked_by_batch_id: None},
+                synchronize_session=False,
+            )
 
         # Audit columns + status flip (Phase 4 columns set via setattr for
         # ORM-without-model tolerance).
@@ -605,22 +614,27 @@ def bulk_unlock_orphans(actor):
         return 0
 
     try:
-        from sqlalchemy import tuple_
-        keys = [(i.invoice_no, i.item_code) for i in orphans]
-        released = db.session.query(InvoiceItem).filter(
-            tuple_(InvoiceItem.invoice_no, InvoiceItem.item_code).in_(keys)
-        ).update(
-            {InvoiceItem.locked_by_batch_id: None},
-            synchronize_session=False,
-        )
-        db.session.add(ActivityLog(
-            picker_username=actor,
-            activity_type="batch.orphan_unlock",
-            details=(
-                f"Bulk-released {released} orphaned lock(s) by {actor}; "
-                f"keys={keys[:25]}{'...' if len(keys) > 25 else ''}"
-            ),
-        ))
+        released = 0
+        for o in orphans:
+            n = db.session.query(InvoiceItem).filter(
+                InvoiceItem.invoice_no == o.invoice_no,
+                InvoiceItem.item_code == o.item_code,
+            ).update(
+                {InvoiceItem.locked_by_batch_id: None},
+                synchronize_session=False,
+            )
+            if n:
+                released += n
+                # One audit row per unlocked item for full traceability
+                db.session.add(ActivityLog(
+                    picker_username=actor,
+                    activity_type="batch.orphan_unlock",
+                    details=(
+                        f"Released orphan lock invoice={o.invoice_no} "
+                        f"item={o.item_code} prior_batch_id={o.locked_by_batch_id} "
+                        f"by {actor}"
+                    ),
+                ))
         db.session.commit()
         return released
     except Exception:
