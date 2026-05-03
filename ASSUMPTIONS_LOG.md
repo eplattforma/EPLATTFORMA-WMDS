@@ -396,3 +396,33 @@ When the flag is `false` (the production default) the route returns HTTP 404 —
 **Safer alternative considered:** Apply the gate via a single `before_request` handler on the cooler blueprint. Rejected because the two flags govern different surfaces (picking vs labels) and a `before_request` handler would either need fragile URL pattern matching or apply the wrong flag to the wrong route.
 **Feature flag / rollback:** This IS the rollback control; flipping `cooler_picking_enabled` or `cooler_labels_enabled` to `false` instantly hides the corresponding routes without redeploy.
 **Reversibility:** High — removing the two decorators reverts to the pre-refresh behaviour.
+
+---
+
+## ASSUMPTION-034: Operational drain rule for `summer_cooler_mode_enabled` rollback
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 3 refresh follow-up (Task #22, code-review note 1)
+**Files affected:** runbook only — no code change.
+**Decision made:** When operations toggle `summer_cooler_mode_enabled` from `true` to `false` (rollback / off-season), they MUST first drain in-flight cooler work:
+  1. Confirm `cooler_boxes WHERE status NOT IN ('closed','cancelled')` is empty for every active route (i.e. every cooler box is closed or cancelled).
+  2. Confirm `batch_pick_queue WHERE pick_zone_type='cooler' AND status NOT IN ('picked','exception','cancelled')` is empty (no open cooler queue rows on any active session).
+  3. Only then flip the flag.
+Rationale: `is_order_ready()` and the dispatch readiness checks intentionally treat cooler queues / boxes as no-ops when `summer_cooler_mode_enabled=false`. If the flag is turned off while cooler work is still pending, those rows become invisible to dispatch readiness — an order could ship without its cold-chain box.
+**Reason:** Code-review APPROVED_WITH_COMMENTS flagged this as a non-blocking operational risk. We accept the no-op-when-off semantics (the alternative — keeping cooler checks live after the flag is off — would mean the rollback flag does not actually roll back the feature) and address the risk via an operational gate rather than a code gate.
+**Safer alternative considered:** Add an automatic `before-disable` check that refuses to flip the flag if open cooler boxes exist. Deferred to Task #23 backlog (cockpit briefs); for round-3-refresh we accept the runbook gate.
+**Feature flag / rollback:** `summer_cooler_mode_enabled` rollback procedure now requires the drain check above.
+**Reversibility:** N/A — runbook-only.
+
+---
+
+## ASSUMPTION-035: Driver loading overlay surfaces in `templates/route_detail.html`
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 3 refresh follow-up (Task #22, code-review note 2)
+**Files affected:** `templates/route_detail.html` (existing — no change).
+**Decision made:** The driver-loading "cooler box manifest" overlay is rendered inside the existing route-detail template (`templates/route_detail.html`) rather than a dedicated `templates/driver/loading.html`. Drivers reach this view via `/route/<route_id>/<delivery_date>` — the same URL warehouse and admin staff use, with role-aware sections (the cooler manifest section is wrapped in `{% if cooler_driver_view_enabled and current_user.role in ('driver','wh_mgr','admin') %}`).
+**Reason:** The route-detail page is already the canonical "what is on this truck today" view for the driver workflow in this app; adding a parallel `templates/driver/*` tree would duplicate route-status rendering logic and break the existing deep links from the route list. The cooler overlay is a section of the same view, gated by `cooler_driver_view_enabled` (production default `false`).
+**Safer alternative considered:** Move the overlay to a dedicated `templates/driver/loading.html`. Deferred to Task #25 (driver cockpit) where a fuller driver UX is planned.
+**Feature flag / rollback:** Overlay is hidden when `cooler_driver_view_enabled=false` (the production default).
+**Reversibility:** High — the overlay block is a single `{% if %}` section.
