@@ -226,10 +226,10 @@ async function _loadRecommendedActions() {
     content.innerHTML = _renderRecommendedActions(result.body);
     content.classList.remove('d-none');
   } else if (result.status === 503) {
-    err.textContent = RA_NOT_CONFIGURED;
+    err.textContent = (result.body && result.body.message) || RA_NOT_CONFIGURED;
     err.classList.remove('d-none');
   } else {
-    err.textContent = RA_GENERIC_ERROR;
+    err.textContent = (result.body && result.body.message) || RA_GENERIC_ERROR;
     err.classList.remove('d-none');
   }
 }
@@ -255,9 +255,11 @@ async function askClaude(section) {
   if (result.ok) {
     body.innerHTML = _renderAdviceHTML(result.body);
   } else if (result.status === 503) {
-    body.innerHTML = `<div class="alert alert-warning small mb-0">${_esc(RA_NOT_CONFIGURED)}</div>`;
+    const msg = (result.body && result.body.message) || RA_NOT_CONFIGURED;
+    body.innerHTML = `<div class="alert alert-warning small mb-0">${_esc(msg)}</div>`;
   } else {
-    body.innerHTML = `<div class="alert alert-warning small mb-0">${_esc(RA_GENERIC_ERROR)}</div>`;
+    const msg = (result.body && result.body.message) || RA_GENERIC_ERROR;
+    body.innerHTML = `<div class="alert alert-warning small mb-0">${_esc(msg)}</div>`;
   }
 }
 

@@ -346,6 +346,10 @@
       <div class="card h-100">
         <div class="card-header d-flex align-items-center">
           <strong><i class="fas fa-trophy me-2"></i>Top Items</strong>
+          {% if has_permission('customers.ask_claude') %}
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2"
+                    onclick="askClaude('pricing')">✦ Ask Claude</button>
+          {% endif %}
           <div class="btn-group btn-group-sm ms-auto" role="group">
             <button type="button" class="btn btn-outline-primary active" data-toggle="topGP">By GP</button>
             <button type="button" class="btn btn-outline-primary"        data-toggle="topRev">By Revenue</button>

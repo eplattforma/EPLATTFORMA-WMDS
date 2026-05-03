@@ -294,7 +294,7 @@ Ticket 2 is **service + template only**. All data is computed on read from alrea
 
 ### New route (under existing `cockpit_enabled` master flag)
 
-- `POST /cockpit/<customer_code>/advice` — JSON body `{section: all|offers|opportunities|pricing|risk}`. Requires `customers.ask_claude` (hard permission). Returns the Claude advice JSON, 404 for unknown customer, 503 if API key unset, 500 on Anthropic error.
+- `POST /cockpit/api/<customer_code>/advice` — JSON body `{section: all|offers|opportunities|pricing|risk}`. Requires `customers.ask_claude` (hard permission). Returns the Claude advice JSON on 200; `{configured: false, message: <Greek>}` on 503 (API key unset); `{message: <Greek>}` on 500 (Anthropic error — full detail logged server-side only). 404 for unknown customer or master flag off.
 
 ### New permission (already registered in Ticket 1)
 

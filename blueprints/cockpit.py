@@ -329,6 +329,11 @@ def api_advice(customer_code):
     full = get_cockpit_data(customer_code)
     snapshot = _build_advice_snapshot(full, section)
 
+    # User-facing strings are Greek (cockpit-brief §12.6). Full exception
+    # detail is logged server-side only — never echoed to the browser, to
+    # avoid leaking Anthropic error payloads / API internals.
+    GREEK_503 = "Συμβουλές μη διαθέσιμες — επικοινώνησε με admin."
+    GREEK_500 = "Σφάλμα κατά τη δημιουργία συμβουλής. Δοκίμασε ξανά."
     try:
         from services.claude_advice_service import generate_cockpit_advice
         out = generate_cockpit_advice(snapshot)
@@ -337,16 +342,14 @@ def api_advice(customer_code):
         # Only the "not configured" ValueError maps to 503; any other
         # ValueError (e.g. malformed snapshot) is a real server error.
         if "not configured" in str(e):
-            return jsonify({"error": str(e), "configured": False}), 503
+            return jsonify({"configured": False, "message": GREEK_503}), 503
         logger.exception("Claude advice generation failed for %s (%s)",
                          customer_code, section)
-        return jsonify({"error": "Advice generation failed",
-                        "detail": str(e)}), 500
-    except Exception as e:
+        return jsonify({"message": GREEK_500}), 500
+    except Exception:
         logger.exception("Claude advice generation failed for %s (%s)",
                          customer_code, section)
-        return jsonify({"error": "Advice generation failed",
-                        "detail": str(e)}), 500
+        return jsonify({"message": GREEK_500}), 500
 
 
 @cockpit_bp.route("/api/targets/bulk_set", methods=["POST"])

@@ -15,33 +15,45 @@ import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 
+from flask import current_app
 from sqlalchemy import text
 
 from app import db
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
-
 CACHE_TTL_HOURS = 12
 CACHE_KEY_PREFIX = "cockpit_"
 MAX_ROWS = 50
 
-# Lazy client init so unit tests can import the module without the SDK key.
-_client = None
+# Lazy client cache — keyed by API key so a config rotation builds a fresh client.
+_client_cache: dict = {}
+
+
+def _cfg(key: str, default: str = "") -> str:
+    """Read from Flask app config (preferred — set in app.py at boot) and
+    fall back to os.environ when called outside an app context."""
+    try:
+        v = current_app.config.get(key)
+        if v:
+            return v
+    except RuntimeError:
+        pass
+    return os.environ.get(key, default)
 
 
 def _get_client():
-    global _client
-    if _client is not None:
-        return _client
-    if not ANTHROPIC_API_KEY:
+    api_key = _cfg("ANTHROPIC_API_KEY", "")
+    if not api_key:
         return None
+    cached = _client_cache.get(api_key)
+    if cached is not None:
+        return cached
     try:
         from anthropic import Anthropic
-        _client = Anthropic(api_key=ANTHROPIC_API_KEY)
-        return _client
+        client = Anthropic(api_key=api_key)
+        _client_cache[api_key] = client
+        return client
     except Exception:
         logger.exception("Failed to initialise Anthropic client")
         return None
@@ -183,9 +195,10 @@ def generate_cockpit_advice(snapshot: dict) -> dict:
         return cached if isinstance(cached, dict) else json.loads(cached)
 
     user_content = json.dumps(payload, ensure_ascii=False, default=str)
+    model = _cfg("CLAUDE_MODEL", "claude-sonnet-4-5")
 
     resp = client.messages.create(
-        model=CLAUDE_MODEL,
+        model=model,
         max_tokens=4096,
         system=GREEK_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],

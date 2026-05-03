@@ -232,6 +232,42 @@ def test_recommended_actions_partial_exists():
     assert "claudeAdviceModal" in src
 
 
+def test_endpoint_error_responses_are_greek_only():
+    """Brief §12.6 + reviewer info-leak finding: 500 must NOT echo
+    raw exception detail; 503 must carry the Greek ``message`` field."""
+    import re
+    path = os.path.join(PROJECT_ROOT, "blueprints", "cockpit.py")
+    src = open(path, encoding="utf-8").read()
+    assert "Συμβουλές μη διαθέσιμες" in src
+    assert "Σφάλμα κατά τη δημιουργία συμβουλής" in src
+    # No "detail": str(e) leak to client.
+    assert not re.search(r'"detail"\s*:\s*str\(e\)', src), \
+        "500 path is leaking raw exception detail to the client"
+
+
+def test_service_reads_from_app_config_not_env_at_import():
+    """Reviewer finding: the service must read API key/model at call
+    time from app.config (set in app.py at boot), not from os.environ
+    captured at import. Module-level constants are forbidden."""
+    src = open(os.path.join(PROJECT_ROOT, "services",
+                            "claude_advice_service.py"),
+               encoding="utf-8").read()
+    assert "ANTHROPIC_API_KEY = os.environ" not in src
+    assert "CLAUDE_MODEL = os.environ" not in src
+    assert "current_app.config" in src
+
+
+def test_top_items_has_ask_claude_button():
+    """Reviewer finding: Top Items section needs an Ask Claude button
+    too (it's the buying surface)."""
+    path = os.path.join(PROJECT_ROOT, "templates", "cockpit", "cockpit.html")
+    src = open(path, encoding="utf-8").read()
+    # Find the Top Items header block and confirm an askClaude button is in it.
+    idx = src.index("Top Items")
+    window = src[idx:idx + 600]
+    assert "askClaude(" in window, "Top Items section missing Ask Claude button"
+
+
 def test_cockpit_js_exposes_askclaude_helper():
     path = os.path.join(PROJECT_ROOT, "static", "cockpit", "cockpit.js")
     with open(path, encoding="utf-8") as fh:
