@@ -26,7 +26,8 @@
       {% if target_state.pending_proposal %}
         <div class="alert alert-warning py-2 mb-3">
           <strong>Pending proposal</strong> by
-          {{ target_state.pending_proposal.proposed_by }} on
+          {{ target_state.pending_proposal.proposed_by_display_name
+             or target_state.pending_proposal.proposed_by }} on
           {{ target_state.pending_proposal.proposed_at }} ·
           annual €{{ target_state.pending_proposal.annual or '–' }}
           {% if target_state.pending_proposal.proposed_notes %}

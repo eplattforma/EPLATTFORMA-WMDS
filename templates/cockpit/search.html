@@ -29,21 +29,42 @@
 </div>
 
 <script>
+// XSS-safe live search: customer codes/names are external business data
+// (could include angle brackets / quotes / scripts), so we build DOM
+// nodes with textContent rather than interpolating into innerHTML.
 let _t = null;
+function _renderEmpty(box, text) {
+  box.replaceChildren();
+  const d = document.createElement('div');
+  d.className = 'text-muted small p-2';
+  d.textContent = text;
+  box.appendChild(d);
+}
+function _renderResults(box, items) {
+  const frag = document.createDocumentFragment();
+  for (const it of items) {
+    const a = document.createElement('a');
+    a.className = 'list-group-item list-group-item-action';
+    a.href = '/cockpit/' + encodeURIComponent(it.code || '');
+    const strong = document.createElement('strong');
+    strong.textContent = it.code || '';
+    a.appendChild(strong);
+    a.appendChild(document.createTextNode(' — ' + (it.name || '(no name)')));
+    frag.appendChild(a);
+  }
+  box.replaceChildren(frag);
+}
 async function runSearch(q) {
-  if (!q) { document.getElementById('cockpit-results').innerHTML = ''; return; }
+  const box = document.getElementById('cockpit-results');
+  if (!q) { box.replaceChildren(); return; }
   const r = await fetch('/cockpit/api/search?q=' + encodeURIComponent(q));
   if (!r.ok) return;
   const data = await r.json();
-  const box = document.getElementById('cockpit-results');
-  if (!data.items.length) {
-    box.innerHTML = '<div class="text-muted small p-2">No matches.</div>';
+  if (!data.items || !data.items.length) {
+    _renderEmpty(box, 'No matches.');
     return;
   }
-  box.innerHTML = data.items.map(it =>
-    `<a class="list-group-item list-group-item-action" href="/cockpit/${encodeURIComponent(it.code)}">
-       <strong>${it.code}</strong> — ${it.name || '(no name)'}</a>`
-  ).join('');
+  _renderResults(box, data.items);
 }
 document.getElementById('cockpit-search').addEventListener('input', e => {
   clearTimeout(_t);

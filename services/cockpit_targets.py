@@ -129,6 +129,24 @@ def _get_existing_row(customer_code: str) -> dict | None:
     return dict(row) if row else None
 
 
+def _resolve_display_name(username: str | None) -> str | None:
+    """Brief Section 14: 'All user-visible names use display_name, never
+    raw usernames.' Falls back to the username itself when no users-row
+    exists (e.g. system actors)."""
+    if not username:
+        return None
+    try:
+        row = db.session.execute(
+            text("SELECT display_name FROM users WHERE username = :u"),
+            {"u": username},
+        ).first()
+    except Exception:
+        return username
+    if row and row[0]:
+        return row[0]
+    return username
+
+
 def _emit_audit(event_name: str, actor: str, customer_code: str | None,
                 payload: dict | None):
     """Write to ``cockpit_audit_log`` (brief §6.7).
@@ -171,8 +189,11 @@ def get_target(customer_code: str) -> dict:
             "quarterly":       row["target_quarterly"],
             "annual":          row["target_annual"],
             "approved_by":     row["approved_by"],
+            "approved_by_display_name": _resolve_display_name(row["approved_by"]),
             "approved_at":     row["approved_at"],
             "last_modified_by": row["last_modified_by"],
+            "last_modified_by_display_name":
+                _resolve_display_name(row["last_modified_by"]),
             "last_modified_at": row["last_modified_at"],
         }
     if row.get("status") == "proposed" and row.get("proposed_at") is not None:
@@ -191,6 +212,8 @@ def get_target(customer_code: str) -> dict:
                 "quarterly":       prop["target_quarterly"],
                 "annual":          prop["target_annual"],
                 "proposed_by":     row["proposed_by"],
+                "proposed_by_display_name":
+                    _resolve_display_name(row["proposed_by"]),
                 "proposed_at":     row["proposed_at"],
                 "proposed_notes":  row["proposed_notes"],
             }

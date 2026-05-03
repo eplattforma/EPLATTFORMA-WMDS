@@ -355,3 +355,47 @@ def test_compute_achievement_returns_all_keys(real_customer):
     for k in ("period", "actual", "target", "pct", "gap",
               "run_rate_projection", "on_pace"):
         assert k in a
+
+
+def test_get_target_exposes_display_names_for_actors(real_customer):
+    """Brief Section 14: 'All user-visible names use display_name, never
+    raw usernames.' get_target() must surface display-name fields for
+    proposed_by/approved_by/last_modified_by alongside the raw username."""
+    from services.cockpit_targets import (
+        propose_target, approve_proposal, set_target_directly, get_target,
+    )
+    cc = real_customer
+    propose_target(cc, {"annual": 5000}, actor="am-no-such-user")
+    s = get_target(cc)
+    assert "proposed_by_display_name" in s["pending_proposal"]
+    # No users row exists for this actor → falls back to the username
+    assert s["pending_proposal"]["proposed_by_display_name"] == "am-no-such-user"
+
+    approve_proposal(cc, actor="mgr-no-such-user")
+    s = get_target(cc)
+    assert "approved_by_display_name" in s["active"]
+    assert "last_modified_by_display_name" in s["active"]
+    assert s["active"]["approved_by_display_name"] == "mgr-no-such-user"
+
+
+def test_search_template_does_not_use_unsafe_innerhtml_with_user_data():
+    """Stored-XSS regression: the search.html live-search JS must NOT
+    interpolate API response strings (customer name/code) into
+    ``innerHTML`` — those values are external business data.
+    """
+    import re
+    path = os.path.join(PROJECT_ROOT, "templates", "cockpit", "search.html")
+    with open(path, "r", encoding="utf-8") as fh:
+        src = fh.read()
+    # No template literal that interpolates `it.code` or `it.name` into
+    # an innerHTML / outerHTML / insertAdjacentHTML assignment.
+    risky = re.search(
+        r"(innerHTML|outerHTML|insertAdjacentHTML)\s*[=,(].*?\$\{\s*it\.",
+        src, re.DOTALL,
+    )
+    assert risky is None, (
+        "search.html interpolates API response data into innerHTML — "
+        "this is a stored-XSS vector. Use textContent / DOM nodes instead."
+    )
+    # Positive check: the safe path uses textContent for the dynamic value
+    assert "textContent" in src
