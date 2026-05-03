@@ -397,6 +397,26 @@ def setup_scheduler(app):
                 except Exception as e:
                     logger.warning(f"Could not start Playwright pre-warm: {e}")
 
+            # Phase 4: daily Job Runs log cleanup. The body raises
+            # JobSkipped when `job_log_cleanup_enabled` is OFF (the
+            # default) so a SKIPPED row appears in the operations
+            # dashboard every morning, confirming the cron is alive
+            # without deleting any rows. 06:00 Europe/Nicosia ≈ 06:00
+            # Cairo (no DST in EG; minor UA/EET drift acceptable for a
+            # quiet-hour cleanup) — the scheduler timezone is Africa/Cairo.
+            scheduler.add_job(
+                func=_tracked,
+                kwargs={'job_id': 'log_cleanup', 'job_name': 'Job Runs Log Cleanup'},
+                trigger=CronTrigger(hour=6, minute=0),
+                id='log_cleanup',
+                name='Job Runs Log Cleanup',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=21600,
+                coalesce=True,
+            )
+            logger.info("✓ Job Runs log cleanup scheduled: Daily at 06:00 Cairo (gated by job_log_cleanup_enabled, default OFF)")
+
             scheduler.add_job(
                 func=_tracked,
                 kwargs={'job_id': 'expiry_ftp_upload', 'job_name': 'Expiry Dates FTP Upload'},
@@ -1361,6 +1381,7 @@ JOB_DISPLAY_NAMES = {
     'stock_777_sync_production': 'PS365 Stock 777 Daily Sync (Production)',
     'stock_777_sync': 'PS365 Stock 777 Daily Sync',
     'ftp_login_sync': 'FTP Login Logs Sync',
+    'log_cleanup': 'Job Runs Log Cleanup',
 }
 
 
@@ -1383,7 +1404,22 @@ def _register_job_funcs():
         'stock_777_sync_production': _run_stock_777_sync,
         'stock_777_sync': _run_stock_777_sync,
         'ftp_login_sync': _run_ftp_login_sync,
+        'log_cleanup': _run_log_cleanup,
     }
+
+
+def _run_log_cleanup():
+    """Body func for the daily ``log_cleanup`` cron tick.
+
+    Pushes a Flask app context (the cleanup service uses ``db.engine``
+    which requires one) and delegates to ``services.maintenance.log_cleanup``.
+    The service raises ``JobSkipped`` when the flag is OFF so the
+    ``_tracked`` wrapper records a SKIPPED row instead of FAILED.
+    """
+    from app import app as _flask_app
+    from services.maintenance.log_cleanup import run_log_cleanup
+    with _flask_app.app_context():
+        run_log_cleanup()
 
 
 class _JobstoreContext:

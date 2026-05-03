@@ -248,6 +248,12 @@
                                     <i class="fas fa-database me-2"></i>Sync PS365
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'admin_job_runs.job_runs_page' %}active{% endif %}"
+                                   href="{{ url_for('admin_job_runs.job_runs_page') }}">
+                                    <i class="fas fa-tasks me-2"></i>Job Runs
+                                </a>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('oi_') %}active{% endif %}" 

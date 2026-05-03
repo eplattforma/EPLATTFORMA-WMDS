@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Job Runs — EPLATTFORMA{% endblock %}
+{% block content %}
+<div class="container-fluid mt-3" style="max-width:1400px;">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{{ url_for('datawarehouse.dw_menu') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left"></i>
+    </a>
+    <h4 class="mb-0"><i class="fas fa-tasks me-2"></i>Job Runs</h4>
+    <span class="text-muted small ms-2">
+      Lifecycle log of every scheduled and manual job tick.
+    </span>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-center">
+        <div class="col-md-3">
+          <small class="text-muted d-block">Cleanup</small>
+          {% if cleanup_enabled %}
+            <span class="badge bg-success"><i class="fas fa-check"></i> ON</span>
+            <small class="text-muted ms-1">retention {{ retention_days }}d</small>
+          {% else %}
+            <span class="badge bg-secondary"><i class="fas fa-pause"></i> OFF</span>
+            <small class="text-muted ms-1">would prune &gt; {{ retention_days }}d</small>
+          {% endif %}
+        </div>
+        <div class="col-md-9">
+          <small class="text-muted d-block">Recent counts (filtered window)</small>
+          <span class="badge bg-warning text-dark me-1">RUNNING {{ counts.RUNNING }}</span>
+          <span class="badge bg-success me-1">SUCCESS {{ counts.SUCCESS }}</span>
+          <span class="badge bg-info text-dark me-1">SKIPPED {{ counts.SKIPPED }}</span>
+          <span class="badge bg-danger me-1">FAILED {{ counts.FAILED }}</span>
+          <span class="badge bg-dark me-1">STALE_FAILED {{ counts.STALE_FAILED }}</span>
+          <span class="badge bg-secondary me-1">CANCELLED {{ counts.CANCELLED }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <form method="get" class="card mb-3">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label form-label-sm mb-0">Job</label>
+          <select name="job_id" class="form-select form-select-sm">
+            <option value="">All jobs</option>
+            {% for jid in distinct_job_ids %}
+              <option value="{{ jid }}" {% if jid == job_id_filter %}selected{% endif %}>{{ jid }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label form-label-sm mb-0">Status</label>
+          <select name="status" class="form-select form-select-sm">
+            <option value="">All statuses</option>
+            {% for s in valid_statuses %}
+              <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label form-label-sm mb-0">Limit</label>
+          <input type="number" name="limit" min="10" max="500" value="{{ limit }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-3 d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
+          <a href="{{ url_for('admin_job_runs.job_runs_page') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="card">
+    <div class="card-header py-2">
+      <strong><i class="fas fa-history me-2"></i>Recent runs</strong>
+      <span class="text-muted small ms-2">{{ rows|length }} row(s) shown</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width:60px;">ID</th>
+            <th style="width:170px;">Started (UTC)</th>
+            <th>Job</th>
+            <th style="width:90px;">Trigger</th>
+            <th style="width:120px;">Status</th>
+            <th style="width:90px;" class="text-end">Duration</th>
+            <th>Step / Progress</th>
+            <th>Result / Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td><small class="text-muted">{{ r.id }}</small></td>
+            <td class="text-nowrap"><small>{{ r.started_at.strftime('%Y-%m-%d %H:%M:%S') if r.started_at else '—' }}</small></td>
+            <td>
+              <code class="small">{{ r.job_id }}</code>
+              {% if r.job_name and r.job_name != r.job_id %}
+                <br><small class="text-muted">{{ r.job_name }}</small>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.trigger_source == 'scheduled' %}
+                <i class="fas fa-clock text-muted"></i> <small>auto</small>
+              {% elif r.trigger_source == 'manual' %}
+                <i class="fas fa-hand-pointer text-primary"></i> <small>manual</small>
+              {% else %}
+                <small class="text-muted">{{ r.trigger_source or '—' }}</small>
+              {% endif %}
+            </td>
+            <td>
+              {% set st = (r.status or '')|upper %}
+              {% if st == 'SUCCESS' %}<span class="badge bg-success"><i class="fas fa-check"></i> SUCCESS</span>
+              {% elif st == 'RUNNING' %}<span class="badge bg-warning text-dark"><i class="fas fa-spinner fa-spin"></i> RUNNING</span>
+              {% elif st == 'SKIPPED' %}<span class="badge bg-info text-dark"><i class="fas fa-forward"></i> SKIPPED</span>
+              {% elif st == 'FAILED' %}<span class="badge bg-danger"><i class="fas fa-times"></i> FAILED</span>
+              {% elif st == 'STALE_FAILED' %}<span class="badge bg-dark"><i class="fas fa-skull"></i> STALE</span>
+              {% elif st == 'CANCELLED' %}<span class="badge bg-secondary"><i class="fas fa-ban"></i> CANCELLED</span>
+              {% else %}<span class="badge bg-secondary">{{ r.status or '—' }}</span>{% endif %}
+            </td>
+            <td class="text-end text-nowrap">
+              {% if r.duration_seconds is not none %}
+                {% if r.duration_seconds >= 60 %}<small>{{ '%d' % (r.duration_seconds // 60) }}m {{ '%d' % (r.duration_seconds % 60) }}s</small>
+                {% else %}<small>{{ '%.1f' % r.duration_seconds }}s</small>{% endif %}
+              {% else %}<small class="text-muted">—</small>{% endif %}
+            </td>
+            <td>
+              {% if r.current_step %}<small><strong>{{ r.current_step }}</strong></small>{% endif %}
+              {% if r.progress_total %}
+                <small class="text-muted d-block">{{ r.progress_current or 0 }} / {{ r.progress_total }}</small>
+              {% endif %}
+              {% if r.progress_message %}
+                <small class="text-muted d-block">{{ r.progress_message[:80] }}{% if r.progress_message|length > 80 %}…{% endif %}</small>
+              {% endif %}
+              {% if not r.current_step and not r.progress_total and not r.progress_message %}
+                <small class="text-muted">—</small>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.error_message %}
+                <small class="text-danger" title="{{ r.error_message }}">
+                  <i class="fas fa-exclamation-triangle me-1"></i>{{ r.error_message[:160] }}{% if r.error_message|length > 160 %}…{% endif %}
+                </small>
+              {% elif r.result_summary %}
+                <small class="text-muted" title="{{ r.result_summary }}">
+                  {{ r.result_summary|string|truncate(160, True, '…') }}
+                </small>
+              {% else %}
+                <small class="text-muted">—</small>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-muted py-4">
+            No job runs match the current filters.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer py-2 text-muted small">
+      Times shown in UTC. Cleanup runs daily at 06:00 Europe/Nicosia when
+      <code>job_log_cleanup_enabled=true</code>; with the flag OFF a SKIPPED row
+      is recorded but no rows are deleted.
+    </div>
+  </div>
+</div>
+{% endblock %}

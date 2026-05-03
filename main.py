@@ -284,6 +284,9 @@ app.register_blueprint(erp_bot_bp)
 from routes_admin_scheduler import admin_scheduler_bp
 app.register_blueprint(admin_scheduler_bp)
 
+from routes_admin_job_runs import admin_job_runs_bp
+app.register_blueprint(admin_job_runs_bp)
+
 logging.warning("PHASE 5: all blueprints registered")
 print("PHASE 5: all blueprints registered", flush=True)
 
