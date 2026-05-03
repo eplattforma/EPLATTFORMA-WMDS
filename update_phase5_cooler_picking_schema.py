@@ -8,7 +8,7 @@ Additive + idempotent. Mirrors the Phase 4 migration template:
     queue-creation time so mid-pick reclassification of ``DwItem.wms_zone``
     cannot retroactively move a row between cooler / normal.
 
-Phase 5 fix-up: the original migration used Postgres-only DDL
+the original migration used Postgres-only DDL
 (``BIGSERIAL``, ``ADD COLUMN IF NOT EXISTS``,
 ``TIMESTAMP WITH TIME ZONE``) which broke the SQLite test path. The
 migration now branches by dialect so both Postgres and SQLite engines

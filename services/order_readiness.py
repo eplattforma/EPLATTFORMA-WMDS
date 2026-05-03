@@ -45,7 +45,7 @@ def _table_exists(name):
 def _is_summer_cooler_mode_enabled():
     """Read ``summer_cooler_mode_enabled`` flag (defaults OFF).
 
-    Phase 5 fix-up: when this flag is OFF (production default), the
+    when this flag is OFF (production default), the
     cooler-queue and cooler-box sub-checks must short-circuit so stale
     ``cooler_boxes`` rows from prior testing cannot accidentally hold
     invoices in a not-ready state. With the flag OFF readiness reduces
@@ -83,7 +83,7 @@ def is_order_ready(invoice_no):
     queue_terminal = "(" + ",".join(f"'{s}'" for s in QUEUE_TERMINAL_STATUSES) + ")"
     box_terminal = "(" + ",".join(f"'{s}'" for s in COOLER_BOX_TERMINAL_STATUSES) + ")"
 
-    # Phase 5 fix-up: the cooler-queue and cooler-box sub-checks only
+    # the cooler-queue and cooler-box sub-checks only
     # apply when summer cooler mode is ON. With the flag OFF (production
     # default), readiness reduces to the normal-queue check alone (or
     # the legacy InvoiceItem fallback) — exactly the pre-Phase-5

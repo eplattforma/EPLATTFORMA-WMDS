@@ -131,7 +131,7 @@ def rebuild_items_from_queue(batch_id):
     """
     if not is_db_backed_batch(batch_id):
         return []
-    # Phase 5 fix-up: exclude cooler-zone rows from the normal picker
+    # exclude cooler-zone rows from the normal picker
     # work-list. Treat NULL ``pick_zone_type`` as normal so legacy rows
     # written before the Phase 5 column existed continue to surface.
     # Without this filter, switching ``summer_cooler_mode_enabled`` ON

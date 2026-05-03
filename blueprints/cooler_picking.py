@@ -38,6 +38,53 @@ from services.cooler_pdf import (
 from timezone_utils import get_utc_now
 
 
+# Per-permission role allow-lists for the cooler workflow. These run
+# BEFORE ``@require_permission`` and block regardless of the global
+# ``permissions_enforcement_enabled`` setting. They mirror the role
+# grants in ``services/permissions.ROLE_PERMISSIONS``:
+#   - picker:            cooler.pick
+#   - warehouse_manager: cooler.* (pick + manage_boxes + print_labels)
+#   - admin:             * (everything)
+#
+# Pickers must NOT be able to call box-lifecycle / label-print routes
+# (cooler.manage_boxes, cooler.print_labels) even when permissions
+# enforcement is off, so each route uses the guard matching its
+# documented permission key.
+_COOLER_ROLES_PICK = frozenset({"admin", "warehouse_manager", "picker"})
+_COOLER_ROLES_MANAGE = frozenset({"admin", "warehouse_manager"})
+_COOLER_ROLES_PRINT = frozenset({"admin", "warehouse_manager"})
+
+# Union, for tests/introspection only.
+_COOLER_ALLOWED_ROLES = _COOLER_ROLES_PICK | _COOLER_ROLES_MANAGE | _COOLER_ROLES_PRINT
+
+
+def _make_role_guard(allowed_roles, perm_label):
+    from functools import wraps
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            if not getattr(current_user, "is_authenticated", False):
+                abort(401)
+            role = (getattr(current_user, "role", None) or "").lower()
+            if role not in allowed_roles:
+                abort(403)
+            return view(*args, **kwargs)
+        wrapper._cooler_perm_label = perm_label
+        return wrapper
+    return decorator
+
+
+_require_cooler_pick = _make_role_guard(_COOLER_ROLES_PICK, "cooler.pick")
+_require_cooler_manage = _make_role_guard(_COOLER_ROLES_MANAGE, "cooler.manage_boxes")
+_require_cooler_print = _make_role_guard(_COOLER_ROLES_PRINT, "cooler.print_labels")
+
+# Backwards-compatible alias used by older tests / call sites that
+# only need to assert "any cooler role is allowed". New code should
+# pick the permission-specific guard above.
+_require_cooler_role = _require_cooler_pick
+
+
 cooler_bp = Blueprint("cooler", __name__, url_prefix="/cooler")
 
 
@@ -138,10 +185,11 @@ def _audit(activity_type, details, invoice_no=None, item_code=None):
 @cooler_bp.route("/route-list")
 @login_required
 @require_permission("cooler.pick")
+@_require_cooler_pick
 def route_list():
     """List route_id + delivery_date pairs that have pending cooler items.
 
-    Architect fix-up: route identity comes from ``Invoice.route_id``
+    route identity comes from ``Invoice.route_id``
     (FK to shipments.id) and the date comes from ``Shipment.delivery_date``,
     NOT from ``Invoice.routing`` (a free-text label) or ``Invoice.upload_date``
     (a string). Cooler boxes and the dispatch system both key on the
@@ -190,6 +238,7 @@ def route_list():
 @cooler_bp.route("/route/<route_id>/<delivery_date>")
 @login_required
 @require_permission("cooler.pick")
+@_require_cooler_pick
 def route_picking(route_id, delivery_date):
     """Cooler picking screen for a given route + date.
 
@@ -197,7 +246,7 @@ def route_picking(route_id, delivery_date):
       1. Route / shipment, 2. RouteStop.seq_no, 3. Customer code,
       4. Invoice number, 5. Item code.
     """
-    # Architect fix-up: filter by Invoice.route_id (FK to shipments.id)
+    # filter by Invoice.route_id (FK to shipments.id)
     # and Shipment.delivery_date — NOT by Invoice.routing (free-text
     # label) or Invoice.upload_date (string). Cooler boxes are keyed
     # on the real shipment FK; any other field would mis-attribute the
@@ -245,7 +294,7 @@ def route_picking(route_id, delivery_date):
         }
         for r in rows
     ]
-    # Phase 5 fix-up: scope cooler boxes by BOTH route_id and
+    # scope cooler boxes by BOTH route_id and
     # delivery_date. Filtering by delivery_date alone leaks boxes from
     # other routes on the same day into this picker's view, breaking
     # the (route_id, delivery_date, box_no) box-numbering invariant.
@@ -272,6 +321,7 @@ def route_picking(route_id, delivery_date):
 @cooler_bp.route("/box/create", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def box_create():
     """Create a cooler box. Idempotent on (route_id, delivery_date, box_no)."""
     data = request.get_json(silent=True) or request.form
@@ -359,6 +409,7 @@ def box_create():
 @cooler_bp.route("/box/<int:box_id>/assign-item", methods=["POST"])
 @login_required
 @require_permission("cooler.pick")
+@_require_cooler_pick
 def box_assign_item(box_id):
     """Assign a queue row to an open cooler box."""
     box = _fetch_box(box_id)
@@ -406,7 +457,7 @@ def box_assign_item(box_id):
                      f"only pending rows can be assigned."
         }), 400
 
-    # Architect fix-up: enforce that the queue item's invoice belongs to
+    # enforce that the queue item's invoice belongs to
     # the SAME route_id and delivery_date as the target box. Without
     # this gate a permitted cooler picker could bind any cooler queue
     # row to any open box by id, mis-attributing items across routes
@@ -502,6 +553,7 @@ def box_assign_item(box_id):
 @cooler_bp.route("/box/<int:box_id>/remove-item", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def box_remove_item(box_id):
     """Remove an item from an open cooler box; reverse the assignment."""
     box = _fetch_box(box_id)
@@ -557,6 +609,7 @@ def box_remove_item(box_id):
 @cooler_bp.route("/box/<int:box_id>/close", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def box_close(box_id):
     """Close an open cooler box and stamp its stop range."""
     box = _fetch_box(box_id)
@@ -605,6 +658,7 @@ def box_close(box_id):
 @cooler_bp.route("/box/<int:box_id>/reopen", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def box_reopen(box_id):
     """Re-open a previously closed cooler box.
 
@@ -636,6 +690,7 @@ def box_reopen(box_id):
 @cooler_bp.route("/box/<int:box_id>/cancel", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def box_cancel(box_id):
     """Cancel an open box; revert all assigned items back to pending."""
     box = _fetch_box(box_id)
@@ -690,6 +745,7 @@ def box_cancel(box_id):
 @cooler_bp.route("/queue/<int:queue_item_id>/exception", methods=["POST"])
 @login_required
 @require_permission("cooler.pick")
+@_require_cooler_pick
 def queue_exception(queue_item_id):
     """Mark a cooler queue row as ``exception`` with reason."""
     data = request.get_json(silent=True) or request.form
@@ -735,6 +791,7 @@ def queue_exception(queue_item_id):
 @cooler_bp.route("/queue/<int:queue_item_id>/move-to-normal", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def queue_move_to_normal(queue_item_id):
     """Admin-only: move a cooler queue row back to normal."""
     return _move_zone(queue_item_id, "cooler", "normal")
@@ -743,6 +800,7 @@ def queue_move_to_normal(queue_item_id):
 @cooler_bp.route("/queue/<int:queue_item_id>/move-to-cooler", methods=["POST"])
 @login_required
 @require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 def queue_move_to_cooler(queue_item_id):
     """Admin-only: move a normal queue row to cooler."""
     return _move_zone(queue_item_id, "normal", "cooler")
@@ -813,6 +871,7 @@ def _pdf_response(pdf_bytes, filename):
 @cooler_bp.route("/box/<int:box_id>/label")
 @login_required
 @require_permission("cooler.print_labels")
+@_require_cooler_print
 def box_label(box_id):
     box = _fetch_box(box_id)
     if box is None:
@@ -833,6 +892,7 @@ def box_label(box_id):
 @cooler_bp.route("/box/<int:box_id>/manifest")
 @login_required
 @require_permission("cooler.print_labels")
+@_require_cooler_print
 def box_manifest(box_id):
     box = _fetch_box(box_id)
     if box is None:
@@ -845,12 +905,13 @@ def box_manifest(box_id):
 @cooler_bp.route("/route/<route_id>/<delivery_date>/manifest")
 @login_required
 @require_permission("cooler.print_labels")
+@_require_cooler_print
 def route_manifest(route_id, delivery_date):
     if _parse_date(delivery_date) is None:
         return jsonify({"error": "delivery_date must be YYYY-MM-DD"}), 400
 
     # All boxes whose items belong to invoices on this route + date.
-    # Architect fix-up: filter on Invoice.route_id (FK to shipments.id),
+    # filter on Invoice.route_id (FK to shipments.id),
     # NOT Invoice.routing (free-text label). The cooler_boxes.route_id
     # column is itself the shipment FK, so we can short-circuit and
     # filter directly on the box (no Invoice.routing join needed).

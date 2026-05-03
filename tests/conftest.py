@@ -47,6 +47,8 @@ def app():
         # Check if users already exist before creating
         existing_admin = User.query.filter_by(username='test_admin_user').first()
         existing_picker = User.query.filter_by(username='test_picker_user').first()
+        existing_driver = User.query.filter_by(username='test_driver_user').first()
+        existing_crm = User.query.filter_by(username='test_crm_admin_user').first()
         
         if not existing_admin:
             admin_user = User(
@@ -63,6 +65,22 @@ def app():
                 role='picker'
             )
             db.session.add(picker_user)
+
+        if not existing_driver:
+            driver_user = User(
+                username='test_driver_user',
+                password=generate_password_hash('test_password'),
+                role='driver',
+            )
+            db.session.add(driver_user)
+
+        if not existing_crm:
+            crm_user = User(
+                username='test_crm_admin_user',
+                password=generate_password_hash('test_password'),
+                role='crm_admin',
+            )
+            db.session.add(crm_user)
         
         try:
             db.session.commit()

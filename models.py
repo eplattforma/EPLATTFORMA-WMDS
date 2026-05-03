@@ -341,9 +341,39 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
         return db.session.query(InvoiceItem).filter(and_(*filter_conditions)).all()
 
     def get_grouped_items(self, include_picked=False):
-        """Get items grouped appropriately based on picking mode"""
-        from sqlalchemy import and_
-        
+        """Get items grouped appropriately based on picking mode.
+
+        Cold-chain isolation: items routed to the cooler picker via
+        ``batch_pick_queue.pick_zone_type='cooler'`` are excluded from
+        the normal picker work-list (and from sequential index counts).
+        Without this exclusion a SENSITIVE item locked into the batch
+        would surface in BOTH the normal picker (because
+        ``InvoiceItem.locked_by_batch_id`` is set) AND the cooler
+        picker (because the queue row is ``pick_zone_type='cooler'``),
+        leading to double-picks and a broken cold-chain audit trail.
+        """
+        from sqlalchemy import and_, text as _sql_text
+
+        # Resolve the set of (invoice_no, item_code) keys for this batch
+        # whose queue row is cooler. We exclude these from every code path
+        # below. The query is cheap (a single index seek per batch) and
+        # only matters when Phase 5 cooler mode is on; when it is off
+        # there are no cooler queue rows so the set is empty.
+        cooler_keys = set()
+        try:
+            cooler_rows = db.session.execute(
+                _sql_text(
+                    "SELECT invoice_no, item_code FROM batch_pick_queue "
+                    "WHERE batch_session_id = :sid "
+                    "  AND pick_zone_type = 'cooler'"
+                ),
+                {"sid": self.id},
+            ).fetchall()
+            cooler_keys = {(r[0], r[1]) for r in cooler_rows}
+        except Exception:
+            # Phase 4 queue table absent on legacy DBs — treat as no cooler rows.
+            cooler_keys = set()
+
         # Get all invoices in this batch
         batch_invoices = db.session.query(BatchSessionInvoice).filter_by(batch_session_id=self.id).all()
         
@@ -378,7 +408,12 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
         
         if self.picking_mode == 'Consolidated' or not self.picking_mode:
             all_batch_items = db.session.query(InvoiceItem).filter(and_(*filter_conditions)).all()
-            
+            if cooler_keys:
+                all_batch_items = [
+                    it for it in all_batch_items
+                    if (it.invoice_no, it.item_code) not in cooler_keys
+                ]
+
             # Sort items using admin configurable sorting settings
             all_batch_items = sort_items_for_picking(all_batch_items)
             
@@ -418,6 +453,11 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
             items_by_invoice = {}
             # Fetch all items without ORDER BY, will sort in Python using configurable settings
             all_items = InvoiceItem.query.filter(and_(*filter_conditions)).all()
+            if cooler_keys:
+                all_items = [
+                    it for it in all_items
+                    if (it.invoice_no, it.item_code) not in cooler_keys
+                ]
             # Sort items using admin configurable sorting settings
             all_items = sort_items_for_picking(all_items)
             

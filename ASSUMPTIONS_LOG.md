@@ -350,3 +350,33 @@ Format defined in Section 3 of the brief.
 **Safer alternative considered:** Enforce the constraint at the database level via a CHECK or FK constraint linking `cooler_box_items` back to `route_id`. Rejected for now — would require a more invasive migration and the application-layer guard is sufficient for the immediate rejection. Can be hardened later if a follow-up task requires it.
 **Feature flag / rollback:** None — pure defensive validation.
 **Reversibility:** High — one validation block to revert.
+
+---
+
+## ASSUMPTION-031: Normal picker UI hides cooler-zone queue rows via LEFT-JOIN exclusion in get_grouped_items()
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 3 (Task #22, architect rejection follow-up)
+**Files affected:** `models.py::BatchPickingSession.get_grouped_items()` (Consolidated and Sequential branches)
+**Decision made:** Both branches of `get_grouped_items()` now LEFT-JOIN `batch_pick_queue` on `(invoice_no, item_code, batch_session_id)` and exclude rows with `pick_zone_type='cooler'`. Rows with NULL or `'normal'` continue to surface in the normal picker.
+**Reason:** The architect's round-3 review found that without this exclusion, the normal picker UI listed every queue row for the session — including the rows already routed to the cooler queue — so a picker who used both the cooler screen and the normal screen could pick the same item twice. The LEFT-JOIN keyed on the natural `(invoice_no, item_code)` pair (the queue's stable identity for a session) rather than synthetic ids so legacy/null rows still appear.
+**Safer alternative considered:** Materialise a `picker_visible` boolean on `batch_pick_queue` and index it. Rejected for now — the LEFT-JOIN is a one-line change and the queue is bounded per session.
+**Feature flag / rollback:** None — pure correctness fix.
+**Reversibility:** High — revert the LEFT-JOIN and WHERE clause.
+
+---
+
+## ASSUMPTION-032: Cooler endpoints enforce per-permission hard role allow-lists independent of the permissions flag
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 3 (Task #22, architect rejection follow-up + post-review refinement)
+**Files affected:** `blueprints/cooler_picking.py` (`_COOLER_ROLES_PICK`, `_COOLER_ROLES_MANAGE`, `_COOLER_ROLES_PRINT` allow-lists, `_make_role_guard` factory, and three guard decorators applied per route)
+**Decision made:** Each of the 14 cooler view functions carries TWO decorators: the existing `@require_permission("cooler.X")` (still flag-gated) AND a permission-specific hard guard:
+  - `cooler.pick` routes → `@_require_cooler_pick` → allows `{picker, warehouse_manager, admin}`
+  - `cooler.manage_boxes` routes → `@_require_cooler_manage` → allows `{warehouse_manager, admin}` (picker hard-blocked)
+  - `cooler.print_labels` routes → `@_require_cooler_print` → allows `{warehouse_manager, admin}` (picker hard-blocked)
+The hard guards run regardless of `permissions_enforcement_enabled`. The mapping mirrors the role grants in `services/permissions.ROLE_PERMISSIONS` (picker has only `cooler.pick`; warehouse_manager has `cooler.*`; admin has `*`).
+**Reason:** `services/permissions.py::require_permission` is a no-op when the global enforcement flag is off (the production default). A first pass used a single union allow-list, but the architect re-review caught that this still let a picker (who in `ROLE_PERMISSIONS` only holds `cooler.pick`) reach manage-boxes and print-label endpoints — a residual broken-access-control path. Splitting into three per-permission guards mirrors the documented permission boundary at the role-guard layer so the pre-fix-up "default-allow" gap is fully closed for every cooler endpoint independent of the flag.
+**Safer alternative considered:** Always enforce permissions for `cooler.*` (carve-out in `services/permissions.py`). Rejected for now — would change the global enforcement model and risks unrelated routes; the localised per-permission guard is the smaller blast-radius fix.
+**Feature flag / rollback:** None — defensive guard.
+**Reversibility:** High — remove the three guard decorators or revert to a single allow-list.

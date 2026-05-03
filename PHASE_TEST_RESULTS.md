@@ -382,3 +382,20 @@ The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` 
 | FIX-07 | Round-2 architect rejection: `box_assign_item` verified the queue row was a cooler row and the box was open, but did NOT verify the queue item's invoice belonged to the same `route_id` and `delivery_date` as the target cooler box. A permitted picker could bind any cooler queue row to any open box id, corrupting driver manifests / cold-chain audit trail | `box_assign_item` now fetches `Invoice.route_id` + `Shipment.delivery_date` for the queue row's invoice and rejects (HTTP 400 with "Cross-route" / "Cross-date" message) if either differs from the box's values, plus a NULL-route check (ASSUMPTION-030) | `test_p5_fix_07_box_assign_item_refuses_cross_route_and_cross_date` |
 
 **Production posture unchanged:** Both `summer_cooler_mode_enabled` and `cooler_picking_enabled` remain seeded `false`. With the flag OFF, every fix-up reduces to the pre-Phase-5 behaviour (normal picker only, no cold-chain gate, no cooler box overlay) — the architect's "stale open box blocks production forever" risk is closed. Driver Mode invariant preserved.
+
+---
+
+# Phase 5 — Cooler Picking Fix-up Round 3 (Task #22)
+
+**Date:** 2026-05-03
+**Test file:** `tests/test_phase5_cooler_picking.py` (`TestArchitectFixupRegressions`)
+**Result:** ✅ **44 / 44 PASSED** (33 original + 11 fix-up regressions covering rounds 1, 2, and 3, ~7s, in-memory SQLite)
+**Phase 4 regression:** ✅ unchanged.
+**Override-pipeline workflow:** ✅ still passing.
+
+| Cell | Architect rejection | Fix-up | Test |
+|---|---|---|---|
+| FIX-08 | Round-3 architect rejection: `BatchPickingSession.get_grouped_items()` (used by the *normal* picker UI in both Consolidated and Sequential modes) returned every queue row for the session, including rows already routed to the cooler (`pick_zone_type='cooler'`). Pickers therefore saw cold-chain items in the normal worklist a second time, causing double-picking | `models.py::BatchPickingSession.get_grouped_items()` now LEFT-JOINs `batch_pick_queue` on `(invoice_no, item_code, batch_session_id)` and excludes rows whose `pick_zone_type='cooler'` from both branches. NULL/`'normal'` rows still surface | `test_p5_fix_08_get_grouped_items_excludes_cooler_queue_rows` |
+| FIX-09 | Round-3 architect rejection (and follow-up review): `@require_permission("cooler.*")` no-ops when `permissions_enforcement_enabled` is OFF (the production default), so any authenticated user — including drivers and CRM admins — could call cooler endpoints. A first pass added a single role allow-list, but the architect re-review noted that pickers (who only hold `cooler.pick`) could still reach `cooler.manage_boxes` and `cooler.print_labels` endpoints | `blueprints/cooler_picking.py` now defines three per-permission allow-lists — `_COOLER_ROLES_PICK = {picker, wh_mgr, admin}`, `_COOLER_ROLES_MANAGE = {wh_mgr, admin}`, `_COOLER_ROLES_PRINT = {wh_mgr, admin}` — and three matching guard decorators (`_require_cooler_pick`, `_require_cooler_manage`, `_require_cooler_print`). Each of the 14 cooler view functions is paired with the guard whose label matches its `@require_permission(...)` key. Hard 403 fires regardless of the global enforcement flag | `test_p5_fix_09_cooler_routes_hard_block_unauthorised_roles` (driver + crm_admin → 403 on every endpoint; picker → 403 on `box/create`, `box/close`, `box/cancel`, `box/label`, `box/manifest`, `route/manifest`); also updated `test_p5_16_picker_can_view_route_list` to assert picker is 403 on the manifest endpoint |
+
+**Production posture unchanged:** Phase 5 flags remain seeded `false`. The hard role guard runs unconditionally so the cooler endpoints are now safe even before any feature flag is flipped. The normal picker now never sees cooler-zone rows even when the cooler workflow is in use.

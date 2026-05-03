@@ -275,7 +275,7 @@ def upsert():
                 flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
 
-            # Phase 5 fix-up: gate via services.order_readiness.is_order_ready
+            # gate via services.order_readiness.is_order_ready
             # so the cooler queue + cooler boxes are honoured. Cooler mode
             # OFF reduces this to the pre-Phase-5 status check.
             from services.order_readiness import is_order_ready as _is_order_ready
@@ -414,7 +414,7 @@ def detail(shipment_id):
         orders.append(order_dict)
     
     # Check if all invoices are ready for dispatch (for showing "Mark as Shipped" button)
-    # Phase 5 fix-up: route the gate through services.order_readiness.is_order_ready
+    # route the gate through services.order_readiness.is_order_ready
     # so the cooler queue + cooler boxes are honoured. With
     # ``summer_cooler_mode_enabled = false`` the helper short-circuits and
     # behaviour reduces to the pre-Phase-5 status check.
@@ -1137,7 +1137,7 @@ def mark_shipped(shipment_id):
         return redirect(url_for("routes.detail", shipment_id=shipment_id))
     
     # Check if all invoices are picked / ready for dispatch.
-    # Phase 5 fix-up: gate via services.order_readiness.is_order_ready so
+    # gate via services.order_readiness.is_order_ready so
     # the normal queue, cooler queue, AND cooler boxes are all consulted
     # before allowing the route to ship. With cooler mode OFF the helper
     # reduces to the pre-Phase-5 status check.
@@ -1456,7 +1456,7 @@ def change_route_status(shipment_id):
             flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))
         
-        # Phase 5 fix-up: gate via services.order_readiness.is_order_ready
+        # gate via services.order_readiness.is_order_ready
         # so the cooler queue + cooler boxes are honoured. Cooler mode
         # OFF reduces this to the pre-Phase-5 status check.
         from services.order_readiness import is_order_ready as _is_order_ready
