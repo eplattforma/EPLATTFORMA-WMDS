@@ -449,24 +449,28 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
             synchronize_session=False,
         )
 
-        # Flip non-picked queue rows to cancelled (best-effort; queue table
-        # only has rows when the DB-backed flag was on at creation time).
+        # Flip non-picked queue rows to cancelled. For DB-backed batches
+        # this is REQUIRED — failure must rollback. For legacy batches
+        # (no queue rows) the UPDATE is a no-op. We bind Python UTC
+        # values rather than NOW() so the call is portable across
+        # Postgres/SQLite and deterministic for tests.
+        _now = get_utc_now()
+        db_backed = is_db_backed_batch(batch_id)
         try:
             db.session.execute(
                 text(
-                    """
-                    UPDATE batch_pick_queue
-                    SET status = 'cancelled',
-                        cancelled_at = NOW(),
-                        updated_at = NOW()
-                    WHERE batch_session_id = :sid
-                      AND status NOT IN ('picked', 'cancelled')
-                    """
+                    "UPDATE batch_pick_queue "
+                    "SET status = 'cancelled', cancelled_at = :now, updated_at = :now "
+                    "WHERE batch_session_id = :sid "
+                    "  AND status NOT IN ('picked', 'cancelled')"
                 ),
-                {"sid": batch_id},
+                {"sid": batch_id, "now": _now},
             )
         except Exception as e:
-            logger.debug(f"cancel_batch: queue update skipped (non-fatal): {e}")
+            if db_backed:
+                logger.error(f"cancel_batch: queue update FAILED for DB-backed batch {batch_id}: {e}")
+                raise
+            logger.debug(f"cancel_batch: queue update skipped (legacy batch, no queue): {e}")
 
         # Audit columns + status flip (Phase 4 columns set via setattr for
         # ORM-without-model tolerance).

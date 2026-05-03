@@ -1,3 +1,7 @@
+import os
+os.environ.setdefault("SESSION_SECRET", "test-secret-key-for-testing")
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
 """Phase 4 — Batch Picking Refactor regression matrix.
 
 Covers all 28 cells from the Phase 4 brief §4.12:
