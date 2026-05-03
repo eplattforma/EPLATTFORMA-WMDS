@@ -70,6 +70,51 @@ def is_db_queue_enabled():
         return False
 
 
+def record_pick_to_queue(batch_id, invoice_no, item_code, picker, qty_picked):
+    """Phase 4 hook: when ``use_db_backed_picking_queue`` is ON, mark
+    the matching ``batch_pick_queue`` row(s) as picked. No-op when the
+    flag is OFF or when the row doesn't exist (legacy batches that
+    pre-date Phase 4 won't have queue rows). Caller is responsible for
+    commit (we use the ambient session)."""
+    if not is_db_queue_enabled():
+        return 0
+    try:
+        from timezone_utils import get_utc_now
+        result = db.session.execute(
+            text(
+                "UPDATE batch_pick_queue "
+                "SET status = 'picked', picked_by = :picker, "
+                "    picked_at = :now, qty_picked = :qty "
+                "WHERE batch_session_id = :bid "
+                "  AND invoice_no = :inv "
+                "  AND item_code = :ic "
+                "  AND status = 'pending'"
+            ),
+            {
+                "picker": picker,
+                "now": get_utc_now(),
+                "qty": qty_picked,
+                "bid": batch_id,
+                "inv": invoice_no,
+                "ic": item_code,
+            },
+        )
+        # Touch last_activity_at on the session so drain stuck-detection
+        # is accurate.
+        db.session.execute(
+            text(
+                "UPDATE batch_picking_sessions "
+                "SET last_activity_at = :now WHERE id = :bid"
+            ),
+            {"now": get_utc_now(), "bid": batch_id},
+        )
+        return result.rowcount or 0
+    except Exception as e:
+        logger.warning("record_pick_to_queue failed for batch=%s inv=%s ic=%s: %s",
+                       batch_id, invoice_no, item_code, e)
+        return 0
+
+
 def is_claim_required():
     """Read ``batch_claim_required`` flag (defaults OFF). When ON, a
     picker must explicitly claim a batch before starting to pick — the

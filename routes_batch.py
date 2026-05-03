@@ -419,20 +419,18 @@ def batch_delete(batch_id):
     from services import batch_status as _bs
     from services.batch_picking import cancel_batch as _cancel_batch
 
-    if current_user.role not in ['admin', 'warehouse_manager']:
-        flash('Access denied. Admin privileges required.', 'danger')
+    if current_user.role != 'admin':
+        flash('Hard delete is admin-only. Use Cancel instead.', 'danger')
         return redirect(url_for('index'))
 
     batch = BatchPickingSession.query.get_or_404(batch_id)
 
-    # Terminal batches cannot be hard-deleted via this route.
     if _bs.is_terminal(batch.status) and batch.status != 'Cancelled':
         flash('Cannot delete completed/archived batches.', 'warning')
         return redirect(url_for('batch.batch_picking_manage'))
 
     picked_count = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
     if picked_count > 0:
-        # Non-empty: route through cancel/archive to keep audit + release locks.
         try:
             _cancel_batch(batch_id, current_user.username,
                           reason='requested via batch_delete on non-empty batch')
@@ -444,17 +442,24 @@ def batch_delete(batch_id):
 
     try:
         BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).delete()
-        BatchPickedItem.query.filter_by(batch_session_id=batch_id).delete()
-        # Release any locks left over from the empty batch
+        # Note: BatchPickedItem rows are NOT deleted — empty batch path,
+        # but if any historical rows linger they remain for audit.
         InvoiceItem.query.filter_by(locked_by_batch_id=batch_id).update(
             {InvoiceItem.locked_by_batch_id: None}, synchronize_session=False)
+        try:
+            db.session.execute(
+                text("DELETE FROM batch_pick_queue WHERE batch_session_id = :bid"),
+                {"bid": batch_id},
+            )
+        except Exception:
+            pass
         batch_name = batch.name
         db.session.delete(batch)
         db.session.add(ActivityLog(
             picker_username=current_user.username,
             activity_type='batch.hard_deleted',
             details=f'Empty batch "{batch_name}" (id={batch_id}) hard-deleted by '
-                    f'{current_user.username} via picking.delete_empty_batch'
+                    f'{current_user.username} via picking.delete_empty_batch (audit logs preserved)'
         ))
         db.session.commit()
         flash(f'Empty batch "{batch_name}" deleted.', 'success')
@@ -1307,20 +1312,49 @@ def batch_picking_unassign(batch_id):
 @batch_bp.route('/picker/batch/list')
 @login_required
 def picker_batch_list():
-    """Picker page to view assigned batch picking sessions"""
-    # Only picker users can access this page
+    """Picker page: assigned batch sessions + (Phase 4) claimable batches.
+
+    When ``batch_claim_required`` is ON, also surface unassigned /
+    unclaimed Created+Active batches so any picker can claim one.
+    Admins and warehouse managers see ALL non-terminal batches so they
+    can reassign or claim on behalf of pickers.
+    """
     if current_user.role not in ['admin', 'warehouse_manager'] and current_user.role != 'picker':
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
-    
-    # Get batch sessions assigned to this picker (exclude completed batches)
-    batch_sessions = BatchPickingSession.query.filter(
-        BatchPickingSession.assigned_to == current_user.username,
-        BatchPickingSession.status != 'Completed'
-    ).order_by(BatchPickingSession.created_at.desc()).all()
-    
-    return render_template('batch_picking_list.html',
-                          batch_sessions=batch_sessions)
+
+    from services.batch_picking import is_claim_required as _is_claim_required
+    from sqlalchemy import or_ as _or_
+
+    is_admin_like = current_user.role in ('admin', 'warehouse_manager')
+    claim_on = _is_claim_required()
+
+    base_q = BatchPickingSession.query.filter(
+        BatchPickingSession.status.notin_(['Completed', 'Cancelled', 'Archived'])
+    )
+
+    if is_admin_like:
+        batch_sessions = base_q.order_by(BatchPickingSession.created_at.desc()).all()
+    elif claim_on:
+        # Picker sees: own assignments + claimable (unassigned/unclaimed)
+        batch_sessions = base_q.filter(
+            _or_(
+                BatchPickingSession.assigned_to == current_user.username,
+                BatchPickingSession.assigned_to.is_(None),
+                BatchPickingSession.assigned_to == '',
+            )
+        ).order_by(BatchPickingSession.created_at.desc()).all()
+    else:
+        batch_sessions = base_q.filter(
+            BatchPickingSession.assigned_to == current_user.username
+        ).order_by(BatchPickingSession.created_at.desc()).all()
+
+    return render_template(
+        'batch_picking_list.html',
+        batch_sessions=batch_sessions,
+        claim_required=claim_on,
+        current_username=current_user.username,
+    )
 
 @batch_bp.route('/picker/batch/clear_cache/<int:batch_id>')
 @login_required
@@ -2227,6 +2261,19 @@ def complete_batch_confirm(batch_id):
                         if remaining_qty <= 0:
                             break  # No more quantity to allocate
         
+        # Phase 4: when DB-backed queue flag is ON, mirror the pick into
+        # ``batch_pick_queue`` and touch ``last_activity_at`` so refresh /
+        # restart resumes from the correct state.
+        from services.batch_picking import record_pick_to_queue as _record_pick_to_queue
+        for _src in source_items:
+            _record_pick_to_queue(
+                batch_id=batch_id,
+                invoice_no=_src['invoice_no'],
+                item_code=_src['item_code'],
+                picker=current_user.username,
+                qty_picked=_src.get('qty', picked_qty),
+            )
+
         # Record an activity
         activity = ActivityLog(
             picker_username=current_user.username,
@@ -2740,18 +2787,17 @@ def delete_batch_comprehensive(batch_id, batch_name, admin_username):
 @login_required
 @require_permission('picking.delete_empty_batch')
 def delete_batch(batch_id):
-    """Phase 4: gated behind ``picking.delete_empty_batch``. Empty batches
-    in 'Created' status only — every other path goes through
-    ``cancel_batch`` to preserve audit + release locks correctly.
-    """
-    if current_user.role not in ['admin', 'warehouse_manager']:
-        flash('Access denied. Admin privileges required.', 'danger')
+    """Phase 4: hard-delete is admin-only and gated behind
+    ``picking.delete_empty_batch``. Empty batches in 'Created' status
+    only — every other path goes through ``cancel_batch``. Audit logs
+    and picking exceptions are PRESERVED."""
+    if current_user.role != 'admin':
+        flash('Hard delete is admin-only. Use Cancel instead.', 'danger')
         return redirect(url_for('batch.picker_batch_list'))
 
     batch_session = BatchPickingSession.query.get_or_404(batch_id)
 
     picked_items_count = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
-
     if picked_items_count > 0:
         flash(f'Cannot delete batch "{batch_session.batch_number or "BATCH-" + str(batch_session.id)}" - it has {picked_items_count} picked items. Use Cancel instead.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
@@ -2759,21 +2805,38 @@ def delete_batch(batch_id):
     if batch_session.status not in ['Created']:
         flash(f'Cannot delete batch "{batch_session.batch_number or "BATCH-" + str(batch_session.id)}" - it is not in "Created" status. Use Cancel instead.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
-    
+
     batch_name = batch_session.batch_number or f"BATCH-{batch_session.id}"
-    
+
     try:
-        # Comprehensive batch deletion with proper cleanup
-        deletion_summary = delete_batch_comprehensive(batch_id, batch_name, current_user.username)
-        
-        flash(f'Batch "{batch_name}" and all related data have been successfully deleted. {deletion_summary}', 'success')
-        current_app.logger.info(f"Admin {current_user.username} deleted batch {batch_name} (ID: {batch_id}) - {deletion_summary}")
-        
+        # Audit-preserving cleanup: release locks, drop session-invoice
+        # links + queue rows, then the empty session itself. Activity
+        # logs and PickingExceptions are NOT touched.
+        from batch_locking_utils import unlock_items_for_batch
+        unlocked = unlock_items_for_batch(batch_id, preserve_picked=False)
+        BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).delete()
+        try:
+            db.session.execute(
+                text("DELETE FROM batch_pick_queue WHERE batch_session_id = :bid"),
+                {"bid": batch_id},
+            )
+        except Exception:
+            pass
+        db.session.delete(batch_session)
+        log = ActivityLog(
+            picker_username=current_user.username,
+            activity_type='BATCH_DELETED',
+            details=f'Hard delete of empty batch {batch_name} (ID: {batch_id}); released {unlocked} lock(s). Audit logs preserved.',
+        )
+        db.session.add(log)
+        db.session.commit()
+        flash(f'Batch "{batch_name}" deleted. {unlocked} lock(s) released; audit logs preserved.', 'success')
+        current_app.logger.info(f"Admin {current_user.username} deleted batch {batch_name} (ID: {batch_id})")
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Error deleting batch {batch_id}: {str(e)}")
+        current_app.logger.error(f"Error deleting batch {batch_id}: {e}")
         flash('An error occurred while deleting the batch. Please try again.', 'danger')
-    
+
     return redirect(url_for('batch.picker_batch_list'))
 
 @batch_bp.route('/batch/summary/<int:batch_id>')

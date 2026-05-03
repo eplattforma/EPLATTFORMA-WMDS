@@ -124,11 +124,10 @@ _ORPHANS_TEMPLATE = """
 @login_required
 @require_permission("picking.manage_batches")
 def orphaned_locks_route():
-    if current_user.role not in ("admin", "warehouse_manager"):
-        flash("Access denied.", "danger")
+    if current_user.role != "admin":
+        flash("Orphan reconciliation is admin-only.", "danger")
         return redirect(url_for("index"))
     orphans = find_orphaned_locks()
-    # Try template file first; fall back to inline string.
     try:
         from flask import render_template
         return render_template("admin_orphaned_locks.html", orphans=orphans)
@@ -140,14 +139,11 @@ def orphaned_locks_route():
 @login_required
 @require_permission("picking.manage_batches")
 def unlock_orphans_route():
-    if current_user.role not in ("admin", "warehouse_manager"):
-        flash("Access denied.", "danger")
+    if current_user.role != "admin":
+        flash("Orphan reconciliation is admin-only.", "danger")
         return redirect(url_for("index"))
-    try:
-        n = bulk_unlock_orphans(current_user.username)
-        flash(f"Released {n} orphan lock(s).", "success")
-    except Exception as e:
-        flash(f"Failed to unlock orphans: {e}", "danger")
+    n = bulk_unlock_orphans(current_user.username)
+    flash(f"Released {n} orphan lock(s).", "success")
     return redirect(url_for("admin_batch_phase4.orphaned_locks_route"))
 
 
@@ -227,6 +223,8 @@ def drain_force_pause_route():
 @login_required
 @require_permission("picking.manage_batches")
 def orphaned_locks_json():
+    if current_user.role != "admin":
+        return jsonify({"error": "admin only"}), 403
     orphans = find_orphaned_locks()
     return jsonify({
         "count": len(orphans),

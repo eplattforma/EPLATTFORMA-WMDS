@@ -3,6 +3,13 @@
 {% block title %}Batch Picking List - EPLATTFORMA WMDS System{% endblock %}
 
 {% block content %}
+{# Phase 4: drain banner for picker-facing pages #}
+{% if drain_banner %}
+  <div class="alert alert-warning d-flex align-items-center mb-3">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    <div>{{ drain_banner }}</div>
+  </div>
+{% endif %}
 <div class="row mb-3">
     <div class="col-md-8">
         <h1 class="h3">
@@ -71,19 +78,30 @@
                             </td>
                             <td>{{ batch.created_at.strftime('%d/%m/%y %H:%M') }}</td>
                             <td>
-                                {% if batch.status == 'Created' %}
-                                    <a href="{{ url_for('batch.start_batch_picking', batch_id=batch.id) }}" 
+                                {# Phase 4 claim flow: when claim_required is ON and the
+                                   batch has not been claimed yet, show a Claim button. #}
+                                {% set needs_claim = claim_required and not batch.claimed_by %}
+                                {% if needs_claim %}
+                                  <form method="POST"
+                                        action="{{ url_for('admin_batch_phase4.claim_batch_route', batch_id=batch.id) }}"
+                                        style="display:inline">
+                                    <button type="submit" class="btn btn-warning btn-sm">
+                                      <i class="fas fa-hand-paper me-1"></i>Claim
+                                    </button>
+                                  </form>
+                                {% elif batch.status == 'Created' %}
+                                    <a href="{{ url_for('batch.start_batch_picking', batch_id=batch.id) }}"
                                        class="btn btn-success btn-sm">
                                         <i class="fas fa-play me-1"></i>Start Picking
                                     </a>
                                     {% if has_permission('settings.manage_users') %}
-                                        <button type="button" class="btn btn-outline-danger btn-sm ms-1" 
+                                        <button type="button" class="btn btn-outline-danger btn-sm ms-1"
                                                 onclick="deleteBatch({{ batch.id }}, '{{ batch.batch_number or 'BATCH-' ~ batch.id }}')">
                                             <i class="fas fa-trash me-1"></i>Delete
                                         </button>
                                     {% endif %}
                                 {% elif batch.status == 'Active' or batch.status == 'In Progress' or batch.status == 'picking' %}
-                                    <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" 
+                                    <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}"
                                        class="btn btn-primary btn-sm">
                                         <i class="fas fa-arrow-right me-1"></i>Continue
                                     </a>

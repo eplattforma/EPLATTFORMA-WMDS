@@ -290,6 +290,18 @@ app.register_blueprint(admin_job_runs_bp)
 from routes_admin_batch_phase4 import admin_batch_phase4_bp
 app.register_blueprint(admin_batch_phase4_bp)
 
+
+@app.context_processor
+def _inject_phase4_drain_banner():
+    """Phase 4: expose drain banner to ALL templates so picker pages
+    (and admin pages) can render the maintenance warning. Returns an
+    empty dict on any error so a settings outage cannot break rendering."""
+    try:
+        from services.maintenance import drain as _drain
+        return {"drain_banner": _drain.get_drain_banner()}
+    except Exception:
+        return {"drain_banner": None}
+
 logging.warning("PHASE 5: all blueprints registered")
 print("PHASE 5: all blueprints registered", flush=True)
 
