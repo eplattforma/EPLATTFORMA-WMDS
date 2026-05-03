@@ -324,3 +324,29 @@ Format defined in Section 3 of the brief.
 **Safer alternative considered:** Wrap each `ALTER TABLE` in a Postgres advisory lock (`pg_advisory_lock`). Rejected — needlessly heavyweight for an additive nullable column add; native `IF NOT EXISTS` is the canonical PG idiom.
 **Feature flag / rollback:** None — purely defensive.
 **Reversibility:** High — drop the cooler tables + the two `batch_pick_queue` columns to revert.
+
+---
+
+## ASSUMPTION-029: Cooler blueprint keys on Invoice.route_id (FK), not Invoice.routing (label)
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 2 (Task #22, architect rejection follow-up)
+**Files affected:** `blueprints/cooler_picking.py` (`route_list`, `route_picking`, `route_manifest`)
+**Decision made:** All three cooler blueprint queries now filter on `Invoice.route_id` (the integer FK to `shipments.id`) and on `Shipment.delivery_date` (joined via `i.route_id = s.id`), NOT on `Invoice.routing` (a `String(100)` free-text label) or `Invoice.upload_date` (a `String(10)` capture date). The `cooler_boxes.route_id` column itself is the shipment FK, so the route manifest can short-circuit and filter directly on the box without joining invoices at all.
+**Reason:** The architect's round-2 review caught that `Invoice.routing` is a free-text label assigned by planners (e.g. "morning-A", "express-2") while `Invoice.route_id` is the FK that the dispatch system, driver overlay, and `cooler_boxes` table all key on. When a planner relabels a route, `routing != str(route_id)` and the old queries returned the wrong picker work-list and mis-attributed boxes. Tests masked the bug because the helper set `routing=str(route_id)`.
+**Safer alternative considered:** Continue keying on `routing` and migrate `cooler_boxes.route_id` to also be a label. Rejected — the rest of the dispatch/driver system uses the FK; aligning cooler with the FK is the smaller, safer change.
+**Feature flag / rollback:** None — this is a correctness fix.
+**Reversibility:** High — three SQL fragments to revert.
+
+---
+
+## ASSUMPTION-030: box_assign_item enforces same route_id AND delivery_date as the target box
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up round 2 (Task #22, architect rejection follow-up)
+**Files affected:** `blueprints/cooler_picking.py::box_assign_item`
+**Decision made:** Before inserting into `cooler_box_items`, the route now fetches `Invoice.route_id` and `Shipment.delivery_date` for the queue row's invoice and rejects the request with HTTP 400 ("Cross-route assignment refused" / "Cross-date assignment refused") if either differs from the target box's `route_id` or `delivery_date`. A queue row whose invoice has `route_id IS NULL` is also refused.
+**Reason:** Without this gate, any holder of the `cooler.pick` permission could bind any cooler queue row to any open box id, mis-attributing items across routes and corrupting driver manifests / cold-chain audit trail. The architect classified this as a broken-access-control / data-integrity issue. The validation closes the gap inside the existing route — no schema change required.
+**Safer alternative considered:** Enforce the constraint at the database level via a CHECK or FK constraint linking `cooler_box_items` back to `route_id`. Rejected for now — would require a more invasive migration and the application-layer guard is sufficient for the immediate rejection. Can be hardened later if a follow-up task requires it.
+**Feature flag / rollback:** None — pure defensive validation.
+**Reversibility:** High — one validation block to revert.

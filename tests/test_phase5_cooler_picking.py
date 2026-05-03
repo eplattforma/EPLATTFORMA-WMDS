@@ -125,16 +125,39 @@ def _make_dw_item(db, code, zone):
 def _make_invoice_with_items(db, invoice_no="INV-P5-1", n_items=2,
                              zone="A1", route_id="900",
                              delivery_date="2026-05-03"):
-    from models import Invoice, InvoiceItem
+    """Create an invoice + its items and ensure the parent Shipment row
+    exists with ``id=int(route_id)`` and ``delivery_date=delivery_date``.
+
+    Architect fix-up: the cooler blueprint now joins on
+    ``Invoice.route_id`` (FK to shipments.id) and ``Shipment.delivery_date``.
+    The helper therefore wires up BOTH the legacy ``routing`` (free-text
+    label) AND the real ``route_id`` FK, plus a shipment row, so tests
+    exercise the production join path.
+    """
+    from models import Invoice, InvoiceItem, Shipment
+    rid_int = int(route_id) if route_id is not None else None
+    if rid_int is not None:
+        sh = Shipment.query.get(rid_int)
+        if sh is None:
+            sh = Shipment(
+                id=rid_int, driver_name=f"Driver-{rid_int}",
+                delivery_date=datetime.strptime(delivery_date, "%Y-%m-%d").date(),
+                status="PLANNED",
+            )
+            db.session.add(sh)
+            db.session.flush()
     inv = Invoice.query.filter_by(invoice_no=invoice_no).first()
     if not inv:
         inv = Invoice(
             invoice_no=invoice_no, customer_name=f"Cust {invoice_no}",
             customer_code=f"C{invoice_no}", status="Not Started",
             routing=str(route_id), upload_date=delivery_date,
+            route_id=rid_int,
         )
         db.session.add(inv)
         db.session.flush()
+    elif inv.route_id is None and rid_int is not None:
+        inv.route_id = rid_int
     for i in range(n_items):
         db.session.add(InvoiceItem(
             invoice_no=invoice_no, item_code=f"IT-{invoice_no}-{i}",
@@ -980,6 +1003,132 @@ class TestArchitectFixupRegressions:
         # Snapshot of the new WHERE clause in route_picking's
         # cooler_boxes SELECT (a single line in the SQL string):
         assert "AND route_id = :route_id" in src
+
+    def test_p5_fix_06_cooler_blueprint_keys_on_route_id_not_routing(self, setup):
+        """Architect rejection (round 2): the cooler blueprint's three
+        SQL queries (route_list, route_picking, route_manifest) must
+        filter on ``Invoice.route_id`` (FK to shipments.id) rather than
+        ``Invoice.routing`` (a free-text label that may differ from
+        the numeric route id, or be NULL). When ``routing`` and
+        ``route_id`` diverge — the production reality once a planner
+        relabels a route — the old queries returned the wrong work-list
+        or attributed boxes to the wrong route.
+
+        We simulate the divergence by inserting an invoice whose
+        ``routing='LABEL-X'`` but whose ``route_id=920``, then assert
+        the route_list groups it under ``route_id=920`` (the real FK)."""
+        app, db = setup
+        from models import Invoice, InvoiceItem, Shipment
+        from datetime import date
+        # Shipment row with id=920.
+        sh = Shipment.query.get(920)
+        if sh is None:
+            sh = Shipment(id=920, driver_name="DriverFix6",
+                          delivery_date=date(2026, 5, 3), status="PLANNED")
+            db.session.add(sh)
+            db.session.flush()
+        # Invoice with divergent routing (label) vs route_id (FK).
+        inv = Invoice(
+            invoice_no="INV-FIX6", customer_name="Cust Fix6",
+            customer_code="CFIX6", status="Not Started",
+            routing="LABEL-X",  # human label, NOT the FK
+            upload_date="2026-05-03", route_id=920,
+        )
+        db.session.add(inv)
+        db.session.flush()
+        db.session.add(InvoiceItem(
+            invoice_no="INV-FIX6", item_code="IT-INV-FIX6-0",
+            item_name="Cold item", qty=1, zone="ZFIX6",
+            is_picked=False, pick_status="not_picked",
+        ))
+        db.session.execute(text("""
+            INSERT INTO batch_pick_queue (
+                batch_session_id, invoice_no, item_code, pick_zone_type,
+                sequence_no, status, qty_required
+            ) VALUES (9006, 'INV-FIX6', 'IT-INV-FIX6-0', 'cooler',
+                      1, 'pending', 1)
+        """))
+        db.session.commit()
+        # Source contract: every cooler query keys on i.route_id (not
+        # i.routing) and joins shipments for delivery_date.
+        with open("blueprints/cooler_picking.py", "r", encoding="utf-8") as f:
+            src = f.read()
+        assert "i.route_id = :route_id" in src, (
+            "route_picking must filter on Invoice.route_id (FK), not routing"
+        )
+        assert "s.delivery_date = :delivery_date" in src, (
+            "route_picking must join shipments for the real delivery_date"
+        )
+        # And no surviving uses of i.routing in the cooler join clauses.
+        for legacy in ("i.routing = :route_id", "i.routing = :rid"):
+            assert legacy not in src, (
+                f"legacy filter on Invoice.routing still present: {legacy}"
+            )
+
+    def test_p5_fix_07_box_assign_item_refuses_cross_route_and_cross_date(self, setup, client):
+        """Architect rejection (round 2): ``box_assign_item`` must
+        verify the queue row's invoice belongs to the same ``route_id``
+        AND ``delivery_date`` as the target cooler box. Without this
+        gate any cooler picker can bind any cooler queue row to any
+        open box by id, mis-attributing items across routes and
+        corrupting driver manifests / cold-chain audit trail."""
+        app, db = setup
+        from models import Shipment
+        from datetime import date
+        # Two shipments on different routes, different dates.
+        for rid, dd in [(930, date(2026, 5, 3)), (931, date(2026, 5, 4))]:
+            sh = Shipment.query.get(rid)
+            if sh is None:
+                db.session.add(Shipment(
+                    id=rid, driver_name=f"D-{rid}",
+                    delivery_date=dd, status="PLANNED",
+                ))
+        db.session.commit()
+        # Invoice on route 930 / date 5-3 with a cooler queue row.
+        _make_invoice_with_items(db, "INV-FIX7A", 1, "ZFIX7", route_id="930",
+                                 delivery_date="2026-05-03")
+        db.session.execute(text("""
+            INSERT INTO batch_pick_queue (
+                batch_session_id, invoice_no, item_code, pick_zone_type,
+                sequence_no, status, qty_required
+            ) VALUES (9007, 'INV-FIX7A', 'IT-INV-FIX7A-0', 'cooler',
+                      1, 'pending', 1)
+        """))
+        # Open cooler box on a DIFFERENT route (931) / date (5-4).
+        db.session.execute(text("""
+            INSERT INTO cooler_boxes (route_id, delivery_date, box_no,
+                                      status, created_by)
+            VALUES (931, '2026-05-04', 1, 'open', 'test_admin_user')
+        """))
+        db.session.commit()
+        bad_box_id = db.session.execute(text(
+            "SELECT id FROM cooler_boxes WHERE route_id = 931"
+        )).scalar()
+        bad_qid = db.session.execute(text(
+            "SELECT id FROM batch_pick_queue WHERE invoice_no = 'INV-FIX7A'"
+        )).scalar()
+
+        _login(client, "admin")
+        resp = client.post(
+            f"/cooler/box/{bad_box_id}/assign-item",
+            json={"queue_item_id": bad_qid, "picked_qty": 1},
+        )
+        # Cross-route assignment must be rejected with 400 + a clear
+        # error mentioning "Cross-route" or "Cross-date".
+        assert resp.status_code == 400, resp.get_json()
+        body = resp.get_json() or {}
+        msg = (body.get("error") or "").lower()
+        assert ("cross-route" in msg) or ("cross-date" in msg), body
+        # And the queue row must NOT have been flipped to picked.
+        st = db.session.execute(text(
+            "SELECT status FROM batch_pick_queue WHERE id = :q"
+        ), {"q": bad_qid}).scalar()
+        assert st == "pending"
+        # And no cooler_box_items row was created.
+        cnt = db.session.execute(text(
+            "SELECT COUNT(*) FROM cooler_box_items WHERE cooler_box_id = :b"
+        ), {"b": bad_box_id}).scalar()
+        assert cnt == 0
 
     def test_p5_fix_05_migration_runs_on_sqlite_dialect(self, setup):
         """The migration must run cleanly on SQLite (the test dialect)

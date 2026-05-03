@@ -139,15 +139,23 @@ def _audit(activity_type, details, invoice_no=None, item_code=None):
 @login_required
 @require_permission("cooler.pick")
 def route_list():
-    """List route_id + delivery_date pairs that have pending cooler items."""
+    """List route_id + delivery_date pairs that have pending cooler items.
+
+    Architect fix-up: route identity comes from ``Invoice.route_id``
+    (FK to shipments.id) and the date comes from ``Shipment.delivery_date``,
+    NOT from ``Invoice.routing`` (a free-text label) or ``Invoice.upload_date``
+    (a string). Cooler boxes and the dispatch system both key on the
+    real shipment FK; any other field would mis-attribute boxes.
+    """
     rows = db.session.execute(
         text(
             "SELECT bpq.invoice_no, bpq.item_code, bpq.status, "
-            "       i.routing AS route_id, i.upload_date AS delivery_date "
+            "       i.route_id AS route_id, s.delivery_date AS delivery_date "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN shipments s ON s.id = i.route_id "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "ORDER BY i.routing, i.upload_date, bpq.invoice_no"
+            "ORDER BY i.route_id, s.delivery_date, bpq.invoice_no"
         )
     ).fetchall()
 
@@ -189,6 +197,15 @@ def route_picking(route_id, delivery_date):
       1. Route / shipment, 2. RouteStop.seq_no, 3. Customer code,
       4. Invoice number, 5. Item code.
     """
+    # Architect fix-up: filter by Invoice.route_id (FK to shipments.id)
+    # and Shipment.delivery_date — NOT by Invoice.routing (free-text
+    # label) or Invoice.upload_date (string). Cooler boxes are keyed
+    # on the real shipment FK; any other field would mis-attribute the
+    # picker's work-list.
+    try:
+        _route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        _route_id_int = None
     rows = db.session.execute(
         text(
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
@@ -197,18 +214,19 @@ def route_picking(route_id, delivery_date):
             "       rs.seq_no, rs.route_stop_id "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN shipments s ON s.id = i.route_id "
             "LEFT JOIN route_stop_invoice rsi "
             "       ON rsi.invoice_no = bpq.invoice_no "
             "      AND rsi.is_active = :truthy "
             "LEFT JOIN route_stop rs "
             "       ON rs.route_stop_id = rsi.route_stop_id "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND i.routing = :route_id "
-            "  AND i.upload_date = :delivery_date "
+            "  AND i.route_id = :route_id "
+            "  AND s.delivery_date = :delivery_date "
             "ORDER BY rs.seq_no NULLS LAST, i.customer_code, "
             "         bpq.invoice_no, bpq.item_code"
         ),
-        {"route_id": str(route_id), "delivery_date": str(delivery_date),
+        {"route_id": _route_id_int, "delivery_date": str(delivery_date),
          "truthy": True},
     ).fetchall()
     queue = [
@@ -231,12 +249,7 @@ def route_picking(route_id, delivery_date):
     # delivery_date. Filtering by delivery_date alone leaks boxes from
     # other routes on the same day into this picker's view, breaking
     # the (route_id, delivery_date, box_no) box-numbering invariant.
-    # ``route_id`` is captured as a string from the URL but cooler_boxes
-    # stores it as an integer FK to shipments(id) — cast for safety.
-    try:
-        _route_id_int = int(route_id)
-    except (TypeError, ValueError):
-        _route_id_int = None
+    # (``_route_id_int`` was already computed above for the queue query.)
     boxes = db.session.execute(
         text(
             "SELECT id, route_id, delivery_date, box_no, status, "
@@ -371,9 +384,11 @@ def box_assign_item(box_id):
         text(
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
             "       bpq.status, bpq.pick_zone_type, "
-            "       i.customer_code, i.customer_name "
+            "       i.customer_code, i.customer_name, "
+            "       i.route_id, s.delivery_date "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN shipments s ON s.id = i.route_id "
             "WHERE bpq.id = :qid"
         ),
         {"qid": queue_item_id},
@@ -389,6 +404,33 @@ def box_assign_item(box_id):
         return jsonify({
             "error": f"Queue item {queue_item_id} status={qrow[4]}; "
                      f"only pending rows can be assigned."
+        }), 400
+
+    # Architect fix-up: enforce that the queue item's invoice belongs to
+    # the SAME route_id and delivery_date as the target box. Without
+    # this gate a permitted cooler picker could bind any cooler queue
+    # row to any open box by id, mis-attributing items across routes
+    # and corrupting driver manifests / cold-chain audit trail.
+    invoice_route_id = qrow[8]
+    invoice_delivery_date = qrow[9]
+    if invoice_route_id is None:
+        return jsonify({
+            "error": f"Queue item {queue_item_id} has no assigned route "
+                     f"(invoice.route_id is NULL); cannot bind to a cooler box."
+        }), 400
+    if int(invoice_route_id) != int(box["route_id"]):
+        return jsonify({
+            "error": f"Cross-route assignment refused: queue item "
+                     f"{queue_item_id} belongs to route {invoice_route_id} "
+                     f"but cooler box #{box_id} is for route "
+                     f"{box['route_id']}."
+        }), 400
+    if str(invoice_delivery_date) != str(box["delivery_date"]):
+        return jsonify({
+            "error": f"Cross-date assignment refused: queue item "
+                     f"{queue_item_id} ships on {invoice_delivery_date} "
+                     f"but cooler box #{box_id} is for "
+                     f"{box['delivery_date']}."
         }), 400
 
     invoice_no = qrow[1]
@@ -808,18 +850,24 @@ def route_manifest(route_id, delivery_date):
         return jsonify({"error": "delivery_date must be YYYY-MM-DD"}), 400
 
     # All boxes whose items belong to invoices on this route + date.
+    # Architect fix-up: filter on Invoice.route_id (FK to shipments.id),
+    # NOT Invoice.routing (free-text label). The cooler_boxes.route_id
+    # column is itself the shipment FK, so we can short-circuit and
+    # filter directly on the box (no Invoice.routing join needed).
+    try:
+        _route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        _route_id_int = None
     box_rows = db.session.execute(
         text(
             "SELECT DISTINCT cb.id, cb.route_id, cb.delivery_date, cb.box_no, "
             "       cb.status, cb.first_stop_sequence, cb.last_stop_sequence "
             "FROM cooler_boxes cb "
-            "JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id "
-            "JOIN invoices i ON i.invoice_no = cbi.invoice_no "
             "WHERE cb.delivery_date = :dd "
-            "  AND i.routing = :rid "
+            "  AND cb.route_id = :rid "
             "ORDER BY cb.box_no"
         ),
-        {"dd": str(delivery_date), "rid": str(route_id)},
+        {"dd": str(delivery_date), "rid": _route_id_int},
     ).fetchall()
     boxes_with_items = [
         (_box_dict(b), _fetch_box_items(b[0])) for b in box_rows
