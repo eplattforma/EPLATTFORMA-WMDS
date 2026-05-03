@@ -45,7 +45,7 @@ def _safe(fn, default, label: str):
 
 # ─── caching ────────────────────────────────────────────────────────────
 
-# ASSUMPTION-026: TTL = 5 min, max 128 entries.
+# ASSUMPTION-042: TTL = 5 min, max 128 entries.
 _CACHE: TTLCache = TTLCache(maxsize=128, ttl=300)
 RETURN_PREDICATE = "COALESCE(h.invoice_type,'') ILIKE '%RETURN%'"
 
@@ -128,7 +128,7 @@ def _fetch_header(customer_code: str) -> dict:
     except Exception:
         out["last_login_days"] = None
 
-    out["slot"] = None  # Slots not yet modelled — ASSUMPTION-027.
+    out["slot"] = None  # Slots not yet modelled — ASSUMPTION-043.
     return out
 
 
@@ -225,12 +225,12 @@ def _monthly_sparkline(customer_code: str, end: date, months: int = 12) -> list[
     return out
 
 
-# ASSUMPTION-023: engagement weights login=0.25 / invoice=0.30 /
+# ASSUMPTION-039: engagement weights login=0.25 / invoice=0.30 /
 # slot_usage=0.25 / offer_uptake=0.20 (cockpit-brief §11.4 verbatim).
 def _compute_engagement_score(customer_code: str, header: dict) -> dict:
     """Composite 0–100 customer engagement score.
 
-    Components (cockpit-brief §11.4, ASSUMPTION-023 for the weights):
+    Components (cockpit-brief §11.4, ASSUMPTION-039 for the weights):
 
         login_score        = clamp(100 - last_login_days × 3, 0, 100)
         invoice_score      = clamp(100 - last_invoice_days × 2, 0, 100)
@@ -249,7 +249,7 @@ def _compute_engagement_score(customer_code: str, header: dict) -> dict:
     invoice_score = _clamp(100 - lid * 2) if lid is not None else 0.0
 
     # Slots: orders_in_last_6_slots / 6 — slot system not yet modelled
-    # (ASSUMPTION-027). Use 6 most-recent invoice weeks as a proxy: how
+    # (ASSUMPTION-043). Use 6 most-recent invoice weeks as a proxy: how
     # many of the last 6 ISO weeks contain at least one invoice.
     six_weeks_ago = date.today() - timedelta(days=6 * 7)
     weeks = db.session.execute(text("""
@@ -417,7 +417,7 @@ def _compute_pvm(customer_code: str, start: date, end: date,
     """Decompose sales delta into Price / Volume / Mix.
 
     Cross-term ``(p1-p0)*(q1-q0)`` for common SKUs is **assigned to mix**
-    by convention (ASSUMPTION-025). Finance teams sometimes argue about
+    by convention (ASSUMPTION-041). Finance teams sometimes argue about
     this — pick once, document, move on.
     """
     if not prev_start or not prev_end:
@@ -429,17 +429,28 @@ def _compute_pvm(customer_code: str, start: date, end: date,
     prev = _fetch_item_aggregates(customer_code, prev_start, prev_end)
 
     price_total = volume_total = mix_total = 0.0
+    gp_price_total = gp_volume_total = gp_mix_total = 0.0
     for sku in set(cur) | set(prev):
         c = cur.get(sku); p = prev.get(sku)
         if c and p:
+            # Sales-PVM (line_total_excl decomposition).
             price_total += (c["price"] - p["price"]) * p["qty"]
             volume_total += (c["qty"] - p["qty"]) * p["price"]
-            # Cross-term → mix (ASSUMPTION-025).
+            # Cross-term → mix (ASSUMPTION-041).
             mix_total += (c["price"] - p["price"]) * (c["qty"] - p["qty"])
+            # GP-PVM (gross_profit decomposition — same convention applied
+            # to per-unit GP). Required by reviewer for parity with finance.
+            p_gp_unit = (p["gp"] / p["qty"]) if p["qty"] else 0.0
+            c_gp_unit = (c["gp"] / c["qty"]) if c["qty"] else 0.0
+            gp_price_total += (c_gp_unit - p_gp_unit) * p["qty"]
+            gp_volume_total += (c["qty"] - p["qty"]) * p_gp_unit
+            gp_mix_total += (c_gp_unit - p_gp_unit) * (c["qty"] - p["qty"])
         elif c and not p:  # NEW
             mix_total += c["sales"]
+            gp_mix_total += c["gp"]
         elif p and not c:  # LOST
             mix_total -= p["sales"]
+            gp_mix_total -= p["gp"]
 
     cur_total = sum(v["sales"] for v in cur.values())
     prev_total = sum(v["sales"] for v in prev.values())
@@ -450,6 +461,10 @@ def _compute_pvm(customer_code: str, start: date, end: date,
     if abs(sales_delta) > 0.01:
         explained = price_total + volume_total + mix_total
         check_pct = abs((explained - sales_delta) / sales_delta) * 100
+    gp_check_pct = None
+    if abs(gp_delta) > 0.01:
+        gp_explained = gp_price_total + gp_volume_total + gp_mix_total
+        gp_check_pct = abs((gp_explained - gp_delta) / gp_delta) * 100
 
     return {
         "price": round(price_total, 2),
@@ -458,6 +473,11 @@ def _compute_pvm(customer_code: str, start: date, end: date,
         "total_sales_delta": round(sales_delta, 2),
         "total_gp_delta": round(gp_delta, 2),
         "sales_delta_check_pct": round(check_pct, 3) if check_pct is not None else None,
+        # GP-PVM (parallel decomposition on gross_profit). ASSUMPTION-041.
+        "gp_price": round(gp_price_total, 2),
+        "gp_volume": round(gp_volume_total, 2),
+        "gp_mix": round(gp_mix_total, 2),
+        "gp_delta_check_pct": round(gp_check_pct, 3) if gp_check_pct is not None else None,
     }
 
 
@@ -560,7 +580,16 @@ def _fetch_category_mix_vs_peers(customer_code: str, peer_group: str,
 
 # ─── Active offers ─────────────────────────────────────────────────────
 
-def _fetch_active_offers(customer_code: str, limit: int = 20) -> list[dict]:
+def _fetch_active_offers(customer_code: str, limit: int = 20) -> dict:
+    """Active offers panel — line items + the canonical summary KPI block.
+
+    The summary fields (utilisation %, share %, margin-risk count, …) come
+    from ``services.crm_price_offers.load_offer_summary_map`` so we don't
+    drift from the CRM dashboard / peer analytics view of the same data.
+    The line items still come from ``crm_customer_offer_current`` because
+    that table is the only source of per-SKU offer rows in the codebase.
+    """
+    lines: list[dict] = []
     try:
         rows = db.session.execute(text("""
             SELECT sku, item_code_365, product_name, brand_name,
@@ -572,6 +601,102 @@ def _fetch_active_offers(customer_code: str, limit: int = 20) -> list[dict]:
             ORDER BY sold_value_4w DESC NULLS LAST, discount_percent DESC NULLS LAST
             LIMIT :lim
         """), {"c": customer_code, "lim": limit}).mappings().all()
+        lines = [dict(r) for r in rows]
+    except Exception:
+        db.session.rollback()
+    summary: dict = {}
+    try:
+        from services.crm_price_offers import (
+            load_offer_summary_map, compute_offer_indicator,
+        )
+        m = load_offer_summary_map([customer_code]) or {}
+        s = m.get(customer_code) or {}
+        summary = {
+            "indicator": compute_offer_indicator(s),
+            "active_offer_skus": s.get("active_offer_skus") or 0,
+            "offered_skus_bought_4w": s.get("offered_skus_bought_4w") or 0,
+            "offered_skus_not_bought": s.get("offered_skus_not_bought") or 0,
+            "offer_usage_pct": round(float(s.get("offer_usage_pct") or 0), 1),
+            "offer_sales_4w": round(float(s.get("offer_sales_4w") or 0), 2),
+            "offer_sales_share_pct": round(float(s.get("offer_sales_share_pct") or 0), 1),
+            "avg_discount_percent": round(float(s.get("avg_discount_percent") or 0), 1),
+            "margin_risk_skus": s.get("margin_risk_skus") or 0,
+            "high_discount_unused_skus": s.get("high_discount_unused_skus") or 0,
+        }
+    except Exception:
+        db.session.rollback()
+        summary = {}
+    return {"lines": lines, "summary": summary}
+
+
+def _fetch_cross_sell(customer_code: str, peer_group: str,
+                      start: date, end: date,
+                      penetration_min: float = 0.30,
+                      limit: int = 15) -> list[dict]:
+    """Cross-sell suggestions: peer-popular SKUs in the **categories the
+    customer already buys from** that the customer has not bought.
+
+    This is intentionally a tighter cousin of the white-space panel — same
+    peer-group convention, but filtered to categories the customer is
+    already active in (so the suggestion is contextually relevant rather
+    than a cold pitch). Falls back to an empty list when peer_group is
+    missing or peers can't be resolved (ASSUMPTION-044, revised: now
+    sourced from existing tables, not a deferred analytics-jobs feed).
+    """
+    if not peer_group:
+        return []
+    try:
+        rows = db.session.execute(text(f"""
+        WITH base AS (
+          SELECT h.customer_code_365, l.item_code_365,
+                 COALESCE(i.category_code_365,'') AS category_code,
+                 CASE WHEN {RETURN_PREDICATE}
+                      THEN -ABS(COALESCE(l.quantity,0))
+                      ELSE COALESCE(l.quantity,0) END AS qty_net,
+                 CASE WHEN {RETURN_PREDICATE}
+                      THEN -ABS(COALESCE(l.line_total_excl,0))
+                      ELSE COALESCE(l.line_total_excl,0) END AS sales_net
+          FROM dw_invoice_header h
+          JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+          LEFT JOIN ps_items_dw i ON i.item_code_365 = l.item_code_365
+          WHERE h.invoice_date_utc0::date BETWEEN :s AND :e
+        ),
+        peerset AS (
+          SELECT customer_code_365 FROM ps_customers
+          WHERE reporting_group = :grp AND customer_code_365 <> :c
+        ),
+        peer_cnt AS (SELECT COUNT(*) AS n FROM peerset),
+        cust_cats AS (
+          SELECT DISTINCT category_code FROM base
+          WHERE customer_code_365 = :c AND category_code <> ''
+        ),
+        cust_items AS (
+          SELECT DISTINCT item_code_365 FROM base WHERE customer_code_365 = :c
+        ),
+        peer_item AS (
+          SELECT b.item_code_365, b.category_code,
+                 COUNT(DISTINCT b.customer_code_365) FILTER (WHERE b.qty_net > 0) AS buyers,
+                 SUM(b.sales_net) AS peer_sales
+          FROM base b JOIN peerset p ON p.customer_code_365 = b.customer_code_365
+          WHERE b.category_code IN (SELECT category_code FROM cust_cats)
+          GROUP BY b.item_code_365, b.category_code
+        )
+        SELECT pi.item_code_365 AS item_code,
+               i.item_name,
+               COALESCE(cat.category_name, pi.category_code) AS category,
+               (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) AS penetration,
+               (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_avg_sales
+        FROM peer_item pi
+        LEFT JOIN ps_items_dw i ON i.item_code_365 = pi.item_code_365
+        LEFT JOIN dw_item_categories cat ON cat.category_code_365 = pi.category_code
+        WHERE pi.item_code_365 NOT IN (SELECT item_code_365 FROM cust_items)
+          AND (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) >= :pen
+        ORDER BY (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) DESC NULLS LAST,
+                 pi.peer_sales DESC NULLS LAST
+        LIMIT :lim
+        """), {"c": customer_code, "grp": peer_group,
+                "s": start, "e": end, "pen": penetration_min,
+                "lim": limit}).mappings().all()
         return [dict(r) for r in rows]
     except Exception:
         db.session.rollback()
@@ -680,7 +805,7 @@ def _fetch_lapsed_items(customer_code: str, peer_group: str, start: date,
 def _fetch_churn_risk_by_category(customer_code: str) -> list[dict]:
     """Compare last 90d vs the prior 90d revenue per category. Hide
     healthy rows (drop_pct >= -25). Severity thresholds per §11.6
-    (ASSUMPTION-024)."""
+    (ASSUMPTION-040)."""
     today = date.today()
     recent_start = today - timedelta(days=89)
     recent_end = today
@@ -718,7 +843,7 @@ def _fetch_churn_risk_by_category(customer_code: str) -> list[dict]:
         prev_v = float(r["prev_90d"] or 0)
         recent_v = float(r["recent_90d"] or 0)
         drop = ((recent_v - prev_v) / prev_v * 100.0) if prev_v else 0.0
-        # ASSUMPTION-024.
+        # ASSUMPTION-040.
         if drop < -50:
             severity = "negative"
         elif drop < -25:
@@ -793,7 +918,7 @@ def _fetch_activity_timeline(customer_code: str, magento_customer_id: str | None
                              max_events: int = 20) -> list[dict]:
     """Merge recent events from multiple sources into one chronological
     feed (last 14 days, max 20 events). Sources missing at runtime are
-    silently omitted (ASSUMPTION-028)."""
+    silently omitted (ASSUMPTION-044)."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=14)
     events: list[dict] = []
 
@@ -1054,7 +1179,8 @@ def _build_cockpit_payload(customer_code: str, period_days: int,
     cat_mix = _safe(lambda: _fetch_category_mix_vs_peers(customer_code, grp_resolved, start, end),
                     [], "category_mix")
 
-    active_offers = _safe(lambda: _fetch_active_offers(customer_code), [], "active_offers")
+    active_offers = _safe(lambda: _fetch_active_offers(customer_code),
+                          {"lines": [], "summary": {}}, "active_offers")
     offer_opps = _safe(lambda: get_offer_opportunities(customer_code, limit=10),
                        [], "offer_opportunities")
 
@@ -1064,7 +1190,8 @@ def _build_cockpit_payload(customer_code: str, period_days: int,
                                                 prev_start, prev_end),
                     [], "lapsed_items")
               if prev_start and prev_end else [])
-    cross_sell: list[dict] = []  # ASSUMPTION-044: analytics-jobs source absent (Ticket 3).
+    cross_sell = _safe(lambda: _fetch_cross_sell(customer_code, grp_resolved, start, end),
+                       [], "cross_sell")
 
     churn = _safe(lambda: _fetch_churn_risk_by_category(customer_code), [], "churn_risk")
     price_outliers = _safe(lambda: _fetch_price_index_outliers(customer_code, grp_resolved,

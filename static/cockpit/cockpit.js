@@ -74,43 +74,15 @@ document.addEventListener('click', (ev) => {
 });
 
 // ─── Live-cart inline panel (§11.9) ─────────────────────────────────────
-async function toggleLiveCart() {
+// Server-rendered: just toggle visibility. Cart line items are not stored
+// in our warehouse (ASSUMPTION-045) so there's nothing to fetch.
+function toggleLiveCart() {
   const panel = document.getElementById('liveCartPanel');
   const tile = document.getElementById('liveCartTile');
   if (!panel || !tile) return;
   const opening = panel.classList.contains('d-none');
   panel.classList.toggle('d-none', !opening);
   tile.setAttribute('aria-expanded', opening ? 'true' : 'false');
-  if (!opening) return;
-  const body = document.getElementById('liveCartPanelBody');
-  body.textContent = 'Loading…';
-  try {
-    const r = await fetch('/cockpit/api/' + encodeURIComponent(CC) + '/live-cart');
-    const d = await r.json();
-    body.replaceChildren();
-    const wrap = document.createElement('div');
-    if ((d.amount || 0) <= 0) {
-      wrap.textContent = 'No active cart for this customer.';
-    } else {
-      const summary = document.createElement('div');
-      summary.innerHTML = '<strong>€' + Number(d.amount).toFixed(2) + '</strong> · '
-        + d.sku_count + ' item(s)'
-        + (d.age_minutes != null ? (' · synced ' + d.age_minutes + 'm ago') : '');
-      wrap.appendChild(summary);
-      if (d.magento_customer_id) {
-        const link = document.createElement('a');
-        link.className = 'small ms-2';
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.href = '/abandoned-carts';
-        link.textContent = 'View in Abandoned Carts →';
-        summary.appendChild(link);
-      }
-    }
-    body.appendChild(wrap);
-  } catch (e) {
-    body.textContent = 'Failed to load cart.';
-  }
 }
 
 // ─── Target endpoints (unchanged from Ticket 1) ────────────────────────

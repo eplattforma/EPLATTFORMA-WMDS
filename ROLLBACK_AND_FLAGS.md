@@ -240,7 +240,7 @@ Continues to ride on the existing `cockpit_enabled` master flag (default `false`
 
 ### No new permission keys
 
-Reuses `customers.use_cockpit` for the page and the new `/cockpit/api/<code>/live-cart` JSON endpoint. The four target write endpoints continue to require `customers.propose_target` / `customers.approve_target`.
+Reuses `customers.use_cockpit` for the page. The four target write endpoints continue to require `customers.propose_target` / `customers.approve_target`. There is no live-cart JSON endpoint — the panel is server-rendered (see ASSUMPTION-045).
 
 ### No schema changes
 
@@ -257,12 +257,11 @@ Ticket 2 is **service + template only**. All data is computed on read from alrea
 
 ### New routes (all under the same `cockpit_enabled` flag)
 
-- `GET /cockpit/<customer_code>` — main page (replaces the Ticket 1 placeholder).
-- `GET /cockpit/api/<customer_code>/live-cart` — JSON for the inline live-cart panel; bypasses the page-level cache.
+- `GET /cockpit/<customer_code>` — main page (replaces the Ticket 1 placeholder). The live-cart inline panel is rendered server-side from the same payload (no extra API route).
 
 ### Rollback
 
-1. Set `cockpit_enabled = false` (already the default). The page and the live-cart API both return 404. Existing customer reports keep working — they were never touched.
+1. Set `cockpit_enabled = false` (already the default). The page returns 404. Existing customer reports keep working — they were never touched.
 2. (Optional) Remove the `cachetools` package once Ticket 2 has been reverted everywhere.
 
 ### Emergency disable order (updated)

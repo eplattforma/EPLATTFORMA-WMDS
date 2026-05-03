@@ -163,6 +163,32 @@ def current_athens_time_filter(placeholder, format_str='%d/%m/%y %H:%M:%S'):
     athens_now = utc_now.astimezone(athens_tz)
     return athens_now.strftime(format_str)
 
+@app.template_filter('display_name')
+def display_name_filter(username):
+    """Resolve a username to its `users.display_name`. Falls back to the
+    username itself when no row matches. Per cockpit-brief Section 14:
+    user-visible names must always flow through this filter — never raw
+    usernames in templates. Cached in-process to avoid hot-path queries
+    on the cockpit timeline."""
+    if not username:
+        return ''
+    cache = display_name_filter.__dict__.setdefault('_c', {})
+    if username in cache:
+        return cache[username]
+    try:
+        from sqlalchemy import text as _t
+        from app import db as _db
+        row = _db.session.execute(
+            _t("SELECT display_name FROM users WHERE username = :u"),
+            {"u": username},
+        ).first()
+        resolved = (row[0] if row and row[0] else username)
+    except Exception:
+        resolved = username
+    cache[username] = resolved
+    return resolved
+
+
 @app.template_filter('status_badge')
 def status_badge_filter(status_value):
     from order_status_constants import get_status_info, get_status_badge_class, get_status_icon

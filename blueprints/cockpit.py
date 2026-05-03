@@ -137,15 +137,6 @@ def cockpit(customer_code):
     )
 
 
-@cockpit_bp.route("/api/<customer_code>/live-cart", methods=["GET"])
-@login_required
-@require_permission("customers.use_cockpit")
-def api_live_cart(customer_code):
-    """Inline live-cart panel data (cockpit-brief §11.9). Always live."""
-    from services.cockpit_data import fetch_live_cart
-    return jsonify(fetch_live_cart(customer_code))
-
-
 @cockpit_bp.route("/admin/targets")
 @login_required
 @require_permission("customers.approve_target")

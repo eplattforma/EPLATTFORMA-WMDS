@@ -504,7 +504,7 @@ The view's structural intent — customer/SKU pairs ≥ €100 90d revenue, no a
 **Date:** 2026-05-03
 **Phase:** Cockpit Ticket 2 (Task #25)
 **Files affected:** `services/cockpit_data.py` (`_compute_engagement_score`)
-**Decision made:** The cockpit-brief §11.4 "engagement_score" is implemented with the brief's verbatim weighting `0.25*login + 0.30*invoice + 0.25*slot_usage + 0.20*offer_uptake`. Components: `login_score = clamp(100 - last_login_days*3, 0, 100)`, `invoice_score = clamp(100 - last_invoice_days*2, 0, 100)`, `slot_usage_score = (distinct invoice weeks in last 6 / 6) * 100` (slot system not yet modelled — proxy via ISO-week aggregation; see ASSUMPTION-041), `offer_uptake_score = (offered_skus_bought_4w / active_offer_skus) * 100` from `crm_customer_offer_summary_current`, defaulting to 50 when the customer has no active offers.
+**Decision made:** The cockpit-brief §11.4 "engagement_score" is implemented with the brief's verbatim weighting `0.25*login + 0.30*invoice + 0.25*slot_usage + 0.20*offer_uptake`. Components: `login_score = clamp(100 - last_login_days*3, 0, 100)`, `invoice_score = clamp(100 - last_invoice_days*2, 0, 100)`, `slot_usage_score = (distinct invoice weeks in last 6 / 6) * 100` (slot system not yet modelled — proxy via ISO-week aggregation; see ASSUMPTION-043), `offer_uptake_score = (offered_skus_bought_4w / active_offer_skus) * 100` from `crm_customer_offer_summary_current`, defaulting to 50 when the customer has no active offers.
 **Reason:** Brief §11.4 spells the formula out in full but expects component implementations to be wired to the codebase's actual data sources. Documenting once here so the next reviewer doesn't have to reverse-engineer the choice from the SQL.
 **Safer alternative considered:** Configurable weights in `Setting`. Deferred — premature for a single-tenant rollout; finance has agreed to the brief's weights.
 **Feature flag / rollback:** Behind `cockpit_enabled=false`.
@@ -564,13 +564,24 @@ The view's structural intent — customer/SKU pairs ≥ €100 90d revenue, no a
 
 ---
 
-## ASSUMPTION-044: Cockpit Ticket 2 — cross-sell & recommended-actions deferred to Ticket 3
+## ASSUMPTION-044: Cockpit Ticket 2 — cross-sell algorithm + recommended-actions deferred to Ticket 3
 
-**Date:** 2026-05-03
+**Date:** 2026-05-03 (revised after code-review)
 **Phase:** Cockpit Ticket 2 (Task #25)
-**Files affected:** `services/cockpit_data.py` (`_build_cockpit_payload`); `templates/cockpit/cockpit.html`
-**Decision made:** The payload returns `cross_sell: []` and `recommended_actions: []`. The cross-sell engine described in cockpit-brief §11 references an "analytics-jobs output" table that has not yet shipped in this codebase; rather than fabricate a placeholder algorithm, the panel surface is wired up empty so Ticket 3 can drop in real data without template changes. `recommended_actions` is the explicit Ticket 3 (Greek Claude) deliverable.
-**Reason:** Sticks to the cockpit-brief §11.3 reuse-vs-replicate rule — never fabricate a data source that doesn't exist.
-**Safer alternative considered:** A naive "category-affinity" proxy for cross-sell. Rejected — would not match what Ticket 3 produces and risks confusing AMs.
-**Feature flag / rollback:** Behind `cockpit_enabled=false`.
-**Reversibility:** High — fields are present, only the lists are empty.
+**Files affected:** `services/cockpit_data.py` (`_fetch_cross_sell`, `_build_cockpit_payload`); `templates/cockpit/cockpit.html`
+**Decision made:** `cross_sell` is implemented as a contextual peer-popular query: SKUs bought by ≥30% of peers in the customer's `reporting_group` **and** belonging to a category the customer already buys from, excluding SKUs the customer has bought in the period. Same peer convention as `_fetch_white_space`, just narrower. This was previously deferred to Ticket 3 with an empty list; the reviewer flagged that an existing-tables implementation was viable, so the panel now ships with real suggestions. `recommended_actions` is still the explicit Ticket 3 (Greek Claude) deliverable and remains an empty list.
+**Reason:** The original deferral assumed a missing "analytics-jobs" feed; on review there is enough signal in `dw_invoice_line` × `ps_customers.reporting_group` × `ps_items_dw.category_code_365` to ship a useful first pass without fabricating a data source.
+**Safer alternative considered:** Keep the panel empty until Ticket 3. Rejected — the suggestion query is purely additive, peer-bounded, and falls back to `[]` cleanly when `peer_group` is unset.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`. To revert to the empty-list behaviour, replace the `_safe(...)` call in `_build_cockpit_payload` with `cross_sell = []`.
+**Reversibility:** High — single helper.
+
+
+## ASSUMPTION-045: Cockpit Ticket 2 — live-cart line items not in warehouse
+
+**Status:** ACTIVE
+**Owner:** cockpit (Ticket 2)
+**Date:** 2026-05-03
+
+**Decision made:** `crm_abandoned_cart_state` only stores `abandoned_cart_amount`, `abandoned_cart_items` (count) and `last_synced_at` — not per-SKU cart contents. The Live-Cart inline panel therefore renders a server-side summary (amount + item count + age + add-on flag) plus a deep link to `/abandoned-carts`, and surfaces a footnote pointing users to Magento for the SKU breakdown. The previous JSON endpoint `GET /cockpit/api/<code>/live-cart` and its corresponding client-side fetch have been removed; the panel toggles client-side without a network round-trip. If a per-line cart source becomes available later (e.g. a Magento quote-items extract) this assumption can be retired and the panel upgraded.
+
+**Rollback:** revert `templates/cockpit/cockpit.html` live-cart block + `static/cockpit/cockpit.js::toggleLiveCart` + `blueprints/cockpit.py` (re-add `api_live_cart` route).

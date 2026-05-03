@@ -18,7 +18,7 @@
           <div class="text-muted small">
             {% if data.header.classification %}<span class="me-3"><i class="fas fa-tag me-1"></i>{{ data.header.classification }}</span>{% endif %}
             {% if data.header.district %}<span class="me-3"><i class="fas fa-map-marker-alt me-1"></i>{{ data.header.district }}</span>{% endif %}
-            {% if data.header.agent_display_name %}<span class="me-3"><i class="fas fa-user-tie me-1"></i>{{ data.header.agent_display_name }}</span>{% endif %}
+            {% if data.header.agent_username %}<span class="me-3"><i class="fas fa-user-tie me-1"></i>{{ data.header.agent_username|display_name }}</span>{% endif %}
             {% if data.header.reporting_group %}<span class="me-3"><i class="fas fa-people-group me-1"></i>{{ data.header.reporting_group }}</span>{% endif %}
             {% if data.header.last_invoice_days is not none %}
               <span class="me-3"><i class="fas fa-file-invoice me-1"></i>last invoice {{ data.header.last_invoice_days }}d ago</span>
@@ -138,7 +138,7 @@
     </div>
     <div class="col-md col-6">
       <div class="card kpi-tile h-100" id="liveCartTile" role="button" tabindex="0"
-           aria-expanded="false" onclick="toggleLiveCart()">
+           aria-expanded="false" aria-controls="liveCartPanel" onclick="toggleLiveCart()">
         <div class="card-body py-3">
           <div class="kpi-label">Live Cart <i class="fas fa-chevron-down small"></i></div>
           <div class="kpi-value">€{{ '{:,.2f}'.format(data.kpis.live_cart.amount) }}</div>
@@ -162,9 +162,26 @@
     </div>
   </div>
 
-  {# Live-cart inline panel (§11.9) — populated on click. #}
+  {# Live-cart inline panel (§11.9) — server-rendered. The cart contents
+     line-by-line are not available in our schema (crm_abandoned_cart_state
+     stores only amount + items count, ASSUMPTION-045) so we surface the
+     summary plus a deep link into the existing Abandoned Carts view. #}
   <div class="card mb-3 d-none" id="liveCartPanel">
-    <div class="card-body py-2 small" id="liveCartPanelBody">Loading…</div>
+    <div class="card-body py-2 small">
+      {% set lc = data.kpis.live_cart %}
+      {% if (lc.amount or 0) <= 0 %}
+        <em class="text-muted">No active cart for this customer.</em>
+      {% else %}
+        <strong>€{{ '{:,.2f}'.format(lc.amount) }}</strong>
+        · {{ lc.sku_count }} item(s)
+        {% if lc.age_minutes is not none %} · synced {{ lc.age_minutes }}m ago{% endif %}
+        {% if lc.is_addon %} · <span class="badge bg-info">add-on cart</span>{% endif %}
+        {% if lc.magento_customer_id %}
+          <a class="ms-2" href="/abandoned-carts" target="_blank" rel="noopener">View in Abandoned Carts →</a>
+        {% endif %}
+        <div class="text-muted mt-1">Per-line cart contents are not stored in our warehouse — see Magento for the SKU breakdown.</div>
+      {% endif %}
+    </div>
   </div>
 
   {# ── Spend Target card (Ticket 1, kept as-is) ──────────────── #}
@@ -183,8 +200,7 @@
       {% if target_state.pending_proposal %}
         <div class="alert alert-warning py-2 mb-3">
           <strong>Pending proposal</strong> by
-          {{ target_state.pending_proposal.proposed_by_display_name
-             or target_state.pending_proposal.proposed_by }} on
+          {{ target_state.pending_proposal.proposed_by|display_name }} on
           {{ target_state.pending_proposal.proposed_at }} ·
           annual €{{ target_state.pending_proposal.annual or '–' }}
           {% if target_state.pending_proposal.proposed_notes %}
@@ -295,6 +311,27 @@
           <div class="fs-5 {{ 'text-success' if data.pvm.total_gp_delta >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.total_gp_delta) }}</div>
         </div>
       </div>
+      {% if data.pvm.gp_price is defined %}
+      <hr class="my-2">
+      <div class="row text-center small">
+        <div class="col">
+          <div class="text-muted">GP — Price</div>
+          <div class="{{ 'text-success' if data.pvm.gp_price >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.gp_price) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted">GP — Volume</div>
+          <div class="{{ 'text-success' if data.pvm.gp_volume >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.gp_volume) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted">GP — Mix</div>
+          <div class="{{ 'text-success' if data.pvm.gp_mix >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.gp_mix) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted">GP check</div>
+          <div>{% if data.pvm.gp_delta_check_pct is not none %}{{ data.pvm.gp_delta_check_pct }}%{% else %}—{% endif %}</div>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -362,13 +399,26 @@
     <div class="col-lg-7">
       <div class="card h-100">
         <div class="card-header"><strong><i class="fas fa-tag me-2"></i>Active Offers</strong>
-          <span class="ms-auto small text-muted float-end">{{ data.active_offers|length }} live</span>
+          <span class="ms-auto small text-muted float-end">{{ (data.active_offers.lines or [])|length }} live</span>
         </div>
+        {% set ao_sum = data.active_offers.summary or {} %}
+        {% if ao_sum %}
+          <div class="card-body py-2 small border-bottom">
+            <span class="badge bg-{{ {'used':'success','mixed':'warning','low_usage':'warning','unused':'danger','none':'secondary'}.get(ao_sum.indicator,'secondary') }} me-2">
+              {{ ao_sum.indicator or 'none' }}
+            </span>
+            usage <strong>{{ ao_sum.offer_usage_pct }}%</strong> ·
+            share <strong>{{ ao_sum.offer_sales_share_pct }}%</strong> ·
+            avg disc {{ ao_sum.avg_discount_percent }}% ·
+            margin-risk SKUs {{ ao_sum.margin_risk_skus }} ·
+            unused (high-disc) {{ ao_sum.high_discount_unused_skus }}
+          </div>
+        {% endif %}
         <div class="card-body p-0 cockpit-tbl-wrap">
           <table class="table table-sm mb-0">
             <thead><tr><th>SKU</th><th>Rule</th><th class="text-end">Origin</th><th class="text-end">Offer</th><th class="text-end">Disc</th><th class="text-end">GM%</th><th class="text-end">4w sales</th></tr></thead>
             <tbody>
-              {% for r in data.active_offers %}
+              {% for r in (data.active_offers.lines or []) %}
                 <tr>
                   <td><code class="small">{{ r.sku }}</code> {{ r.product_name }}</td>
                   <td class="small text-muted">{{ r.rule_name }}</td>
@@ -486,6 +536,30 @@
     </div>
   </div>
 
+  {# ── Cross-sell suggestions (peer-popular SKUs in your categories) ── #}
+  {% if data.cross_sell %}
+  <div class="card mb-3">
+    <div class="card-header"><strong><i class="fas fa-shuffle me-2"></i>Cross-Sell Suggestions</strong>
+      <span class="ms-auto small text-muted float-end">peer-popular SKUs in your active categories</span>
+    </div>
+    <div class="card-body p-0 cockpit-tbl-wrap">
+      <table class="table table-sm mb-0">
+        <thead><tr><th>SKU</th><th>Category</th><th class="text-end">Peer pen.</th><th class="text-end">Peer avg sales</th></tr></thead>
+        <tbody>
+          {% for r in data.cross_sell %}
+            <tr>
+              <td><code class="small">{{ r.item_code }}</code> {{ r.item_name }}</td>
+              <td class="small text-muted">{{ r.category }}</td>
+              <td class="text-end">{{ '{:.0%}'.format(r.penetration or 0) }}</td>
+              <td class="text-end">€{{ '{:,.0f}'.format(r.peer_avg_sales or 0) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
   {# ── Price index outliers + Activity timeline ──────────────── #}
   <div class="row g-3 mb-3">
     <div class="col-lg-7">
@@ -522,7 +596,7 @@
             <div class="timeline-row d-flex mb-2">
               <span class="timeline-icon timeline-{{ ev.type }}"></span>
               <div class="ms-2 small">
-                <div class="text-muted">{{ ev.when }}{% if ev.actor_display_name %} · <strong>{{ ev.actor_display_name }}</strong>{% endif %}</div>
+                <div class="text-muted">{{ ev.when }}{% if ev.actor_username %} · <strong>{{ ev.actor_username|display_name }}</strong>{% endif %}</div>
                 <div>{{ ev.summary }}</div>
               </div>
             </div>
