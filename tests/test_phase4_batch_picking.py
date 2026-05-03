@@ -227,6 +227,33 @@ class TestPickingResume:
         ).scalar()
         assert n == 2
 
+    def test_p4_12c_rebuild_helper_resumes_from_queue(self, setup):
+        """Round-5: exercise the SAME rebuild_items_from_queue helper
+        the picker route uses on Flask-session loss / server restart.
+        Asserts the rebuilt list (a) excludes already-picked rows,
+        (b) preserves sequence_no order, (c) reconstructs zone/location
+        from invoice_items WITHOUT querying queue columns that don't
+        exist on the table — which is the exact bug round-5 caught.
+        """
+        app, db = setup
+        from services.batch_picking import (
+            create_batch_atomic, record_pick_to_queue, rebuild_items_from_queue,
+        )
+        _make_invoice_with_items(db, "INV-RT", 3, "ZRT")
+        batch = create_batch_atomic(filters={"zones": ["ZRT"]}, created_by="test_admin_user")
+        # Pick the first item via the durable hook
+        record_pick_to_queue(batch.id, "INV-RT", "ITEM-INV-RT-0", "test_admin_user", 10)
+        db.session.commit()
+
+        rebuilt = rebuild_items_from_queue(batch.id)
+        assert len(rebuilt) == 2
+        codes = [it["item_code"] for it in rebuilt]
+        assert "ITEM-INV-RT-0" not in codes
+        assert codes == ["ITEM-INV-RT-1", "ITEM-INV-RT-2"]
+        # Zone reconstructed from invoice_items, NOT queue (which has no zone col)
+        assert rebuilt[0]["zone"] == "ZRT"
+        assert rebuilt[0]["source_items"][0]["invoice_no"] == "INV-RT"
+
     def test_p4_12b_queue_drives_resume_after_session_loss(self, setup):
         """Round-4: when the Flask session is empty and the batch is
         DB-backed, the picker route must reconstruct the work list from

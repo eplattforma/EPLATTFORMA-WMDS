@@ -118,6 +118,61 @@ def record_pick_to_queue(batch_id, invoice_no, item_code, picker, qty_picked):
     return result.rowcount or 0
 
 
+def rebuild_items_from_queue(batch_id):
+    """Rebuild the picker work-list from ``batch_pick_queue`` pending
+    rows for a DB-backed batch. This is the durable resume path: when
+    the Flask session cache is missing (refresh / restart / new device),
+    callers use this to reconstruct display data from the queue +
+    invoice_items WITHOUT relying on the legacy session-cached list.
+
+    Returns: list of dicts in sequence_no order, one per (item_code,
+    location, zone) group, each with the source_items the picker needs.
+    Returns [] for non-DB-backed batches.
+    """
+    if not is_db_backed_batch(batch_id):
+        return []
+    rows = db.session.execute(
+        text("SELECT invoice_no, item_code, qty_required, sequence_no "
+             "FROM batch_pick_queue "
+             "WHERE batch_session_id = :bid AND status = 'pending' "
+             "ORDER BY sequence_no, id"),
+        {"bid": batch_id},
+    ).fetchall()
+    rebuilt, seen = [], {}
+    for r in rows:
+        ii = InvoiceItem.query.filter_by(invoice_no=r.invoice_no, item_code=r.item_code).first()
+        zone = (getattr(ii, 'zone', '') if ii else '') or ''
+        location = (getattr(ii, 'location', '') if ii else '') or ''
+        key = (r.item_code, location, zone)
+        if key not in seen:
+            inv = Invoice.query.filter_by(invoice_no=r.invoice_no).first()
+            seen[key] = {
+                'item_code': r.item_code,
+                'item_name': (getattr(ii, 'item_name', None) if ii else r.item_code) or r.item_code,
+                'location': location,
+                'zone': zone,
+                'barcode': (getattr(ii, 'barcode', '') if ii else ''),
+                'unit_type': (getattr(ii, 'unit_type', '') if ii else ''),
+                'pack': (getattr(ii, 'pack', '') if ii else ''),
+                'total_qty': 0,
+                'current_invoice': r.invoice_no,
+                'customer_name': (getattr(inv, 'customer_name', None) if inv else None),
+                'routing': (getattr(inv, 'routing', None) if inv else None),
+                'order_total_items': (getattr(inv, 'total_items', None) if inv else None),
+                'order_total_weight': (getattr(inv, 'total_weight', None) if inv else None),
+                'source_items': [],
+            }
+            rebuilt.append(seen[key])
+        entry = seen[key]
+        entry['total_qty'] += int(r.qty_required or 0)
+        entry['source_items'].append({
+            'invoice_no': r.invoice_no,
+            'item_code': r.item_code,
+            'qty': int(r.qty_required or 0),
+        })
+    return rebuilt
+
+
 def is_claim_required():
     """Read ``batch_claim_required`` flag (defaults OFF). When ON, a
     picker must explicitly claim a batch before starting to pick — the
