@@ -287,6 +287,9 @@ app.register_blueprint(admin_scheduler_bp)
 from routes_admin_job_runs import admin_job_runs_bp
 app.register_blueprint(admin_job_runs_bp)
 
+from routes_admin_batch_phase4 import admin_batch_phase4_bp
+app.register_blueprint(admin_batch_phase4_bp)
+
 logging.warning("PHASE 5: all blueprints registered")
 print("PHASE 5: all blueprints registered", flush=True)
 
@@ -366,6 +369,12 @@ if _db_available:
         update_batch_schema()
     except Exception as e:
         logging.error(f"Error updating batch schema: {str(e)}")
+
+    try:
+        from update_phase4_batch_picking_schema import update_phase4_batch_picking_schema
+        update_phase4_batch_picking_schema()
+    except Exception as e:
+        logging.error(f"Phase 4 batch picking schema updater failed: {e}")
 
     try:
         from update_batch_number_schema import update_database_schema as update_batch_number_schema

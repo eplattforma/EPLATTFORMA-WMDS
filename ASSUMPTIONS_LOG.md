@@ -220,3 +220,29 @@ Format defined in Section 3 of the brief.
 **Safer alternative considered:** Hide the columns behind a flag rather than remove them. Rejected — no operational consumer asked for the toggle, and the columns were cluttering the display for every supplier review session.
 **Feature flag / rollback:** Pure UI removal — revert commit `7f75e73` to restore.
 **Reversibility:** High
+
+---
+
+## ASSUMPTION-021: Phase 4 lock-release deferred to shipment dispatch
+
+**Date:** 2026-05-03
+**Phase:** Phase 4 (Batch Picking Refactor)
+**Files affected:** `services/batch_picking.py` (`cancel_batch` releases unpicked locks; picked locks intentionally retained)
+**Decision made:** When a batch is cancelled, only **unpicked** locks (`pick_status != 'picked'`) are released. Locks on already-picked items stay attached to the (now-Cancelled) batch_session_id until the existing shipment-dispatch path releases them as part of the normal "items leave the warehouse" lifecycle. This means `find_orphaned_locks()` legitimately returns picked items whose batch is Cancelled, and the orphan-locks UI is the operator's tool to reconcile them when needed.
+**Reason:** Touching the dispatch path in this task would have ballooned scope (it spans `routes_shipment.py`, `routes_packing.py`, and the order-status migration). Keeping the lock until dispatch matches the legacy semantics — picked items stayed locked until shipped — and the new orphan-locks UI gives operators a manual escape hatch. The test matrix asserts the unpicked-release behaviour explicitly (P4-14) and the picked-stays-locked + orphan-detection path (P4-23).
+**Safer alternative considered:** Eagerly release every lock on cancel. Rejected — would mask real "we cancelled mid-pick but the picked items are still on the cart" cases that today require an operator review before the items go back into available inventory.
+**Feature flag / rollback:** None needed — purely additive. Operators can bulk-release via `/admin/batch/orphaned-locks`.
+**Reversibility:** High
+
+---
+
+## ASSUMPTION-022: Phase 4 mid-flight flag flip — existing batches finish on the original code path
+
+**Date:** 2026-05-03
+**Phase:** Phase 4 (Batch Picking Refactor)
+**Files affected:** `services/batch_picking.py::is_db_queue_enabled`, all picking call sites
+**Decision made:** `use_db_backed_picking_queue` is read at **batch creation time**, not on every pick action. A batch created while the flag is `false` will continue using the legacy in-memory queue even if the flag is flipped to `true` mid-shift, and vice versa. Operators flipping the flag should expect the new behaviour to apply only to **newly-created** batches.
+**Reason:** Mid-flight code-path swapping would require a per-batch "engine" column on `batch_picking_sessions` and a runtime dispatcher in every picker route. That's substantially more risk than the operational value (flips happen once per rollout, not per shift). Documenting the cut-over semantic is cheaper than building it.
+**Safer alternative considered:** Per-batch engine column + dispatcher. Rejected as scope creep for a shadow-rollout phase.
+**Feature flag / rollback:** Operator flips `use_db_backed_picking_queue` and waits for in-flight batches to drain (or uses the new drain workflow + `force_pause_stuck_batches` to accelerate it).
+**Reversibility:** High — flag is a single Setting row.

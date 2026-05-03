@@ -130,3 +130,38 @@ If production issues occur, disable in this order:
 7. `permissions_enforcement_enabled = false`
 8. `job_runs_retention_days = 0` (Phase 4 — pause cleanup body without disabling cron)
 9. If needed, `legacy_replenishment_enabled = true`
+
+---
+
+## Phase 4 — Batch Picking Refactor (Task #21)
+
+**Status:** Code merged 2026-05-03. **All flags seeded `false` in production.**
+
+### New flags (all default `false`)
+| Flag | Default | What flipping `true` does |
+|---|---|---|
+| `use_db_backed_picking_queue` | `false` | New batches use the `batch_pick_queue` table; in-progress batches stay on the legacy in-memory queue (see ASSUMPTION-022). |
+| `batch_claim_required` | `false` | Pickers must explicitly claim a batch via `/picker/batch/claim/<id>` before picking; legacy auto-assignment continues otherwise. |
+
+### New Setting rows (not flags — operator state)
+| Key | Default | Meaning |
+|---|---|---|
+| `maintenance_mode` | `'normal'` | Set to `'draining'` via `/admin/batch/drain-status` to block new batch creation for non-admins. |
+
+### New permission
+- `picking.delete_empty_batch` — **NOT in any role's grant list.** Admin holds it via the `*` wildcard; warehouse_manager via `picking.*`. Hard-delete UI buttons are now the exception path; the default is `cancel_batch` (preserves audit + releases locks).
+
+### Schema (additive — `update_phase4_batch_picking_schema.py`)
+- `batch_picking_sessions`: `+cancelled_at`, `+cancelled_by`, `+cancel_reason`, `+claimed_at`, `+claimed_by`, `+last_activity_at`, `+archived_at`, `+archived_by` (all nullable).
+- New table `batch_pick_queue` with indexes on `(batch_session_id, status)` and `(invoice_no, item_code)`.
+
+### Rollback
+1. Set `use_db_backed_picking_queue = false` and `batch_claim_required = false` (already the default).
+2. Set `maintenance_mode = 'normal'` if drain mode was engaged.
+3. New columns/table are additive — no migration needed to revert. Code can be reverted; data stays intact.
+
+### Emergency disable order (updated)
+Insert before existing step 3:
+- `2a. maintenance_mode = 'normal'` (release any drain hold)
+- `2b. batch_claim_required = false` (auto-assign returns)
+- `2c. use_db_backed_picking_queue = false` (legacy queue resumes)

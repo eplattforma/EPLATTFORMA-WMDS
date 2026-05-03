@@ -44,6 +44,10 @@ ROLE_PERMISSIONS = {
     "picker": [
         "menu.picking", "picking.perform", "picking.claim_batch",
     ],
+    # Note: ``picking.delete_empty_batch`` (Phase 4) is intentionally NOT
+    # in any role's grant list — only admins (via the ``*`` wildcard) and
+    # warehouse_manager (via ``picking.*``) can hard-delete an empty batch.
+    # Cancel/archive replaces hard-delete for everyone else.
     "driver": [
         "menu.driver", "driver.*",
     ],

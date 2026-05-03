@@ -313,3 +313,27 @@ The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` 
 **Scope guarantees:** No production flag flips performed. No production database writes performed. No Phase 4/5 work performed.
 
 **Closeout package: ✅ COMPLETE — agent-attested AND owner-approved. Operator flag flip: pending operator decision (out of scope for Task #16).**
+
+---
+
+# Phase 4 — Batch Picking Refactor (Task #21)
+
+**Date:** 2026-05-03
+**Test file:** `tests/test_phase4_batch_picking.py`
+**Result:** ✅ **28 / 28 PASSED** (4.58s, in-memory SQLite)
+**Override-pipeline regression:** ✅ still passing (`override-pipeline` workflow, 1.38s)
+**App boot:** ✅ Phase 4 schema updater logged success (`batch_picking_sessions audit columns ensured`, `batch_pick_queue table + indexes ensured`).
+
+| Cell range | Area | Pass |
+|---|---|---|
+| P4-01..05 | Atomic creation + `BatchConflict` | 5/5 |
+| P4-06..11 | Status helpers (case-insensitive) | 6/6 |
+| P4-12..13 | DB-backed queue / resume | 2/2 |
+| P4-14..16 | Cancel + lock lifecycle + audit | 3/3 |
+| P4-17..19 | Claim flow | 3/3 |
+| P4-20..22 | Drain workflow + force-pause | 3/3 |
+| P4-23..24 | Orphaned-locks reconciliation | 2/2 |
+| P4-25..27 | Feature-flag coexistence | 3/3 |
+| P4-28     | Audit-trail integrity (3 rows) | 1/1 |
+
+**Production posture:** Every Phase 4 flag stays seeded `false` (`use_db_backed_picking_queue`, `batch_claim_required`, plus the existing `summer_cooler_mode_enabled`/`cooler_picking_enabled` from Phase 5). The legacy in-memory queue path is the live default; the new path is exercised only by tests. Driver Mode invariant is preserved — no driver routes touched.

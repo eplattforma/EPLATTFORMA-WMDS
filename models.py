@@ -249,7 +249,19 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
     picking_mode = db.Column(db.String(20), nullable=False)  # Sequential / Consolidated
     current_invoice_index = db.Column(db.Integer, default=0)  # Track which invoice we're picking in Sequential mode
     current_item_index = db.Column(db.Integer, default=0)  # Track which item we're picking
-    
+
+    # Phase 4 Batch Picking Refactor — additive audit columns. Production
+    # Postgres tables get them via update_phase4_batch_picking_schema.py;
+    # SQLite test DBs get them via db.create_all() reading these declarations.
+    cancelled_at = db.Column(UTCDateTime(), nullable=True)
+    cancelled_by = db.Column(db.String(64), nullable=True)
+    cancel_reason = db.Column(db.Text, nullable=True)
+    claimed_at = db.Column(UTCDateTime(), nullable=True)
+    claimed_by = db.Column(db.String(64), nullable=True)
+    last_activity_at = db.Column(UTCDateTime(), nullable=True)
+    archived_at = db.Column(UTCDateTime(), nullable=True)
+    archived_by = db.Column(db.String(64), nullable=True)
+
     # Relationships
     creator = db.relationship('User', foreign_keys=[created_by], backref='created_batch_sessions')
     picker = db.relationship('User', foreign_keys=[assigned_to], backref='assigned_batch_sessions')
