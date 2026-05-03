@@ -41,6 +41,9 @@ admin_batch_phase4_bp = Blueprint("admin_batch_phase4", __name__)
 @login_required
 @require_permission("picking.claim_batch")
 def claim_batch_route(batch_id):
+    if getattr(current_user, "role", None) not in ("admin", "warehouse_manager", "picker"):
+        flash("Claim requires picker, warehouse manager, or admin role.", "danger")
+        return redirect(request.referrer or url_for("batch.picker_batch_list"))
     batch = BatchPickingSession.query.get_or_404(batch_id)
     ok, reason = can_claim(batch, current_user)
     if not ok:
@@ -65,6 +68,12 @@ def claim_batch_route(batch_id):
 @login_required
 @require_permission("picking.manage_batches")
 def cancel_batch_route(batch_id):
+    # Explicit role guard — does NOT depend on advisory permission
+    # enforcement being enabled, since cancel releases item locks and
+    # writes audit rows.
+    if getattr(current_user, "role", None) not in ("admin", "warehouse_manager"):
+        flash("Cancel is restricted to admins and warehouse managers.", "danger")
+        return redirect(request.referrer or url_for("batch.batch_picking_manage"))
     reason = (request.form.get("reason") or "").strip() or None
     try:
         result = cancel_batch(batch_id, current_user.username, reason=reason)
