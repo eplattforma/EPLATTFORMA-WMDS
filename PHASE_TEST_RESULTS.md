@@ -203,8 +203,9 @@ Captured response codes (last run 2026-05-02):
 | `menu.communications`    | ALLOW 200 | ALLOW 200 | ALLOW 200 | DENY 403 | DENY 403 |
 
 Legend:
-- **ALLOW** — `@require_permission` decorator (or `_role_ok()` helper for comms) passed; the displayed code is whatever the route body returned. The single `ALLOW 302` cell is `warehouse_manager` hitting `/datawarehouse/menu`: the decorator allows wm (they hold `menu.datawarehouse`), but the route body has an admin-only `if current_user.role != 'admin': redirect(url_for('index'))` that produces the 302. That's expected behaviour and is the body-level admin-only check, not a decorator gap.
-- **DENY** — decorator/helper aborted with `abort(403)` before the body executed.
+- **ALLOW** — `@require_permission` decorator (or `_role_ok()` helper for comms) passed AND the route body returned the *specific* status code pinned in the test's `EXPECTED` dict. Each ALLOW cell is asserted with `resp.status_code == <expected>` (not the loose `!= 403`), so a route body that regressed to 500/502 would fail the cell instead of silently passing as "ALLOW".
+- The single `ALLOW 302` cell is `warehouse_manager` hitting `/datawarehouse/menu`: the decorator allows wm (they hold `menu.datawarehouse`), but the route body has an admin-only `if current_user.role != 'admin': redirect(url_for('index'))` that produces the 302. That's expected behaviour and is the body-level admin-only check, not a decorator gap. The cell is pinned to `302` (not `200`) in `EXPECTED` so the redirect is part of the test contract.
+- **DENY** — decorator/helper aborted with `abort(403)` before the body executed; pinned to exactly `403`.
 
 **Result: 16 ALLOW cells (15× 200, 1× 302) + 19 DENY cells (all 403). Every cell matches the role table above.** All 35 parametrised tests pass: `pytest -q tests/test_phase3_closeout_matrix.py` → `37 passed` (35 matrix + 2 supplemental — see below).
 

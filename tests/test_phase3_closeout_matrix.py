@@ -154,39 +154,49 @@ ROUTES = [
         "/admin/communications/history/customer/CLOSEOUT_TEST"),
 ]
 
-# Decorator outcome per (key, role). "allow" = decorator/helper passes
-# (response code is whatever the body returns -- may be 200/302/4xx/5xx);
-# "deny" = decorator/helper aborts(403).
+# Per-cell EXACT expected outcome. Each value is either "deny" (decorator/
+# helper aborts(403)) or an int -- the precise HTTP status code the cell
+# is pinned to. Pinning ALLOW cells to specific codes (rather than the
+# loose "any non-403") ensures a route-body 500/502 would FAIL the cell
+# instead of silently passing as "ALLOW".
+#
+# Most ALLOW cells expect 200. The single 302 cell is wm hitting
+# /datawarehouse/menu, where @require_permission allows wm but the
+# route body has `if current_user.role != 'admin': redirect(...)`.
 EXPECTED = {
     "picking.manage_batches": {
-        "admin": "allow", "warehouse_manager": "allow",
+        "admin": 200, "warehouse_manager": 200,
         "crm_admin": "deny", "picker": "deny", "driver": "deny",
     },
     "sync.run_manual": {
-        "admin": "allow", "warehouse_manager": "deny",
+        "admin": 200, "warehouse_manager": "deny",
         "crm_admin": "deny", "picker": "deny", "driver": "deny",
     },
     "settings.manage_users": {
-        "admin": "allow", "warehouse_manager": "deny",
+        "admin": 200, "warehouse_manager": "deny",
         "crm_admin": "deny", "picker": "deny", "driver": "deny",
     },
     "menu.datawarehouse": {
-        "admin": "allow", "warehouse_manager": "allow",
+        "admin": 200, "warehouse_manager": 302,  # wm: body redirect
         "crm_admin": "deny", "picker": "deny", "driver": "deny",
     },
     "menu.warehouse": {
-        "admin": "allow", "warehouse_manager": "allow",
+        "admin": 200, "warehouse_manager": 200,
         "crm_admin": "deny", "picker": "deny", "driver": "deny",
     },
     "routes.manage": {
-        "admin": "allow", "warehouse_manager": "allow",
+        "admin": 200, "warehouse_manager": 200,
         "crm_admin": "deny", "picker": "deny", "driver": "deny",
     },
     "menu.communications": {
-        "admin": "allow", "warehouse_manager": "allow",
-        "crm_admin": "allow", "picker": "deny", "driver": "deny",
+        "admin": 200, "warehouse_manager": 200,
+        "crm_admin": 200, "picker": "deny", "driver": "deny",
     },
 }
+
+
+def _is_allow(expected):
+    return expected != "deny"
 
 
 def _format_matrix(captured):
@@ -201,7 +211,7 @@ def _format_matrix(captured):
         cells = []
         for role in ROLES:
             code = captured.get((key, role), "MISSING")
-            mark = "ALLOW" if EXPECTED[key][role] == "allow" else "DENY "
+            mark = "ALLOW" if _is_allow(EXPECTED[key][role]) else "DENY "
             cells.append(f"{mark} {code}")
         lines.append(f"| `{key}` | { ' | '.join(cells) } |")
     lines.append("")
@@ -278,9 +288,12 @@ def test_decorator_cell(
             f"DENY (403), got {resp.status_code}"
         )
     else:
-        assert resp.status_code != 403, (
+        # Pin to the exact expected status code (e.g. 200 or 302) so
+        # that a body 500/502 fails the cell instead of silently
+        # passing as ALLOW. See EXPECTED dict for per-cell rationale.
+        assert resp.status_code == expected, (
             f"{key} via {role} on {method} {path}: decorator should "
-            f"ALLOW (non-403), got 403"
+            f"ALLOW with status {expected}, got {resp.status_code}"
         )
 
 
