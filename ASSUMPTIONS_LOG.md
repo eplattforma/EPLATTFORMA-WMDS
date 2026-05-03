@@ -498,3 +498,79 @@ The view's structural intent — customer/SKU pairs ≥ €100 90d revenue, no a
 **Safer alternative considered:** Add an `event_id` request token + `INSERT ... ON CONFLICT DO NOTHING` dedupe on the history table. Deferred — Tickets 2/3 will introduce richer client UX where this could be reconsidered alongside the wider write surface.
 **Feature flag / rollback:** Behind `cockpit_enabled=false`. No DB schema change needed to revisit later.
 **Reversibility:** High — change a single helper.
+
+## ASSUMPTION-039: Cockpit Ticket 2 — engagement-score weights (login/invoice/slot/offer)
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 2 (Task #25)
+**Files affected:** `services/cockpit_data.py` (`_compute_engagement_score`)
+**Decision made:** The cockpit-brief §11.4 "engagement_score" is implemented with the brief's verbatim weighting `0.25*login + 0.30*invoice + 0.25*slot_usage + 0.20*offer_uptake`. Components: `login_score = clamp(100 - last_login_days*3, 0, 100)`, `invoice_score = clamp(100 - last_invoice_days*2, 0, 100)`, `slot_usage_score = (distinct invoice weeks in last 6 / 6) * 100` (slot system not yet modelled — proxy via ISO-week aggregation; see ASSUMPTION-041), `offer_uptake_score = (offered_skus_bought_4w / active_offer_skus) * 100` from `crm_customer_offer_summary_current`, defaulting to 50 when the customer has no active offers.
+**Reason:** Brief §11.4 spells the formula out in full but expects component implementations to be wired to the codebase's actual data sources. Documenting once here so the next reviewer doesn't have to reverse-engineer the choice from the SQL.
+**Safer alternative considered:** Configurable weights in `Setting`. Deferred — premature for a single-tenant rollout; finance has agreed to the brief's weights.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`.
+**Reversibility:** High — single helper.
+
+---
+
+## ASSUMPTION-040: Cockpit Ticket 2 — churn-risk severity thresholds
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 2 (Task #25)
+**Files affected:** `services/cockpit_data.py` (`_fetch_churn_risk_by_category`)
+**Decision made:** Per cockpit-brief §11.6, category-level revenue is compared between the last 90d and the prior 90d. Severity = `negative` when `drop_pct < -50`, `low` when `-50 <= drop_pct < -25`, otherwise `healthy` (and **hidden** from the panel). Categories with prior-period revenue under €100 are filtered out (signal-vs-noise — single-invoice categories were dominating the list during exploratory testing).
+**Reason:** Brief specifies the bands but leaves the noise floor to implementer judgement. €100 / 90d is the same threshold the offer-opportunity view uses (cockpit-brief §10.2), keeping the cockpit's "small-revenue noise" rules consistent across panels.
+**Safer alternative considered:** Surface healthy categories with a green badge. Rejected — the brief explicitly says "hide healthy categories" to keep the panel actionable.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`.
+**Reversibility:** High — single helper.
+
+---
+
+## ASSUMPTION-041: Cockpit Ticket 2 — PVM cross-term assigned to "mix"
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 2 (Task #25)
+**Files affected:** `services/cockpit_data.py` (`_compute_pvm`)
+**Decision made:** The Price–Volume–Mix decomposition (cockpit-brief §11.5) treats common SKUs with `price_effect = (p1-p0)*q0`, `volume_effect = (q1-q0)*p0`, and the residual cross-term `(p1-p0)*(q1-q0)` is added to the **mix** bucket. NEW SKUs (in current, not prior) and LOST SKUs (in prior, not current) are also routed to the mix bucket as `+sales` / `-sales` respectively. The payload includes `sales_delta_check_pct` so reviewers can spot any reconciliation drift.
+**Reason:** Finance tooling treats PVM cross-terms inconsistently; the brief left the choice to us. Pinning the convention here once avoids "why don't the numbers tie" tickets later. Adding the explicit reconciliation field makes the choice auditable.
+**Safer alternative considered:** Splitting the cross-term 50/50 between price and volume. Rejected — not the convention used by the existing benchmark `pvm` route, and the explicit-mix attribution matches the SAP convention used by Lidl/AB analytics teams.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`.
+**Reversibility:** High — single helper.
+
+---
+
+## ASSUMPTION-042: Cockpit Ticket 2 — page TTL cache (5 min, target/cart bypass)
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 2 (Task #25)
+**Files affected:** `services/cockpit_data.py` (`_CACHE`, `get_cockpit_data`, `invalidate_cache`); `pyproject.toml` (added `cachetools` dependency).
+**Decision made:** The full cockpit payload is cached in-process via `cachetools.TTLCache(maxsize=128, ttl=300)`, keyed on `(customer_code, period_days, compare, peer_group)`. Two slices are **always re-read live** even on a cache hit: (a) the `target` block (`get_target` + `compute_achievement` for all four cadences), so an AM editing/approving a target sees the change reflected on the next render, and (b) the `live_cart` block (`fetch_live_cart`), so a customer adding to cart appears within one Magento sync cycle. `invalidate_cache(customer_code)` is exposed for manual flushing if a future cockpit ticket needs it. No across-process cache (Redis) — the brief does not call for one and a single-process TTLCache is sufficient at current load.
+**Reason:** The cockpit's "ten panels" payload is roughly twelve SQL queries; without a cache, page navigation would burst the DB. Brief §11.2 calls for a 5-min in-memory cache.
+**Safer alternative considered:** Per-section memoisation. Rejected — payload-level cache is simpler, and the per-request bypass list (target + live cart) covers the only two truly-write-sensitive sections.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`. To disable the cache without redeploying, set `_CACHE.maxsize = 0` from a Python REPL.
+**Reversibility:** High — drop the cache, accept the latency.
+
+---
+
+## ASSUMPTION-043: Cockpit Ticket 2 — activity-timeline sources & cap (14d / 20 events)
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 2 (Task #25)
+**Files affected:** `services/cockpit_data.py` (`_fetch_activity_timeline`)
+**Decision made:** The "Activity Timeline" panel (cockpit-brief §11.7) merges five event streams from the existing tables: Magento login (`magento_customer_last_login_current.last_login_at` — single most-recent value), invoices (`dw_invoice_header` aggregated by invoice number), SMS (`sms_log` by `customer_code_365`), live-cart syncs (`crm_abandoned_cart_state.last_synced_at` when `has_abandoned_cart`), and target changes (`customer_spend_target_history`). Window = last 14 days, cap = 20 events. Each query is wrapped in `try/except` so a missing/migrating source degrades to an empty section rather than 500-ing the page. AM-notes are **not** sourced — no AM-note table exists in the codebase yet (deferred to a future ticket).
+**Reason:** Brief §11.7 lists the source categories but does not enumerate exact tables. This pins them so future schema changes have a single grep target.
+**Safer alternative considered:** Materialising a `customer_activity_event` union view. Deferred — the cockpit currently shows ~5–15 events per customer, well within direct-query budgets.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`.
+**Reversibility:** High — single helper.
+
+---
+
+## ASSUMPTION-044: Cockpit Ticket 2 — cross-sell & recommended-actions deferred to Ticket 3
+
+**Date:** 2026-05-03
+**Phase:** Cockpit Ticket 2 (Task #25)
+**Files affected:** `services/cockpit_data.py` (`_build_cockpit_payload`); `templates/cockpit/cockpit.html`
+**Decision made:** The payload returns `cross_sell: []` and `recommended_actions: []`. The cross-sell engine described in cockpit-brief §11 references an "analytics-jobs output" table that has not yet shipped in this codebase; rather than fabricate a placeholder algorithm, the panel surface is wired up empty so Ticket 3 can drop in real data without template changes. `recommended_actions` is the explicit Ticket 3 (Greek Claude) deliverable.
+**Reason:** Sticks to the cockpit-brief §11.3 reuse-vs-replicate rule — never fabricate a data source that doesn't exist.
+**Safer alternative considered:** A naive "category-affinity" proxy for cross-sell. Rejected — would not match what Ticket 3 produces and risks confusing AMs.
+**Feature flag / rollback:** Behind `cockpit_enabled=false`.
+**Reversibility:** High — fields are present, only the lists are empty.

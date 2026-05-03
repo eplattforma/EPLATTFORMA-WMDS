@@ -1,19 +1,176 @@
 {% extends "base.html" %}
-{% block title %}Cockpit — {{ customer_code }}{% endblock %}
+{% block title %}Cockpit · {{ customer_code }}{% endblock %}
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex align-items-center mb-3">
-    <h3 class="mb-0"><i class="fas fa-rocket me-2"></i>Cockpit · {{ customer_code }}</h3>
-    <a href="/cockpit/" class="btn btn-sm btn-outline-secondary ms-3">← Search</a>
+<link rel="stylesheet" href="{{ url_for('static', filename='cockpit/cockpit.css') }}">
+<div class="cockpit-page container-fluid py-3">
+
+  {# ── Header strip ────────────────────────────────────────────── #}
+  <div class="cockpit-header card mb-3">
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <a href="/cockpit/" class="btn btn-sm btn-outline-secondary">← Search</a>
+        <div>
+          <div class="fs-4 mb-0">
+            {% if data %}{{ data.header.customer_name or '(no name)' }}{% else %}{{ customer_code }}{% endif %}
+            <span class="text-muted small ms-2"><code>{{ customer_code }}</code></span>
+          </div>
+          {% if data %}
+          <div class="text-muted small">
+            {% if data.header.classification %}<span class="me-3"><i class="fas fa-tag me-1"></i>{{ data.header.classification }}</span>{% endif %}
+            {% if data.header.district %}<span class="me-3"><i class="fas fa-map-marker-alt me-1"></i>{{ data.header.district }}</span>{% endif %}
+            {% if data.header.agent_display_name %}<span class="me-3"><i class="fas fa-user-tie me-1"></i>{{ data.header.agent_display_name }}</span>{% endif %}
+            {% if data.header.reporting_group %}<span class="me-3"><i class="fas fa-people-group me-1"></i>{{ data.header.reporting_group }}</span>{% endif %}
+            {% if data.header.last_invoice_days is not none %}
+              <span class="me-3"><i class="fas fa-file-invoice me-1"></i>last invoice {{ data.header.last_invoice_days }}d ago</span>
+            {% endif %}
+            {% if data.header.last_login_days is not none %}
+              <span class="me-3"><i class="fas fa-right-to-bracket me-1"></i>last login {{ data.header.last_login_days }}d ago</span>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+
+        {# ── Page-level controls (§11.8) ── #}
+        <form id="cockpitControls" class="ms-auto d-flex flex-wrap gap-2 align-items-center"
+              method="GET" onsubmit="return cockpitApplyControls(event)">
+          <label class="small text-muted mb-0">Period
+            <select name="period" class="form-select form-select-sm">
+              <option value="90"  {% if controls.period == 90 %}selected{% endif %}>Last 90 days</option>
+              <option value="180" {% if controls.period == 180 %}selected{% endif %}>Last 6 months</option>
+              <option value="365" {% if controls.period == 365 %}selected{% endif %}>Last 12 months</option>
+            </select>
+          </label>
+          <label class="small text-muted mb-0">Compare
+            <select name="compare" class="form-select form-select-sm">
+              <option value="py"   {% if controls.compare == 'py' %}selected{% endif %}>Prior year</option>
+              <option value="prev" {% if controls.compare in ('prev','prev_period') %}selected{% endif %}>Prev period</option>
+              <option value="none" {% if controls.compare == 'none' %}selected{% endif %}>None</option>
+            </select>
+          </label>
+          <label class="small text-muted mb-0">Peer group
+            <input type="text" name="peer_group" value="{{ controls.peer_group }}"
+                   class="form-control form-control-sm" style="width: 9rem;"
+                   placeholder="auto">
+          </label>
+          <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+        </form>
+      </div>
+    </div>
   </div>
 
-  <div class="alert alert-info">
-    <strong>Ticket 1 scaffold.</strong> The full cockpit lands in Ticket 2.
-    The Targets card below is fully functional.
+  {% if not data %}
+    <div class="alert alert-danger">
+      <strong>Cockpit data unavailable.</strong> Could not assemble the page payload — see server logs.
+    </div>
+  {% else %}
+
+  {# ── KPI tiles ──────────────────────────────────────────────── #}
+  <div class="row g-2 mb-3 cockpit-kpis">
+    <div class="col-md col-6">
+      <div class="card kpi-tile h-100">
+        <div class="card-body py-3">
+          <div class="kpi-label">Sales (excl. VAT)</div>
+          <div class="kpi-value">€{{ '{:,.0f}'.format(data.kpis.sales.value) }}</div>
+          {% set d = data.kpis.sales %}
+          {% if d.delta_pct is not none %}
+            <div class="kpi-delta {{ 'text-success' if d.delta_pct >= 0 else 'text-danger' }}">
+              {{ '{:+.1f}'.format(d.delta_pct) }}% vs {{ controls.compare }}
+            </div>
+          {% else %}
+            <div class="text-muted small">no compare</div>
+          {% endif %}
+          <canvas class="kpi-spark" data-spark="{{ d.sparkline|tojson }}"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-md col-6">
+      <div class="card kpi-tile h-100">
+        <div class="card-body py-3">
+          <div class="kpi-label">Gross Profit</div>
+          <div class="kpi-value">€{{ '{:,.0f}'.format(data.kpis.gross_profit.value) }}</div>
+          {% set g = data.kpis.gross_profit %}
+          <div class="small">
+            GM {{ g.gm_pct if g.gm_pct is not none else '–' }}%
+            {% if g.gm_delta_pts is not none %}
+              <span class="{{ 'text-success' if g.gm_delta_pts >= 0 else 'text-danger' }}">
+                ({{ '{:+.1f}'.format(g.gm_delta_pts) }}pp)
+              </span>
+            {% endif %}
+          </div>
+          {% if g.delta_pct is not none %}
+            <div class="kpi-delta {{ 'text-success' if g.delta_pct >= 0 else 'text-danger' }}">
+              {{ '{:+.1f}'.format(g.delta_pct) }}% vs {{ controls.compare }}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md col-6">
+      <div class="card kpi-tile h-100">
+        <div class="card-body py-3">
+          <div class="kpi-label">Target Achievement (MTD)</div>
+          {% set m = data.target.achievement.mtd %}
+          <div class="kpi-value">{{ m.pct if m.pct is not none else '–' }}{% if m.pct is not none %}%{% endif %}</div>
+          {% if m.target %}
+            <div class="small">€{{ '{:,.0f}'.format(m.actual) }} / €{{ '{:,.0f}'.format(m.target) }}</div>
+            <div class="kpi-delta {{ 'text-success' if m.on_pace else 'text-danger' }}">
+              {% if m.on_pace %}on pace{% else %}gap €{{ '{:,.0f}'.format(m.gap) }}{% endif %}
+            </div>
+          {% else %}
+            <div class="text-muted small">no target set</div>
+          {% endif %}
+          <a href="#targetCard" class="small">View target →</a>
+        </div>
+      </div>
+    </div>
+    <div class="col-md col-6">
+      <div class="card kpi-tile h-100">
+        <div class="card-body py-3">
+          <div class="kpi-label">Engagement Score</div>
+          <div class="kpi-value">{{ data.kpis.engagement_score.value }}<span class="kpi-suffix">/100</span></div>
+          {% set ec = data.kpis.engagement_score.components %}
+          <div class="small text-muted">
+            login {{ ec.login }} · invoice {{ ec.invoice }}<br>
+            slot {{ ec.slot_usage }} · offers {{ ec.offer_acceptance }}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md col-6">
+      <div class="card kpi-tile h-100" id="liveCartTile" role="button" tabindex="0"
+           aria-expanded="false" onclick="toggleLiveCart()">
+        <div class="card-body py-3">
+          <div class="kpi-label">Live Cart <i class="fas fa-chevron-down small"></i></div>
+          <div class="kpi-value">€{{ '{:,.2f}'.format(data.kpis.live_cart.amount) }}</div>
+          <div class="small">
+            {{ data.kpis.live_cart.sku_count }} item(s)
+            {% if data.kpis.live_cart.age_minutes is not none %}
+              · synced {{ data.kpis.live_cart.age_minutes }}m ago
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md col-6">
+      <div class="card kpi-tile h-100">
+        <div class="card-body py-3">
+          <div class="kpi-label">Open Orders</div>
+          <div class="kpi-value">€{{ '{:,.0f}'.format(data.kpis.open_orders.amount) }}</div>
+          <div class="small">{{ data.kpis.open_orders.count }} order(s)</div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  {# ── Target Achievement card ─────────────────────────────────────── #}
-  <div class="card mb-3">
+  {# Live-cart inline panel (§11.9) — populated on click. #}
+  <div class="card mb-3 d-none" id="liveCartPanel">
+    <div class="card-body py-2 small" id="liveCartPanelBody">Loading…</div>
+  </div>
+
+  {# ── Spend Target card (Ticket 1, kept as-is) ──────────────── #}
+  {% set target_state = data.target.state %}
+  {% set achievement = data.target.achievement %}
+  <div class="card mb-3" id="targetCard">
     <div class="card-header d-flex align-items-center">
       <strong><i class="fas fa-bullseye me-2"></i>Spend Target</strong>
       <span class="ms-auto small text-muted">
@@ -91,55 +248,314 @@
     </div>
   </div>
 
-  <div class="text-muted small">
-    Customer: <code>{{ customer_code }}</code> ·
-    All other cockpit panels arrive in Ticket 2.
+  {# ── 12-month trend chart (with target overlay & peer avg) ── #}
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center">
+      <strong><i class="fas fa-chart-line me-2"></i>12-Month Trend</strong>
+      <span class="ms-auto small text-muted">
+        peer avg from {{ data.controls.peer_customers }} customer(s) in <code>{{ data.controls.peer_group_resolved or '—' }}</code>
+      </span>
+    </div>
+    <div class="card-body">
+      <canvas id="trendChart" height="100"
+              data-trend="{{ data.trend.monthly|tojson }}"></canvas>
+    </div>
   </div>
+
+  {# ── PVM ──────────────────────────────────────────────────── #}
+  <div class="card mb-3">
+    <div class="card-header"><strong><i class="fas fa-balance-scale me-2"></i>Price · Volume · Mix</strong>
+      <span class="ms-auto small text-muted float-end">
+        Δ sales €{{ '{:,.0f}'.format(data.pvm.total_sales_delta) }}
+        {% if data.pvm.sales_delta_check_pct is not none %}
+          · check {{ data.pvm.sales_delta_check_pct }}%
+        {% endif %}
+      </span>
+    </div>
+    <div class="card-body">
+      <div class="row text-center">
+        <div class="col">
+          <div class="text-muted small">Price effect</div>
+          <div class="fs-5 {{ 'text-success' if data.pvm.price >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.price) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted small">Volume effect</div>
+          <div class="fs-5 {{ 'text-success' if data.pvm.volume >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.volume) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted small">Mix (incl. cross-term + new/lost)</div>
+          <div class="fs-5 {{ 'text-success' if data.pvm.mix >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.mix) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted small">Total Δ sales</div>
+          <div class="fs-5">€{{ '{:+,.0f}'.format(data.pvm.total_sales_delta) }}</div>
+        </div>
+        <div class="col">
+          <div class="text-muted small">Δ GP</div>
+          <div class="fs-5 {{ 'text-success' if data.pvm.total_gp_delta >= 0 else 'text-danger' }}">€{{ '{:+,.0f}'.format(data.pvm.total_gp_delta) }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Top items (toggle GP / Revenue) + Category mix ─────── #}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header d-flex align-items-center">
+          <strong><i class="fas fa-trophy me-2"></i>Top Items</strong>
+          <div class="btn-group btn-group-sm ms-auto" role="group">
+            <button type="button" class="btn btn-outline-primary active" data-toggle="topGP">By GP</button>
+            <button type="button" class="btn btn-outline-primary"        data-toggle="topRev">By Revenue</button>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          {% for table_id, items in [('topGP', data.top_items_by_gp), ('topRev', data.top_items_by_revenue)] %}
+            <div id="{{ table_id }}" class="cockpit-tbl-wrap{% if table_id == 'topRev' %} d-none{% endif %}">
+              <table class="table table-sm mb-0">
+                <thead><tr><th>Item</th><th class="text-end">Qty</th><th class="text-end">Sales</th><th class="text-end">GP</th><th class="text-end">GM%</th></tr></thead>
+                <tbody>
+                  {% for r in items %}
+                    <tr>
+                      <td><code class="small">{{ r.item_code }}</code> {{ r.item_name }}</td>
+                      <td class="text-end">{{ '{:,.0f}'.format(r.qty) }}</td>
+                      <td class="text-end">€{{ '{:,.0f}'.format(r.sales) }}</td>
+                      <td class="text-end">€{{ '{:,.0f}'.format(r.gp) }}</td>
+                      <td class="text-end">{{ r.gm_pct if r.gm_pct is not none else '–' }}</td>
+                    </tr>
+                  {% else %}
+                    <tr><td colspan="5" class="text-muted text-center small py-3">No data.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-th me-2"></i>Category Mix vs Peers</strong></div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Category</th><th class="text-end">You</th><th class="text-end">Peers</th><th class="text-end">Gap</th></tr></thead>
+            <tbody>
+              {% for r in data.category_mix_vs_peers %}
+                <tr>
+                  <td>{{ r.category }}</td>
+                  <td class="text-end">{{ r.customer_pct }}%</td>
+                  <td class="text-end">{{ r.peer_pct }}%</td>
+                  <td class="text-end {{ 'text-success' if r.gap >= 0 else 'text-danger' }}">{{ '{:+.1f}'.format(r.gap) }}pp</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="text-muted text-center small py-3">No peer data for this customer.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Active offers + Offer opportunities ──────────────────── #}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-tag me-2"></i>Active Offers</strong>
+          <span class="ms-auto small text-muted float-end">{{ data.active_offers|length }} live</span>
+        </div>
+        <div class="card-body p-0 cockpit-tbl-wrap">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>SKU</th><th>Rule</th><th class="text-end">Origin</th><th class="text-end">Offer</th><th class="text-end">Disc</th><th class="text-end">GM%</th><th class="text-end">4w sales</th></tr></thead>
+            <tbody>
+              {% for r in data.active_offers %}
+                <tr>
+                  <td><code class="small">{{ r.sku }}</code> {{ r.product_name }}</td>
+                  <td class="small text-muted">{{ r.rule_name }}</td>
+                  <td class="text-end">€{{ '{:,.2f}'.format(r.origin_price or 0) }}</td>
+                  <td class="text-end">€{{ '{:,.2f}'.format(r.offer_price or 0) }}</td>
+                  <td class="text-end">{{ '{:.1f}'.format(r.discount_percent or 0) }}%</td>
+                  <td class="text-end">{{ '{:.1f}'.format(r.gross_margin_percent or 0) }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.sold_value_4w or 0) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="7" class="text-muted text-center small py-3">No active offers.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-lightbulb me-2"></i>Offer Opportunities</strong>
+          <span class="ms-auto small text-muted float-end">SKUs bought regularly · no offer yet</span>
+        </div>
+        <div class="card-body p-0 cockpit-tbl-wrap">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>SKU</th><th class="text-end">90d rev</th><th class="text-end">90d GP</th><th class="text-end">Peers offered</th></tr></thead>
+            <tbody>
+              {% for r in data.offer_opportunities %}
+                <tr>
+                  <td><code class="small">{{ r.sku }}</code> {{ r.item_name }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.revenue_90d or 0) }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.gp_90d or 0) }}</td>
+                  <td class="text-end">{{ r.peer_offered_count }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="text-muted text-center small py-3">No offer opportunities surfaced.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── White space / Lapsed / Churn risk ────────────────────── #}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-bullseye me-2"></i>White Space</strong>
+          <span class="ms-auto small text-muted float-end">peer-popular SKUs you're missing</span>
+        </div>
+        <div class="card-body p-0 cockpit-tbl-wrap">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>SKU</th><th class="text-end">Pen</th><th class="text-end">Peer avg</th></tr></thead>
+            <tbody>
+              {% for r in data.white_space %}
+                <tr>
+                  <td><code class="small">{{ r.item_code }}</code> {{ r.item_name }}</td>
+                  <td class="text-end">{{ '{:.0%}'.format(r.penetration or 0) }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.peer_avg_sales or 0) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="text-muted text-center small py-3">No peer data available.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-arrow-down me-2"></i>Lapsed Items</strong>
+          <span class="ms-auto small text-muted float-end">bought before · zero this period</span>
+        </div>
+        <div class="card-body p-0 cockpit-tbl-wrap">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>SKU</th><th class="text-end">Prev qty</th><th class="text-end">Prev sales</th></tr></thead>
+            <tbody>
+              {% for r in data.lapsed_items %}
+                <tr>
+                  <td><code class="small">{{ r.item_code }}</code> {{ r.item_name }}</td>
+                  <td class="text-end">{{ '{:,.0f}'.format(r.comp_qty or 0) }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.comp_sales or 0) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="text-muted text-center small py-3">No lapsed items.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-triangle-exclamation me-2"></i>Churn Risk by Category</strong>
+          <span class="ms-auto small text-muted float-end">recent vs prior 90d</span>
+        </div>
+        <div class="card-body p-0 cockpit-tbl-wrap">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Category</th><th class="text-end">Prev 90d</th><th class="text-end">Recent 90d</th><th class="text-end">Drop</th></tr></thead>
+            <tbody>
+              {% for r in data.churn_risk_by_category %}
+                <tr class="{{ 'table-danger' if r.severity == 'negative' else 'table-warning' }}">
+                  <td>{{ r.category }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.prev_90d) }}</td>
+                  <td class="text-end">€{{ '{:,.0f}'.format(r.recent_90d) }}</td>
+                  <td class="text-end">{{ '{:+.1f}'.format(r.drop_pct) }}%</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="text-muted text-center small py-3">No churn risk detected.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Price index outliers + Activity timeline ──────────────── #}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-money-bill-wave me-2"></i>Price Index Outliers</strong></div>
+        <div class="card-body p-0 cockpit-tbl-wrap">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>SKU</th><th class="text-end">Your price</th><th class="text-end">Peer price</th><th class="text-end">Index</th><th class="text-end">Qty</th></tr></thead>
+            <tbody>
+              {% for r in data.price_index_outliers %}
+                {% set idx = r.price_index or 1 %}
+                <tr>
+                  <td><code class="small">{{ r.item_code }}</code> {{ r.item_name }}</td>
+                  <td class="text-end">€{{ '{:,.2f}'.format(r.cust_unit_price or 0) }}</td>
+                  <td class="text-end">€{{ '{:,.2f}'.format(r.peer_unit_price or 0) }}</td>
+                  <td class="text-end {{ 'text-success' if idx >= 1 else 'text-danger' }}">{{ '{:.2f}'.format(idx) }}×</td>
+                  <td class="text-end">{{ '{:,.0f}'.format(r.cust_qty or 0) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5" class="text-muted text-center small py-3">No peer comparison available.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header"><strong><i class="fas fa-clock-rotate-left me-2"></i>Activity Timeline</strong>
+          <span class="ms-auto small text-muted float-end">last 14 days</span>
+        </div>
+        <div class="card-body p-2 cockpit-timeline">
+          {% for ev in data.activity_timeline %}
+            <div class="timeline-row d-flex mb-2">
+              <span class="timeline-icon timeline-{{ ev.type }}"></span>
+              <div class="ms-2 small">
+                <div class="text-muted">{{ ev.when }}{% if ev.actor_display_name %} · <strong>{{ ev.actor_display_name }}</strong>{% endif %}</div>
+                <div>{{ ev.summary }}</div>
+              </div>
+            </div>
+          {% else %}
+            <div class="text-muted text-center small py-3">No activity in the last 14 days.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Recommended Actions placeholder (Ticket 3) ────────────── #}
+  <div class="card mb-3">
+    <div class="card-header"><strong><i class="fas fa-wand-magic-sparkles me-2"></i>Recommended Actions</strong>
+      <span class="ms-auto small text-muted float-end">Ticket 3 — Greek Claude advice</span>
+    </div>
+    <div class="card-body text-muted small">
+      Recommendations are populated by the next cockpit ticket. The placeholder keeps the layout stable.
+    </div>
+  </div>
+
+  {# ── Footer: data freshness ──────────────────────────────── #}
+  <div class="text-muted small d-flex flex-wrap gap-3">
+    <span>Sales last invoiced: {{ data.data_freshness.sales_last_synced_at or '—' }}</span>
+    <span>Offers snapshot: {{ data.data_freshness.offers_last_synced_at or '—' }}</span>
+    <span>Cart sync: {{ data.data_freshness.cart_last_synced_at or '—' }}</span>
+  </div>
+  {% endif %}
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const CC = {{ customer_code|tojson }};
-
-async function postJSON(url, body) {
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body || {}),
-  });
-  return [r.ok, await r.json().catch(() => ({}))];
-}
-
-function readForm(form) {
-  const out = {};
-  new FormData(form).forEach((v, k) => { if (v !== '') out[k] = v; });
-  return out;
-}
-
-async function targetSubmit(e) {
-  e.preventDefault();
-  const action = document.activeElement.dataset.action || 'propose';
-  const body = readForm(e.target);
-  const url = `/cockpit/api/${encodeURIComponent(CC)}/target/${action}`;
-  const [ok, data] = await postJSON(url, body);
-  if (!ok) { alert('Failed: ' + (data.error || 'unknown')); return false; }
-  location.reload();
-  return false;
-}
-
-async function targetAct(action) {
-  const url = `/cockpit/api/${encodeURIComponent(CC)}/target/${action}`;
-  const [ok, data] = await postJSON(url, {});
-  if (!ok) { alert('Failed: ' + (data.error || 'unknown')); return; }
-  location.reload();
-}
-
-async function targetReject() {
-  const reason = prompt('Reason for rejection?');
-  if (reason === null) return;
-  const url = `/cockpit/api/${encodeURIComponent(CC)}/target/reject`;
-  const [ok, data] = await postJSON(url, {reason: reason});
-  if (!ok) { alert('Failed: ' + (data.error || 'unknown')); return; }
-  location.reload();
-}
 </script>
+<script src="{{ url_for('static', filename='cockpit/cockpit.js') }}"></script>
 {% endblock %}

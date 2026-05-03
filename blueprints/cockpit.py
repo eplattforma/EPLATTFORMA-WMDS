@@ -91,18 +91,59 @@ def api_search():
 @login_required
 @require_permission("customers.use_cockpit")
 def cockpit(customer_code):
-    """Placeholder page — Ticket 2 fills in the full layout."""
-    from services.cockpit_targets import get_target, compute_achievement
-    state = get_target(customer_code)
-    achievement = {p: compute_achievement(customer_code, p)
-                   for p in ("mtd", "qtd", "ytd", "weekly_average")}
+    """Main cockpit page — cockpit-brief §11.
+
+    Page-level controls (period / compare / peer_group) are read from
+    the URL query string and propagate to every section.
+    """
+    from services.cockpit_data import get_cockpit_data
+
+    try:
+        period_days = int(request.args.get("period", "90"))
+    except (TypeError, ValueError):
+        period_days = 90
+    if period_days not in (90, 180, 365):
+        period_days = 90
+    compare = (request.args.get("compare") or "py").lower()
+    if compare not in ("py", "prev", "prev_period", "none"):
+        compare = "py"
+    peer_group = (request.args.get("peer_group") or "auto").strip() or "auto"
+
+    # Customer must exist before we render — surface a clean 404.
+    exists = db.session.execute(
+        text("SELECT 1 FROM ps_customers WHERE customer_code_365 = :c LIMIT 1"),
+        {"c": customer_code},
+    ).first()
+    if not exists:
+        abort(404)
+
+    try:
+        data = get_cockpit_data(customer_code,
+                                period_days=period_days,
+                                compare=compare,
+                                peer_group=peer_group)
+    except Exception:
+        logger.exception("Cockpit data assembly failed for %s", customer_code)
+        # Fail loud in the UI rather than silently masking — the template
+        # checks for ``data`` and shows an inline error if absent.
+        data = None
+
     return render_template(
         "cockpit/cockpit.html",
         customer_code=customer_code,
-        target_state=state,
-        achievement=achievement,
-        placeholder=True,
+        data=data,
+        controls={"period": period_days, "compare": compare,
+                  "peer_group": peer_group},
     )
+
+
+@cockpit_bp.route("/api/<customer_code>/live-cart", methods=["GET"])
+@login_required
+@require_permission("customers.use_cockpit")
+def api_live_cart(customer_code):
+    """Inline live-cart panel data (cockpit-brief §11.9). Always live."""
+    from services.cockpit_data import fetch_live_cart
+    return jsonify(fetch_live_cart(customer_code))
 
 
 @cockpit_bp.route("/admin/targets")

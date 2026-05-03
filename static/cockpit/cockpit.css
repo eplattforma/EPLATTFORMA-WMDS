@@ -1,0 +1,30 @@
+.cockpit-page .cockpit-header { border-left: 4px solid var(--bs-primary); }
+
+.cockpit-page .kpi-tile { border: 1px solid rgba(0,0,0,.08); }
+.cockpit-page .kpi-label { font-size: .8rem; color: #6c757d; text-transform: uppercase; letter-spacing: .03em; }
+.cockpit-page .kpi-value { font-size: 1.6rem; font-weight: 600; line-height: 1.1; }
+.cockpit-page .kpi-suffix { font-size: .9rem; color: #6c757d; font-weight: 400; }
+.cockpit-page .kpi-delta { font-size: .85rem; }
+.cockpit-page .kpi-spark { display:block; width: 100%; height: 28px; margin-top: .25rem; }
+
+.cockpit-page #liveCartTile { cursor: pointer; transition: background .15s; }
+.cockpit-page #liveCartTile:hover { background: rgba(13,110,253,.04); }
+
+.cockpit-page .cockpit-tbl-wrap { max-height: 380px; overflow-y: auto; }
+.cockpit-page .cockpit-tbl-wrap table { font-size: .85rem; }
+.cockpit-page .cockpit-tbl-wrap thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+
+.cockpit-page .cockpit-timeline { max-height: 380px; overflow-y: auto; }
+.cockpit-page .timeline-icon {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  background: #adb5bd; margin-top: 6px; flex-shrink: 0;
+}
+.cockpit-page .timeline-icon.timeline-login    { background: #0d6efd; }
+.cockpit-page .timeline-icon.timeline-invoice  { background: #198754; }
+.cockpit-page .timeline-icon.timeline-sms      { background: #ffc107; }
+.cockpit-page .timeline-icon.timeline-cart     { background: #6f42c1; }
+.cockpit-page .timeline-icon.timeline-target_change { background: #fd7e14; }
+
+@media (max-width: 768px) {
+  .cockpit-page .kpi-value { font-size: 1.3rem; }
+}

@@ -230,3 +230,41 @@ Idempotent: `CREATE TABLE IF NOT EXISTS` + `CREATE OR REPLACE VIEW`. Wired into 
 ### Emergency disable order (updated, appended after Phase 5 block)
 
 - `3a. cockpit_enabled = false` (entire `/cockpit/...` URL space returns 404; menu entry hidden; existing customer reports — Customer 360, Benchmark, Peer Analytics, Pricing Analytics, Abandoned Carts, CRM Dashboard — keep working unchanged).
+
+
+## Cockpit — Ticket 2 (Main Cockpit Page, Task #25)
+
+### No new flag
+
+Continues to ride on the existing `cockpit_enabled` master flag (default `false`). When the flag is `false`, `/cockpit/<customer_code>` returns 404 just like every other cockpit route.
+
+### No new permission keys
+
+Reuses `customers.use_cockpit` for the page and the new `/cockpit/api/<code>/live-cart` JSON endpoint. The four target write endpoints continue to require `customers.propose_target` / `customers.approve_target`.
+
+### No schema changes
+
+Ticket 2 is **service + template only**. All data is computed on read from already-shipped tables (`dw_invoice_header`, `dw_invoice_line`, `ps_items_dw`, `dw_item_categories`, `ps_customers`, `crm_customer_offer_current`, `crm_customer_offer_summary_current`, `crm_abandoned_cart_state`, `magento_customer_last_login_current`, `sms_log`, `customer_spend_target_history`, `vw_customer_offer_opportunity`).
+
+### New dependency
+
+- Python: `cachetools` (TTL cache for the cockpit payload — see ASSUMPTION-042).
+
+### New files
+
+- `services/cockpit_data.py` — orchestrator (caching + per-section queries; never modifies existing routes; see ASSUMPTION-039 through ASSUMPTION-044 for design choices).
+- `static/cockpit/cockpit.css`, `static/cockpit/cockpit.js` — page-only assets (Chart.js loaded from CDN, scoped to the cockpit page).
+
+### New routes (all under the same `cockpit_enabled` flag)
+
+- `GET /cockpit/<customer_code>` — main page (replaces the Ticket 1 placeholder).
+- `GET /cockpit/api/<customer_code>/live-cart` — JSON for the inline live-cart panel; bypasses the page-level cache.
+
+### Rollback
+
+1. Set `cockpit_enabled = false` (already the default). The page and the live-cart API both return 404. Existing customer reports keep working — they were never touched.
+2. (Optional) Remove the `cachetools` package once Ticket 2 has been reverted everywhere.
+
+### Emergency disable order (updated)
+
+- `3a.` (unchanged) `cockpit_enabled = false` — disables the full URL space and the menu entry simultaneously. No data deletion required.

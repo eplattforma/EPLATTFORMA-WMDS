@@ -2,7 +2,7 @@ modules = ["python-3.11", "python3", "nodejs-20", "postgresql-16"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["freetype", "gitFull", "glibcLocales", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "playwright-driver", "postgresql", "postgresql_16", "tcl", "tk", "zlib", "nss", "nspr", "at-spi2-atk", "cups", "libdrm", "mesa", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXrandr", "xorg.libxcb", "xorg.libX11", "xorg.libXext", "xorg.libXfixes", "alsa-lib", "pango", "cairo", "expat", "glib", "dbus", "gtk3", "libxkbcommon", "xorg.libXi", "xorg.libXtst", "xorg.libXScrnSaver", "xorg.libXcursor"]
+packages = ["alsa-lib", "at-spi2-atk", "cairo", "cups", "dbus", "expat", "freetype", "gitFull", "glib", "glibcLocales", "gtk3", "lcms2", "libdrm", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "libxkbcommon", "mesa", "nspr", "nss", "openjpeg", "openssl", "pango", "playwright-driver", "postgresql", "postgresql_16", "tcl", "tk", "xorg.libX11", "xorg.libXScrnSaver", "xorg.libXcomposite", "xorg.libXcursor", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXi", "xorg.libXrandr", "xorg.libXtst", "xorg.libxcb", "zlib"]
 
 [deployment]
 deploymentTarget = "autoscale"

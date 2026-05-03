@@ -35,4 +35,5 @@ dependencies = [
     "pdfminer-six>=20260107",
     "pymysql>=1.1.2",
     "playwright>=1.58.0",
+    "cachetools>=7.1.0",
 ]
