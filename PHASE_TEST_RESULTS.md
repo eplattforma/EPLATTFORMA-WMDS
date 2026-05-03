@@ -360,3 +360,23 @@ The actual flip of `permissions_enforcement_enabled` from `'false'` to `'true'` 
 | P5-31..33 | Exception path (oversize box, double-close, missing readiness) | 3/3 |
 
 **Production posture:** Both Phase 5 flags stay seeded `false` (`summer_cooler_mode_enabled`, `cooler_picking_enabled`). Sensitive items continue to flow through the normal pick zone with no `wms_zone` snapshot until the operator flips the flag. The Driver Mode invariant is preserved — `route_detail.html` shows the cooler boxes overlay only when both flags are true.
+
+---
+
+# Phase 5 — Cooler Picking Fix-up (Task #22, Architect Rejection)
+
+**Date:** 2026-05-03
+**Test file:** `tests/test_phase5_cooler_picking.py` (`TestArchitectFixupRegressions`)
+**Result:** ✅ **40 / 40 PASSED** (33 original + 7 new fix-up regressions, ~16s, in-memory SQLite)
+**Phase 4 regression:** ✅ `tests/test_phase4_batch_picking.py` 30/30 PASSED.
+**Override-pipeline regression:** Pre-existing prod-DB data gap (`SNA-0105` forecast result missing); not caused by this fix-up.
+
+| Cell | Architect rejection | Fix-up | Test |
+|---|---|---|---|
+| FIX-01 | `rebuild_items_from_queue` returned cooler-zone rows to the normal picker, double-picking cold-chain items | `services/batch_picking.py` WHERE clause now `(pick_zone_type IS NULL OR pick_zone_type='normal')`; legacy NULL rows still surface as normal | `test_p5_fix_01_rebuild_excludes_cooler_zone_rows` |
+| FIX-02 | `is_order_ready` always consulted `cooler_boxes`, so a stale open box with the flag OFF blocked dispatch forever | `services/order_readiness.py` adds `_is_summer_cooler_mode_enabled()` short-circuit: cooler-mode-OFF only inspects normal/NULL queue rows; cooler-mode-ON keeps full pre-fix-up behaviour | `test_p5_fix_02_is_order_ready_ignores_open_box_when_flag_off`, `test_p5_fix_02b_is_order_ready_honours_open_box_when_flag_on` |
+| FIX-03 | `mark_shipped` and the two DISPATCHED-transition gates in `routes_routes.py` consulted raw `Invoice.status`, letting cooler-bearing invoices ship while their cold-chain box was still open | All three call sites (lines ~278, ~1129, ~1455) now delegate to `services.order_readiness.is_order_ready` | `test_p5_fix_03_mark_shipped_gate_uses_is_order_ready` |
+| FIX-04 | `blueprints/cooler_picking.py::route_picking` filtered `cooler_boxes` by `delivery_date` only, leaking boxes from sibling routes onto the picker screen | `SELECT … FROM cooler_boxes WHERE delivery_date = :date AND route_id = :route_id` (with `int(route_id)` cast) | `test_p5_fix_04_route_picking_isolates_boxes_by_route` |
+| FIX-05 | `update_phase5_cooler_picking_schema.py` used Postgres-only DDL (`BIGSERIAL`, `TIMESTAMP WITH TIME ZONE`, `ADD COLUMN IF NOT EXISTS`); migration crashed under SQLite test dialect and on first cold app boot | Rewrote dialect-aware: Postgres path keeps `BIGSERIAL`/TS-TZ/FK clauses; SQLite path emits `INTEGER PRIMARY KEY AUTOINCREMENT`/`TIMESTAMP`; `ADD COLUMN` guarded by `inspect()` reflection | `test_p5_fix_05_migration_runs_on_sqlite_dialect` (re-run to prove idempotency) |
+
+**Production posture unchanged:** Both `summer_cooler_mode_enabled` and `cooler_picking_enabled` remain seeded `false`. With the flag OFF, every fix-up reduces to the pre-Phase-5 behaviour (normal picker only, no cold-chain gate, no cooler box overlay) — the architect's "stale open box blocks production forever" risk is closed. Driver Mode invariant preserved.

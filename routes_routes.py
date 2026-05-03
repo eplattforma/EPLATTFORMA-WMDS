@@ -275,7 +275,11 @@ def upsert():
                 flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
 
-            not_ready = [inv for inv in invoices if inv.status.upper() != 'READY_FOR_DISPATCH']
+            # Phase 5 fix-up: gate via services.order_readiness.is_order_ready
+            # so the cooler queue + cooler boxes are honoured. Cooler mode
+            # OFF reduces this to the pre-Phase-5 status check.
+            from services.order_readiness import is_order_ready as _is_order_ready
+            not_ready = [inv for inv in invoices if not _is_order_ready(inv.invoice_no)]
             if not_ready:
                 flash(f"Cannot mark as DISPATCHED: {len(not_ready)} invoice(s) are not ready for dispatch. All invoices must be 'ready_for_dispatch'.", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
@@ -410,8 +414,15 @@ def detail(shipment_id):
         orders.append(order_dict)
     
     # Check if all invoices are ready for dispatch (for showing "Mark as Shipped" button)
+    # Phase 5 fix-up: route the gate through services.order_readiness.is_order_ready
+    # so the cooler queue + cooler boxes are honoured. With
+    # ``summer_cooler_mode_enabled = false`` the helper short-circuits and
+    # behaviour reduces to the pre-Phase-5 status check.
+    from services.order_readiness import is_order_ready as _is_order_ready
     all_invoices = Invoice.query.filter_by(route_id=shipment_id).all()
-    all_ready_for_dispatch = len(all_invoices) > 0 and all(inv.status.upper() == 'READY_FOR_DISPATCH' for inv in all_invoices)
+    all_ready_for_dispatch = len(all_invoices) > 0 and all(
+        _is_order_ready(inv.invoice_no) for inv in all_invoices
+    )
     
     # Debug logging
     import logging
@@ -1125,9 +1136,14 @@ def mark_shipped(shipment_id):
             return redirect(url_for("delivery_dashboard.dashboard"))
         return redirect(url_for("routes.detail", shipment_id=shipment_id))
     
-    # Check if all invoices are picked (ready_for_dispatch)
-    unpicked_invoices = [inv for inv in invoices if inv.status != 'ready_for_dispatch']
-    
+    # Check if all invoices are picked / ready for dispatch.
+    # Phase 5 fix-up: gate via services.order_readiness.is_order_ready so
+    # the normal queue, cooler queue, AND cooler boxes are all consulted
+    # before allowing the route to ship. With cooler mode OFF the helper
+    # reduces to the pre-Phase-5 status check.
+    from services.order_readiness import is_order_ready as _is_order_ready
+    unpicked_invoices = [inv for inv in invoices if not _is_order_ready(inv.invoice_no)]
+
     if unpicked_invoices:
         unpicked_list = ', '.join([inv.invoice_no for inv in unpicked_invoices])
         flash(f"Cannot ship route. The following invoices are not picked yet: {unpicked_list}", "danger")
@@ -1440,7 +1456,11 @@ def change_route_status(shipment_id):
             flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))
         
-        not_ready = [inv for inv in invoices if inv.status != 'ready_for_dispatch']
+        # Phase 5 fix-up: gate via services.order_readiness.is_order_ready
+        # so the cooler queue + cooler boxes are honoured. Cooler mode
+        # OFF reduces this to the pre-Phase-5 status check.
+        from services.order_readiness import is_order_ready as _is_order_ready
+        not_ready = [inv for inv in invoices if not _is_order_ready(inv.invoice_no)]
         if not_ready:
             flash(f"Cannot mark as DISPATCHED: {len(not_ready)} invoice(s) are not ready for dispatch. All invoices must be 'ready_for_dispatch'.", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))

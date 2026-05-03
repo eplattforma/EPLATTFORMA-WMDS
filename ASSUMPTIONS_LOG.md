@@ -272,3 +272,55 @@ Format defined in Section 3 of the brief.
 **Safer alternative considered:** Stamp the full batch range. Rejected — would force the driver to scan every box at every stop instead of pulling only the boxes whose printed range covers the current stop.
 **Feature flag / rollback:** None — purely additive metadata.
 **Reversibility:** High — columns are nullable; clearing them just hides the printed range on the manifest.
+
+---
+
+## ASSUMPTION-025: Cooler readiness gate is flag-aware (short-circuit when summer cooler mode is OFF)
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up (Task #22, architect rejection FIX-02)
+**Files affected:** `services/order_readiness.py::is_order_ready`
+**Decision made:** When `summer_cooler_mode_enabled` is `false`, `is_order_ready` ignores the `cooler_boxes` / `cooler_box_items` tables entirely and only inspects `batch_pick_queue` rows whose `pick_zone_type` is `'normal'` or `NULL`. When the flag is `true`, the full Phase 5 logic applies (any pending cooler queue row OR any open box with assigned items blocks readiness).
+**Reason:** Without the short-circuit, a stale open `cooler_boxes` row (left behind by an aborted shift or a test run) would block every order on the route from being marked ready, with no operator UI to clear it. The architect explicitly called this out as a "production blocker waiting to happen". The flag-aware branch makes the production default (flag OFF) bit-for-bit identical to the pre-Phase-5 readiness check.
+**Safer alternative considered:** Always consult cooler_boxes but ignore boxes whose `created_at` is older than 24h. Rejected — silently dropping rows is worse than ignoring the table when the feature is off; the explicit flag check is auditable.
+**Feature flag / rollback:** `summer_cooler_mode_enabled` (the same flag that gates the rest of Phase 5).
+**Reversibility:** High — flipping the flag instantly switches between the two branches with no data migration.
+
+---
+
+## ASSUMPTION-026: All "ready for dispatch" gates in routes_routes.py delegate to is_order_ready
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up (Task #22, architect rejection FIX-03)
+**Files affected:** `routes_routes.py` (three call sites: lines ~278, ~1129, ~1455)
+**Decision made:** Every gate that previously checked `inv.status == 'ready_for_dispatch'` (or `inv.status.upper() == 'READY_FOR_DISPATCH'`) — namely the two DISPATCHED-transition gates and the `all_ready_for_dispatch` flag passed to `route_detail.html` — now calls `services.order_readiness.is_order_ready(inv.invoice_no)`. There is exactly one source of truth for "is this invoice ready"; raw `Invoice.status` comparisons are no longer used for dispatch decisions.
+**Reason:** Before the fix-up, an operator could mark a route DISPATCHED while a cooler box on that route was still open — the cold chain would silently break and the driver would leave with an unfinished box. Centralising the check on `is_order_ready` means the cooler-box state participates in the gate automatically (and, per ASSUMPTION-025, is short-circuited away when the feature flag is off).
+**Safer alternative considered:** Add a separate `_cooler_ready(invoice_no)` helper called alongside the status check. Rejected — duplicating the readiness logic at three call sites guarantees future drift.
+**Feature flag / rollback:** Behaviour is identical to pre-Phase-5 when `summer_cooler_mode_enabled=false` (the production default), so no separate rollback flag is needed.
+**Reversibility:** High — `is_order_ready` is a pure function; reverting the call sites to raw status checks is a mechanical edit.
+
+---
+
+## ASSUMPTION-027: Phase 5 schema migration is dialect-aware (Postgres production, SQLite tests)
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up (Task #22, architect rejection FIX-05)
+**Files affected:** `update_phase5_cooler_picking_schema.py`
+**Decision made:** The migration inspects `db.engine.dialect.name` and emits Postgres-flavoured DDL (`BIGSERIAL`, `TIMESTAMP WITH TIME ZONE`, FK constraints inline) under `postgresql`, and SQLite-flavoured DDL (`INTEGER PRIMARY KEY AUTOINCREMENT`, plain `TIMESTAMP`, no inline FKs) under `sqlite`. Column additions use SQLAlchemy's `inspect()` reflection rather than `ADD COLUMN IF NOT EXISTS` (which SQLite does not support).
+**Reason:** The original migration crashed on cold app boot under SQLite (test fixtures and dev-laptop scenarios) and on every test run, because Postgres-only syntax is rejected by the SQLite parser. Splitting the DDL keeps the production schema identical to the architect-approved Phase 5 design while letting the test suite exercise the same migration entry point.
+**Safer alternative considered:** Skip the migration under SQLite and let `db.create_all()` build the tables from `models.py`. Rejected — Phase 5 cooler tables are intentionally raw-SQL (no ORM models) so the migration remains the single source of truth.
+**Feature flag / rollback:** None — migration is idempotent (safe to re-run) and additive (no destructive DDL).
+**Reversibility:** High — drop the cooler tables and the two `batch_pick_queue` columns to revert.
+
+---
+
+## ASSUMPTION-028: Phase 5 migration is concurrency-safe under multi-worker boot
+
+**Date:** 2026-05-03
+**Phase:** Phase 5 fix-up (Task #22, architect follow-up after FIX-05)
+**Files affected:** `update_phase5_cooler_picking_schema.py::_add_column_if_missing`
+**Decision made:** Under PostgreSQL the helper now emits native `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, which is atomic against concurrent gunicorn worker boots. Under SQLite (and any other dialect that lacks that clause) it keeps the inspector check-then-add pattern, but wraps the `ALTER TABLE` in an exception handler that swallows duplicate-column / "already exists" errors and logs a sibling-worker race notice instead of crashing the boot.
+**Reason:** The architect's follow-up review flagged that the inspector-only path had a check-then-act race window — two cold-boot workers could both see "missing" and one would crash on `ALTER TABLE`. PG's native idempotent DDL eliminates the window where it matters most (production); SQLite cold-boot is single-process in practice (test fixtures + dev laptop) so the swallow-on-duplicate fallback is sufficient defence in depth.
+**Safer alternative considered:** Wrap each `ALTER TABLE` in a Postgres advisory lock (`pg_advisory_lock`). Rejected — needlessly heavyweight for an additive nullable column add; native `IF NOT EXISTS` is the canonical PG idiom.
+**Feature flag / rollback:** None — purely defensive.
+**Reversibility:** High — drop the cooler tables + the two `batch_pick_queue` columns to revert.

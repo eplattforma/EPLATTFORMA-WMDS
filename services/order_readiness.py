@@ -42,6 +42,22 @@ def _table_exists(name):
         return False
 
 
+def _is_summer_cooler_mode_enabled():
+    """Read ``summer_cooler_mode_enabled`` flag (defaults OFF).
+
+    Phase 5 fix-up: when this flag is OFF (production default), the
+    cooler-queue and cooler-box sub-checks must short-circuit so stale
+    ``cooler_boxes`` rows from prior testing cannot accidentally hold
+    invoices in a not-ready state. With the flag OFF readiness reduces
+    to the normal-queue / legacy ``InvoiceItem.is_picked`` path.
+    """
+    try:
+        from models import Setting
+        return Setting.get(db.session, "summer_cooler_mode_enabled", "false").lower() == "true"
+    except Exception:
+        return False
+
+
 def is_order_ready(invoice_no):
     """Return True iff the order ``invoice_no`` is fully ready for shipment.
 
@@ -67,46 +83,78 @@ def is_order_ready(invoice_no):
     queue_terminal = "(" + ",".join(f"'{s}'" for s in QUEUE_TERMINAL_STATUSES) + ")"
     box_terminal = "(" + ",".join(f"'{s}'" for s in COOLER_BOX_TERMINAL_STATUSES) + ")"
 
-    if _table_exists("batch_pick_queue"):
-        # Total queue rows for this invoice (any zone).
-        total = db.session.execute(
-            text(
-                "SELECT COUNT(*) FROM batch_pick_queue "
-                "WHERE invoice_no = :inv"
-            ),
-            {"inv": invoice_no},
-        ).scalar() or 0
+    # Phase 5 fix-up: the cooler-queue and cooler-box sub-checks only
+    # apply when summer cooler mode is ON. With the flag OFF (production
+    # default), readiness reduces to the normal-queue check alone (or
+    # the legacy InvoiceItem fallback) — exactly the pre-Phase-5
+    # behaviour. This prevents stale cooler_boxes rows from prior
+    # testing from holding orders not-ready in production.
+    cooler_mode_on = _is_summer_cooler_mode_enabled()
 
-        if total > 0:
-            # Pending rows (any zone) block readiness.
-            pending = db.session.execute(
+    if _table_exists("batch_pick_queue"):
+        if cooler_mode_on:
+            # Cooler mode ON: any pending queue row (normal or cooler)
+            # blocks readiness, and any non-terminal cooler box holding
+            # items for the invoice also blocks readiness.
+            total = db.session.execute(
                 text(
                     "SELECT COUNT(*) FROM batch_pick_queue "
-                    "WHERE invoice_no = :inv "
-                    f"  AND status NOT IN {queue_terminal}"
+                    "WHERE invoice_no = :inv"
                 ),
                 {"inv": invoice_no},
             ).scalar() or 0
-            if pending > 0:
-                return False
 
-            if _table_exists("cooler_boxes") and _table_exists("cooler_box_items"):
-                # Any cooler box holding items for this invoice that
-                # has not yet reached a terminal status blocks readiness.
-                open_boxes = db.session.execute(
+            if total > 0:
+                pending = db.session.execute(
                     text(
-                        "SELECT COUNT(DISTINCT cb.id) "
-                        "FROM cooler_boxes cb "
-                        "JOIN cooler_box_items cbi "
-                        "  ON cbi.cooler_box_id = cb.id "
-                        "WHERE cbi.invoice_no = :inv "
-                        f"  AND cb.status NOT IN {box_terminal}"
+                        "SELECT COUNT(*) FROM batch_pick_queue "
+                        "WHERE invoice_no = :inv "
+                        f"  AND status NOT IN {queue_terminal}"
                     ),
                     {"inv": invoice_no},
                 ).scalar() or 0
-                if open_boxes > 0:
+                if pending > 0:
                     return False
-            return True
+
+                if _table_exists("cooler_boxes") and _table_exists("cooler_box_items"):
+                    open_boxes = db.session.execute(
+                        text(
+                            "SELECT COUNT(DISTINCT cb.id) "
+                            "FROM cooler_boxes cb "
+                            "JOIN cooler_box_items cbi "
+                            "  ON cbi.cooler_box_id = cb.id "
+                            "WHERE cbi.invoice_no = :inv "
+                            f"  AND cb.status NOT IN {box_terminal}"
+                        ),
+                        {"inv": invoice_no},
+                    ).scalar() or 0
+                    if open_boxes > 0:
+                        return False
+                return True
+        else:
+            # Cooler mode OFF: only the normal-zone queue rows count.
+            # NULL pick_zone_type is treated as normal so legacy rows
+            # written before the Phase 5 column existed are honoured.
+            total_normal = db.session.execute(
+                text(
+                    "SELECT COUNT(*) FROM batch_pick_queue "
+                    "WHERE invoice_no = :inv "
+                    "  AND (pick_zone_type IS NULL OR pick_zone_type = 'normal')"
+                ),
+                {"inv": invoice_no},
+            ).scalar() or 0
+
+            if total_normal > 0:
+                pending_normal = db.session.execute(
+                    text(
+                        "SELECT COUNT(*) FROM batch_pick_queue "
+                        "WHERE invoice_no = :inv "
+                        "  AND (pick_zone_type IS NULL OR pick_zone_type = 'normal') "
+                        f"  AND status NOT IN {queue_terminal}"
+                    ),
+                    {"inv": invoice_no},
+                ).scalar() or 0
+                return pending_normal == 0
 
     # Fallback: legacy session-path invoice — readiness from InvoiceItem.
     try:

@@ -131,10 +131,16 @@ def rebuild_items_from_queue(batch_id):
     """
     if not is_db_backed_batch(batch_id):
         return []
+    # Phase 5 fix-up: exclude cooler-zone rows from the normal picker
+    # work-list. Treat NULL ``pick_zone_type`` as normal so legacy rows
+    # written before the Phase 5 column existed continue to surface.
+    # Without this filter, switching ``summer_cooler_mode_enabled`` ON
+    # would make cooler items leak back into the normal resume path.
     rows = db.session.execute(
         text("SELECT invoice_no, item_code, qty_required, sequence_no "
              "FROM batch_pick_queue "
              "WHERE batch_session_id = :bid AND status = 'pending' "
+             "  AND (pick_zone_type IS NULL OR pick_zone_type = 'normal') "
              "ORDER BY sequence_no, id"),
         {"bid": batch_id},
     ).fetchall()

@@ -227,15 +227,26 @@ def route_picking(route_id, delivery_date):
         }
         for r in rows
     ]
+    # Phase 5 fix-up: scope cooler boxes by BOTH route_id and
+    # delivery_date. Filtering by delivery_date alone leaks boxes from
+    # other routes on the same day into this picker's view, breaking
+    # the (route_id, delivery_date, box_no) box-numbering invariant.
+    # ``route_id`` is captured as a string from the URL but cooler_boxes
+    # stores it as an integer FK to shipments(id) — cast for safety.
+    try:
+        _route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        _route_id_int = None
     boxes = db.session.execute(
         text(
             "SELECT id, route_id, delivery_date, box_no, status, "
             "       first_stop_sequence, last_stop_sequence "
             "FROM cooler_boxes "
             "WHERE delivery_date = :delivery_date "
+            "  AND route_id = :route_id "
             "ORDER BY box_no"
         ),
-        {"delivery_date": str(delivery_date)},
+        {"delivery_date": str(delivery_date), "route_id": _route_id_int},
     ).fetchall()
     boxes = [_box_dict(b) for b in boxes]
     return render_template(

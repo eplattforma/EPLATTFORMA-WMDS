@@ -762,3 +762,235 @@ class TestDriverOverlay:
         from blueprints.cooler_picking import cooler_boxes_for_route
         out = cooler_boxes_for_route(99999, "2026-05-03")
         assert out == []
+
+
+# ---------------------------------------------------------------------------
+# P5-FIX-01..05 — Architect fix-up regressions
+# ---------------------------------------------------------------------------
+class TestArchitectFixupRegressions:
+    """Regressions for the four architectural defects identified in
+    architect code review of the original Phase 5 implementation:
+
+      FIX-01  rebuild_items_from_queue must exclude cooler rows.
+      FIX-02  is_order_ready must short-circuit when cooler mode is OFF.
+      FIX-03  routes.detail / mark_shipped must gate on is_order_ready,
+              not raw Invoice.status, so cooler boxes block dispatch.
+      FIX-04  blueprints.cooler_picking.route_picking must scope
+              cooler_boxes by route_id + delivery_date (not date alone).
+    """
+
+    def test_p5_fix_01_rebuild_excludes_cooler_zone_rows(self, setup):
+        """rebuild_items_from_queue must not return rows whose
+        ``pick_zone_type='cooler'`` — those belong to the cooler picker
+        screen, not the normal picker work-list. Legacy rows with
+        ``pick_zone_type IS NULL`` continue to surface as normal (the
+        SQLite test schema enforces NOT NULL, so the legacy-NULL branch
+        is covered by the SQL guard's structure rather than a row test)."""
+        app, db = setup
+        from services.batch_picking import rebuild_items_from_queue
+        # Create matching invoice items so rebuild has join context.
+        _make_invoice_with_items(db, "INV-FIX1", 2, "ZFIX1", route_id="900")
+        # Insert two queue rows: one cooler, one normal. Same batch.
+        db.session.execute(text("""
+            INSERT INTO batch_pick_queue (
+                batch_session_id, invoice_no, item_code, pick_zone_type,
+                sequence_no, status, qty_required
+            ) VALUES
+                (9001, 'INV-FIX1', 'IT-INV-FIX1-0', 'cooler', 1, 'pending', 1),
+                (9001, 'INV-FIX1', 'IT-INV-FIX1-1', 'normal', 2, 'pending', 1)
+        """))
+        db.session.commit()
+        rebuilt = rebuild_items_from_queue(9001)
+        codes = sorted(r["item_code"] for r in rebuilt)
+        # Cooler row excluded, normal included.
+        assert "IT-INV-FIX1-0" not in codes, (
+            "rebuild_items_from_queue must exclude pick_zone_type='cooler'"
+        )
+        assert "IT-INV-FIX1-1" in codes
+        # Belt-and-braces: assert the SQL guard text is present in source
+        # so the NULL-legacy clause cannot be silently dropped in future
+        # refactors (the SQLite NOT NULL constraint blocks a row test).
+        import inspect as _ins
+        from services import batch_picking as _bp
+        src = _ins.getsource(_bp.rebuild_items_from_queue)
+        assert "pick_zone_type IS NULL OR pick_zone_type = 'normal'" in src
+
+    def test_p5_fix_02_is_order_ready_ignores_open_box_when_flag_off(self, setup):
+        """When ``summer_cooler_mode_enabled=false`` (production
+        default), an open cooler_box row left over from prior testing
+        must NOT block the order from being marked ready. Otherwise a
+        stale row would hold orders forever."""
+        app, db = setup
+        from services.order_readiness import is_order_ready
+        # Flag explicitly OFF.
+        _make_setting(db, "summer_cooler_mode_enabled", "false")
+        # Invoice with two normal-zone queue rows, both terminal.
+        _make_invoice_with_items(db, "INV-FIX2", 2, "ZFIX2", route_id="900")
+        db.session.execute(text("""
+            INSERT INTO batch_pick_queue (
+                batch_session_id, invoice_no, item_code, pick_zone_type,
+                sequence_no, status, qty_required
+            ) VALUES
+                (9002, 'INV-FIX2', 'IT-INV-FIX2-0', 'normal', 1, 'picked', 1),
+                (9002, 'INV-FIX2', 'IT-INV-FIX2-1', 'normal', 2, 'picked', 1)
+        """))
+        # Stale open cooler box with an item for this invoice — would
+        # block readiness if the flag check were not honoured.
+        db.session.execute(text("""
+            INSERT INTO cooler_boxes (route_id, delivery_date, box_no,
+                                      status, created_by)
+            VALUES (900, '2026-05-03', 99, 'open', 'test_admin_user')
+        """))
+        cb_id = db.session.execute(text(
+            "SELECT id FROM cooler_boxes WHERE box_no = 99"
+        )).scalar()
+        db.session.execute(text("""
+            INSERT INTO cooler_box_items (cooler_box_id, invoice_no,
+                                          item_code, expected_qty, status)
+            VALUES (:cb, 'INV-FIX2', 'IT-INV-FIX2-0', 1, 'assigned')
+        """), {"cb": cb_id})
+        db.session.commit()
+        # Flag OFF -> open box ignored -> order is ready.
+        assert is_order_ready("INV-FIX2") is True
+
+    def test_p5_fix_02b_is_order_ready_honours_open_box_when_flag_on(self, setup):
+        """Flag-ON regression: confirms the short-circuit only fires
+        when the flag is OFF; with the flag ON the open-box check still
+        blocks readiness exactly as before the fix-up."""
+        app, db = setup
+        from services.order_readiness import is_order_ready
+        _make_setting(db, "summer_cooler_mode_enabled", "true")
+        _make_invoice_with_items(db, "INV-FIX2B", 1, "ZFIX2B", route_id="900")
+        db.session.execute(text("""
+            INSERT INTO batch_pick_queue (
+                batch_session_id, invoice_no, item_code, pick_zone_type,
+                sequence_no, status, qty_required
+            ) VALUES
+                (9012, 'INV-FIX2B', 'IT-INV-FIX2B-0', 'cooler', 1, 'picked', 1)
+        """))
+        db.session.execute(text("""
+            INSERT INTO cooler_boxes (route_id, delivery_date, box_no,
+                                      status, created_by)
+            VALUES (900, '2026-05-03', 88, 'open', 'test_admin_user')
+        """))
+        cb_id = db.session.execute(text(
+            "SELECT id FROM cooler_boxes WHERE box_no = 88"
+        )).scalar()
+        db.session.execute(text("""
+            INSERT INTO cooler_box_items (cooler_box_id, invoice_no,
+                                          item_code, expected_qty, status)
+            VALUES (:cb, 'INV-FIX2B', 'IT-INV-FIX2B-0', 1, 'picked')
+        """), {"cb": cb_id})
+        db.session.commit()
+        # Flag ON -> open box must block readiness.
+        assert is_order_ready("INV-FIX2B") is False
+
+    def test_p5_fix_03_mark_shipped_gate_uses_is_order_ready(self, setup):
+        """Architect rejection #3: ``mark_shipped`` and
+        ``all_ready_for_dispatch`` must consult
+        ``services.order_readiness.is_order_ready`` rather than raw
+        ``Invoice.status``. Without this, a cooler-bearing invoice with
+        an open cold-chain box ships while the box is still open.
+
+        The HTTP path renders templates that depend on unrelated
+        blueprints (``warehouse.*``) not registered in the test app, so
+        we assert the contract two ways:
+
+          (a) is_order_ready returns False for an invoice with an open
+              cooler box when summer cooler mode is ON; and
+          (b) the source of both ``mark_shipped`` and the dispatch
+              gate in routes_routes.py imports and uses
+              ``is_order_ready`` (the previous code path used
+              ``inv.status.upper() == 'READY_FOR_DISPATCH'``)."""
+        app, db = setup
+        from services.order_readiness import is_order_ready
+        # (a) Behavioural: cold-chain box still open -> not ready.
+        _make_invoice_with_items(db, "INV-FIX3", 1, "ZFIX3", route_id="901")
+        _make_setting(db, "summer_cooler_mode_enabled", "true")
+        db.session.execute(text("""
+            INSERT INTO batch_pick_queue (
+                batch_session_id, invoice_no, item_code, pick_zone_type,
+                sequence_no, status, qty_required
+            ) VALUES
+                (9003, 'INV-FIX3', 'IT-INV-FIX3-0', 'cooler', 1, 'picked', 1)
+        """))
+        db.session.execute(text("""
+            INSERT INTO cooler_boxes (route_id, delivery_date, box_no,
+                                      status, created_by)
+            VALUES (901, '2026-05-03', 1, 'open', 'test_admin_user')
+        """))
+        cb_id = db.session.execute(text(
+            "SELECT id FROM cooler_boxes WHERE route_id = 901 AND box_no = 1"
+        )).scalar()
+        db.session.execute(text("""
+            INSERT INTO cooler_box_items (cooler_box_id, invoice_no,
+                                          item_code, expected_qty, status)
+            VALUES (:cb, 'INV-FIX3', 'IT-INV-FIX3-0', 1, 'picked')
+        """), {"cb": cb_id})
+        db.session.commit()
+        assert is_order_ready("INV-FIX3") is False
+
+        # (b) Structural: confirm both call sites in routes_routes.py
+        # delegate to is_order_ready and no longer trust Invoice.status
+        # for the dispatch gate.
+        with open("routes_routes.py", "r", encoding="utf-8") as f:
+            src = f.read()
+        assert "from services.order_readiness import is_order_ready" in src
+        # The legacy raw check that the architect rejected:
+        assert "inv.status.upper() == 'READY_FOR_DISPATCH'" not in src
+        # And the unpicked-invoices check no longer trusts the literal
+        # 'ready_for_dispatch' string equality on Invoice.status.
+        assert "inv.status != 'ready_for_dispatch'" not in src
+
+    def test_p5_fix_04_route_picking_isolates_boxes_by_route(self, setup):
+        """Architect rejection #4: ``route_picking`` filtered cooler_boxes
+        by ``delivery_date`` only, so a picker on Route A would see
+        boxes from Routes B/C/D. The SQL must now scope by BOTH
+        ``route_id`` AND ``delivery_date``.
+
+        The view's render path depends on unrelated blueprints not
+        registered in the test app, so we assert structurally that
+        the source contains the route_id filter and that running the
+        same WHERE clause returns disjoint result sets per route."""
+        app, db = setup
+        # Two boxes, same date, different routes.
+        db.session.execute(text("""
+            INSERT INTO cooler_boxes (route_id, delivery_date, box_no,
+                                      status, created_by)
+            VALUES
+              (910, '2026-05-03', 1, 'open', 'test_admin_user'),
+              (911, '2026-05-03', 1, 'open', 'test_admin_user')
+        """))
+        db.session.commit()
+        # Behavioural: the new WHERE clause produces per-route isolation.
+        rows_a = db.session.execute(text(
+            "SELECT route_id FROM cooler_boxes "
+            "WHERE delivery_date = :d AND route_id = :r ORDER BY box_no"
+        ), {"d": "2026-05-03", "r": 910}).fetchall()
+        rows_b = db.session.execute(text(
+            "SELECT route_id FROM cooler_boxes "
+            "WHERE delivery_date = :d AND route_id = :r ORDER BY box_no"
+        ), {"d": "2026-05-03", "r": 911}).fetchall()
+        assert len(rows_a) == 1 and rows_a[0][0] == 910
+        assert len(rows_b) == 1 and rows_b[0][0] == 911
+        # Structural: the source SQL must include the route_id predicate
+        # so a future refactor cannot silently re-introduce the leak.
+        with open("blueprints/cooler_picking.py", "r", encoding="utf-8") as f:
+            src = f.read()
+        # Snapshot of the new WHERE clause in route_picking's
+        # cooler_boxes SELECT (a single line in the SQL string):
+        assert "AND route_id = :route_id" in src
+
+    def test_p5_fix_05_migration_runs_on_sqlite_dialect(self, setup):
+        """The migration must run cleanly on SQLite (the test dialect)
+        — no BIGSERIAL, no ADD COLUMN IF NOT EXISTS, no
+        TIMESTAMP WITH TIME ZONE. Re-run after the test fixtures'
+        own provisioning to prove idempotency on an existing schema."""
+        app, db = setup
+        from update_phase5_cooler_picking_schema import (
+            update_phase5_cooler_picking_schema,
+        )
+        # Should not raise on the test SQLite engine.
+        update_phase5_cooler_picking_schema()
+        # Re-run is safe.
+        update_phase5_cooler_picking_schema()
