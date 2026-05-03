@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kaMOSlbGpHYd8KHbfuDKH"
+uri = "file://attached_assets/cockpit_user_manual.md"
+type = "text"
+title = "Cockpit User Manual — Tickets 1–3"
