@@ -1660,12 +1660,69 @@ def batch_picking_item(batch_id):
             batch_session.current_item_index = 0
             db.session.commit()
     
+    # Phase 4: queue-as-source-of-truth resume. For DB-backed batches
+    # whose Flask session was lost (browser cleared, server restart, new
+    # device), reconstruct the item list from ``batch_pick_queue``
+    # pending rows and reset the picker pointer. This is the durable
+    # resume path the refactor exists to provide.
+    from services.batch_picking import is_db_backed_batch as _is_db_backed
+    if fixed_batch_key not in session and _is_db_backed(batch_id):
+        from sqlalchemy import text as _t
+        rows = db.session.execute(
+            _t("""
+                SELECT q.invoice_no, q.item_code, q.qty_required,
+                       q.zone, q.location, q.sequence_no
+                  FROM batch_pick_queue q
+                 WHERE q.batch_session_id = :bid AND q.status = 'pending'
+                 ORDER BY q.sequence_no, q.id
+            """),
+            {"bid": batch_id},
+        ).fetchall()
+        rebuilt = []
+        seen = {}
+        for r in rows:
+            key = (r.item_code, r.location or '', r.zone or '')
+            if key not in seen:
+                inv = Invoice.query.filter_by(invoice_no=r.invoice_no).first()
+                ii = InvoiceItem.query.filter_by(invoice_no=r.invoice_no, item_code=r.item_code).first()
+                seen[key] = {
+                    'item_code': r.item_code,
+                    'item_name': (ii.item_name if ii else r.item_code),
+                    'location': r.location or '',
+                    'zone': r.zone or '',
+                    'barcode': (ii.barcode if ii else ''),
+                    'unit_type': (ii.unit_type if ii else ''),
+                    'pack': (ii.pack if ii else ''),
+                    'total_qty': 0,
+                    'current_invoice': r.invoice_no,
+                    'customer_name': (inv.customer_name if inv else None),
+                    'routing': (inv.routing if inv else None),
+                    'order_total_items': (inv.total_items if inv else None),
+                    'order_total_weight': (inv.total_weight if inv else None),
+                    'source_items': [],
+                }
+                rebuilt.append(seen[key])
+            entry = seen[key]
+            entry['total_qty'] += int(r.qty_required or 0)
+            entry['source_items'].append({
+                'invoice_no': r.invoice_no,
+                'item_code': r.item_code,
+                'qty': int(r.qty_required or 0),
+            })
+        session[fixed_batch_key] = rebuilt
+        batch_session.current_item_index = 0
+        batch_session.current_invoice_index = 0
+        db.session.commit()
+        current_app.logger.warning(
+            f"Phase 4 queue-resume: rebuilt {len(rebuilt)} item(s) for DB-backed "
+            f"batch {batch_id} from batch_pick_queue (Flask session was empty)."
+        )
+
     # Now use our fixed item list
     if fixed_batch_key in session:
         items = session[fixed_batch_key]
         current_app.logger.info(f"Using fixed batch list: {len(items)} items, current index: {batch_session.current_item_index}")
     else:
-        # Fallback to database query if session data is missing
         items = batch_session.get_grouped_items()
         current_app.logger.info(f"Using database query, found {len(items if items else [])} items")
     

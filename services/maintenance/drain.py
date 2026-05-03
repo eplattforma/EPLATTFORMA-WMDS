@@ -76,9 +76,20 @@ def is_creation_allowed_for(user):
 
 
 def get_drain_banner():
-    """Return banner text to surface in picker UI when draining (or '' )."""
+    """Return banner text to surface in picker UI when draining (or '').
+
+    Side effect: while draining, this also opportunistically force-pauses
+    stuck batches so the timeout is enforced without a scheduler. The
+    work is bounded (one query + per-batch update for any idle batch)
+    and only runs when draining is active. Failures are swallowed so
+    the banner still renders.
+    """
     if not is_draining():
         return ""
+    try:
+        force_pause_stuck_batches()
+    except Exception as e:
+        logger.warning(f"drain.get_drain_banner: opportunistic enforce failed: {e}")
     return (
         "Maintenance mode: the system is draining. Please finish your current "
         "batch — new batches are paused. Active pickers will be force-paused "

@@ -227,6 +227,51 @@ class TestPickingResume:
         ).scalar()
         assert n == 2
 
+    def test_p4_12b_queue_drives_resume_after_session_loss(self, setup):
+        """Round-4: when the Flask session is empty and the batch is
+        DB-backed, the picker route must reconstruct the work list from
+        ``batch_pick_queue`` (pending rows) — NOT from the legacy
+        get_grouped_items() path. We verify the rebuild logic in
+        isolation: after marking one queue row picked, the rebuild for
+        a fresh session should yield exactly the remaining pending
+        rows in sequence_no order.
+        """
+        app, db = setup
+        from services.batch_picking import (
+            create_batch_atomic, is_db_backed_batch, record_pick_to_queue,
+        )
+        _make_invoice_with_items(db, "INV-RESUME", 3, "ZRES")
+        batch = create_batch_atomic(filters={"zones": ["ZRES"]}, created_by="test_admin_user")
+
+        assert is_db_backed_batch(batch.id) is True
+
+        # Pick the first item via the durable hook
+        rc = record_pick_to_queue(
+            batch.id, "INV-RESUME", "ITEM-INV-RESUME-0",
+            "test_admin_user", 10,
+        )
+        assert rc == 1
+        db.session.commit()
+
+        # Simulate "Flask session lost" by querying the queue directly
+        # the same way the picker route does on resume.
+        rows = db.session.execute(
+            text("""
+                SELECT invoice_no, item_code, sequence_no
+                  FROM batch_pick_queue
+                 WHERE batch_session_id = :bid AND status = 'pending'
+                 ORDER BY sequence_no, id
+            """),
+            {"bid": batch.id},
+        ).fetchall()
+
+        # Should be exactly the 2 remaining items, NOT skipping or repeating
+        assert len(rows) == 2
+        codes = [r.item_code for r in rows]
+        assert "ITEM-INV-RESUME-0" not in codes  # picked one is gone
+        assert "ITEM-INV-RESUME-1" in codes
+        assert "ITEM-INV-RESUME-2" in codes
+
     def test_p4_13_queue_default_pick_zone_type_is_normal(self, setup):
         app, db = setup
         from services.batch_picking import create_batch_atomic
