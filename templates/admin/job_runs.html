@@ -10,6 +10,36 @@
     <span class="text-muted small ms-2">Lifecycle rows for every scheduled and manual job tick.</span>
   </div>
 
+  {% if storage_stats %}
+  <div class="card mb-3">
+    <div class="card-body py-2">
+      <small class="text-muted d-block mb-1"><i class="fas fa-database me-1"></i>Storage</small>
+      {% if storage_stats.error %}
+        <span class="text-danger small"><i class="fas fa-exclamation-triangle me-1"></i>Could not read storage stats: {{ storage_stats.error }}</span>
+      {% else %}
+        <span class="badge bg-secondary me-1">Total rows: {{ '{:,}'.format(storage_stats.total_rows) if storage_stats.total_rows is not none else '—' }}</span>
+        <span class="badge bg-secondary me-1">
+          Oldest:
+          {% if storage_stats.oldest_started_at %}
+            {{ storage_stats.oldest_started_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC
+          {% else %}—{% endif %}
+        </span>
+        <span class="badge bg-warning text-dark me-1">
+          {% if storage_stats.would_prune is not none %}
+            {{ '{:,}'.format(storage_stats.would_prune) }} row(s) would be pruned
+          {% else %}
+            Prune preview unavailable
+          {% endif %}
+          at retention={{ storage_stats.retention_days }}d
+        </span>
+        <small class="text-muted d-block mt-1">
+          Read-only preview using the same WHERE clause as the cleanup job; no rows are deleted by viewing this page.
+        </small>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card mb-3">
     <div class="card-body py-2">
       <small class="text-muted d-block mb-1">Counts in current window</small>

@@ -18,11 +18,17 @@ import logging
 
 from flask import Blueprint, abort, render_template, request
 from flask_login import login_required
+from sqlalchemy import text
 
+from app import db
 from services.job_run_logger import (
     get_distinct_job_ids,
     get_recent_runs,
     get_run_by_id,
+)
+from services.maintenance.log_cleanup import (
+    DEFAULT_RETENTION_DAYS,
+    _read_retention_days,
 )
 from services.permissions import require_permission
 
@@ -48,6 +54,62 @@ def _parse_int(raw, default, lo=None, hi=None):
     if hi is not None and v > hi:
         v = hi
     return v
+
+
+def _storage_stats():
+    """Return read-only sizing info for the ``job_runs`` table.
+
+    Mirrors the cleanup body's WHERE clause so the "would be pruned"
+    figure stays in sync with what the next cron tick would actually
+    delete. Each read uses its own short-lived ``db.engine.connect()``
+    transaction and degrades gracefully on DB error.
+    """
+    stats = {
+        "total_rows": None,
+        "oldest_started_at": None,
+        "retention_days": None,
+        "would_prune": None,
+        "error": None,
+    }
+    try:
+        retention_days = _read_retention_days()
+    except Exception:
+        retention_days = DEFAULT_RETENTION_DAYS
+    stats["retention_days"] = retention_days
+
+    try:
+        with db.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT COUNT(*), MIN(started_at) FROM job_runs")
+            ).fetchone()
+        if row is not None:
+            stats["total_rows"] = int(row[0] or 0)
+            stats["oldest_started_at"] = row[1]
+    except Exception as e:
+        logger.warning(f"job_runs storage_stats: count/min failed: {e}")
+        stats["error"] = str(e)[:200]
+        return stats
+
+    if retention_days and retention_days > 0:
+        try:
+            with db.engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) FROM job_runs
+                        WHERE started_at < (NOW() - (:days || ' days')::interval)
+                        """
+                    ),
+                    {"days": retention_days},
+                ).fetchone()
+            stats["would_prune"] = int(row[0] or 0) if row is not None else 0
+        except Exception as e:
+            logger.warning(f"job_runs storage_stats: would_prune failed: {e}")
+            stats["would_prune"] = None
+    else:
+        stats["would_prune"] = 0
+
+    return stats
 
 
 def _selected_statuses():
@@ -79,6 +141,7 @@ def job_runs_page():
     )
 
     distinct_job_ids = get_distinct_job_ids()
+    storage_stats = _storage_stats()
 
     counts = {s: 0 for s in VALID_STATUSES}
     for r in rows:
@@ -96,6 +159,7 @@ def job_runs_page():
         distinct_job_ids=distinct_job_ids,
         valid_statuses=VALID_STATUSES,
         counts=counts,
+        storage_stats=storage_stats,
     )
 
 
