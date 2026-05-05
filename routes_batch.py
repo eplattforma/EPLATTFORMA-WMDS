@@ -78,7 +78,7 @@ def batch_picking_manage():
     ).order_by(BatchPickingSession.created_at.desc()).limit(10).all()
 
     # Get pickers for the assign dropdown
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = User.query.filter(User.role.in_(['picker', 'warehouse_manager'])).order_by(User.username).all()
 
     return render_template('batch_picking_manage.html',
                           active_sessions=active_sessions,
@@ -174,7 +174,7 @@ def batch_edit(batch_id):
             flash(f'Error updating batch: {str(e)}', 'danger')
     
     # Get available pickers for assignment
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = User.query.filter(User.role.in_(['picker', 'warehouse_manager'])).order_by(User.username).all()
     
     # Get available zones
     zones_query = db.session.execute(text("""
@@ -842,7 +842,7 @@ def filter_invoices_for_batch():
         return redirect(url_for('batch.batch_picking_filter'))
     
     # Get picker list for assignment
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = User.query.filter(User.role.in_(['picker', 'warehouse_manager'])).order_by(User.username).all()
     
     # Create a default session name based on zones and timestamp
     now = get_local_time().strftime('%Y-%m-%d_%H:%M')
@@ -1221,7 +1221,7 @@ def filter_invoices_by_zone():
             })
     
     # Get pickers for the assign dropdown
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = User.query.filter(User.role.in_(['picker', 'warehouse_manager'])).order_by(User.username).all()
     
     # Calculate completion stats for template
     total_items = sum(inv.get('total_items', 0) for inv in invoices)
