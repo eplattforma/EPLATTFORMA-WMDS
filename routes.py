@@ -4251,7 +4251,13 @@ def forbidden(e):
 
 @app.errorhandler(500)
 def server_error(e):
-    return render_template('error.html', error_code=500, error_message='Server error'), 500
+    import traceback
+    logging.error("500 Internal Server Error:\n" + traceback.format_exc())
+    try:
+        return render_template('error.html', error_code=500, error_message='Server error'), 500
+    except Exception:
+        logging.error("error.html also failed:\n" + traceback.format_exc())
+        return "<h1>500 Internal Server Error</h1><p>Check server logs for details.</p>", 500
 @app.route('/admin/update-routing-number', methods=['POST'])
 @login_required
 def update_routing_number():
