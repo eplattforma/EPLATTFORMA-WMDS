@@ -55,7 +55,7 @@ def check_for_idle_users():
 @login_required
 def shift_check_in():
     """Shift check-in page for pickers"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -94,7 +94,7 @@ def shift_check_in():
 @login_required
 def shift_check_out():
     """Shift check-out page for pickers"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -152,7 +152,7 @@ def shift_check_out():
 @login_required
 def manage_break():
     """Break management page for pickers"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -213,7 +213,7 @@ def manage_break():
 @login_required
 def start_break_route():
     """Handle start break request"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -240,7 +240,7 @@ def start_break_route():
 @login_required
 def end_break_route():
     """Handle end break request"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     

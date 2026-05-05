@@ -3422,8 +3422,8 @@ def batch_print_reports(batch_id):
 @require_permission('picking.manage_batches')
 def batch_admin_print_report(batch_id):
     """Admin picking report for completed batches"""
-    # Allow admin and picker users to access print reports
-    if current_user.role not in ['admin', 'picker']:
+    # Allow admin, warehouse_manager and picker users to access print reports
+    if current_user.role not in ['admin', 'warehouse_manager', 'picker']:
         flash('Access denied. Insufficient privileges.', 'danger')
         return redirect(url_for('index'))
     
