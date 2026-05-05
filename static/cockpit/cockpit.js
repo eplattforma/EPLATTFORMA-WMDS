@@ -225,6 +225,9 @@ async function _loadRecommendedActions() {
   if (result.ok) {
     content.innerHTML = _renderRecommendedActions(result.body);
     content.classList.remove('d-none');
+  } else if (result.status === 503 && result.body && result.body.cached_html) {
+    content.innerHTML = result.body.cached_html;
+    content.classList.remove('d-none');
   } else if (result.status === 503) {
     err.textContent = (result.body && result.body.message) || RA_NOT_CONFIGURED;
     err.classList.remove('d-none');

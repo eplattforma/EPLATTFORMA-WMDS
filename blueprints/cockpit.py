@@ -338,11 +338,15 @@ def api_advice(customer_code):
         from services.claude_advice_service import generate_cockpit_advice
         out = generate_cockpit_advice(snapshot)
         return jsonify(out)
+    except TimeoutError:
+        logger.exception("Claude advice timed out for %s (%s)", customer_code, section)
+        return jsonify({"message": GREEK_500, "cached_html": ""}), 500
     except ValueError as e:
         # Only the "not configured" ValueError maps to 503; any other
         # ValueError (e.g. malformed snapshot) is a real server error.
         if "not configured" in str(e):
-            return jsonify({"configured": False, "message": GREEK_503}), 503
+            return jsonify({"configured": False, "message": GREEK_503,
+                            "cached_html": ""}), 503
         logger.exception("Claude advice generation failed for %s (%s)",
                          customer_code, section)
         return jsonify({"message": GREEK_500}), 500

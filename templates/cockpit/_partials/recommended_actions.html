@@ -1,7 +1,7 @@
 {# Recommended Actions panel — cockpit-brief §12.5.
 
-   Renders the top next_actions returned by Claude. Loaded async on
-   page load via askClaude('all') in cockpit.js. Hidden entirely for
+   Renders the top next_actions returned by Claude. The page may hydrate
+   this later via askClaude('all') in cockpit.js. Hidden entirely for
    users without `customers.ask_claude`.
 #}
 <div class="card mb-3" id="recommendedActionsCard">
