@@ -35,7 +35,14 @@ function drawSparkline(canvas) {
 function drawTrendChart() {
   const c = document.getElementById('trendChart');
   if (!c || typeof Chart === 'undefined') return;
-  const rows = JSON.parse(c.dataset.trend || '[]');
+  let rows = [];
+  try {
+    rows = JSON.parse(c.dataset.trend || '[]');
+  } catch (e) {
+    console.error('Invalid cockpit trend data', e);
+    return;
+  }
+  if (!Array.isArray(rows) || !rows.length) return;
   const labels = rows.map(r => r.month);
   const sales = rows.map(r => r.sales);
   const peer = rows.map(r => r.peer_avg_sales);
