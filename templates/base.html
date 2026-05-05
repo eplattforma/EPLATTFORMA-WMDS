@@ -45,6 +45,12 @@
                                 </a>
                             </li>
                             <li>
+                                <a class="dropdown-item {% if request.endpoint == 'picker_dashboard' %}active{% endif %}"
+                                   href="{{ url_for('picker_dashboard') }}">
+                                    <i class="fas fa-tasks me-2"></i>My Picking Queue
+                                </a>
+                            </li>
+                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'warehouse.intake_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('warehouse.intake_dashboard') }}">
                                     <i class="fas fa-warehouse me-2"></i>Warehouse Intake Dashboard
