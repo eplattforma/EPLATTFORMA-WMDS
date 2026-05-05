@@ -27,7 +27,7 @@
                 <ul class="navbar-nav ms-auto">
                     {% if current_user.role in ['admin', 'warehouse_manager'] %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management', 'admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management', 'admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard', 'batch.picker_batch_list'] %}active{% endif %}" 
                            href="#" id="warehouseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-warehouse me-1"></i>Warehouse
                         </a>
@@ -36,6 +36,12 @@
                                 <a class="dropdown-item {% if request.endpoint == 'admin_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('admin_dashboard') }}">
                                     <i class="fas fa-hand-holding me-2"></i>Picking Dashboard
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'batch.picker_batch_list' %}active{% endif %}"
+                                   href="{{ url_for('batch.picker_batch_list') }}">
+                                    <i class="fas fa-layer-group me-2"></i>Batch Picking
                                 </a>
                             </li>
                             <li>
