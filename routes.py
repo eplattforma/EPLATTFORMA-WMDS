@@ -16,6 +16,7 @@ from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift,
 from utils import create_user
 from utils.invoice_utils import recalculate_invoice_totals
 from services.permissions import require_permission
+from services.picking_utils import get_picking_eligible_users
 from utils.shift_tracking import (
     check_in_picker, check_out_picker, start_break, end_break, 
     record_activity, check_for_idle_pickers, check_for_missed_checkouts,
@@ -508,7 +509,7 @@ def admin_dashboard():
     completed_invoices = [invoice for invoice in all_active_invoices if invoice.status == 'Completed']
     
     # Get all pickers
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = get_picking_eligible_users()
     
     # Get all drivers for route assignment
     drivers = User.query.filter_by(role='driver').all()

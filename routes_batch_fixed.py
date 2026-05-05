@@ -10,29 +10,11 @@ from timezone_utils import utc_now_for_db
 
 from app import db
 from models import User, Invoice, InvoiceItem, PickingException, BatchPickingSession, BatchSessionInvoice, BatchPickedItem, Setting, ActivityLog
+from services.picking_utils import get_picking_eligible_users
 
 # Create a blueprint for batch picking routes
 batch_bp = Blueprint('batch', __name__)
 
-
-def _get_picking_eligible_users():
-    """Return User objects who have picking.perform or picking.claim_batch access.
-
-    Checks both explicit user_permissions rows and role-based defaults
-    (picker role has both keys; warehouse_manager has picking.* which covers them).
-    Any user granted either key explicitly — regardless of role — is included.
-    """
-    rows = db.session.execute(text("""
-        SELECT username FROM users
-        WHERE role IN ('picker', 'warehouse_manager')
-        UNION
-        SELECT DISTINCT username FROM user_permissions
-        WHERE permission_key IN ('picking.perform', 'picking.claim_batch')
-    """)).fetchall()
-    usernames = [r[0] for r in rows]
-    if not usernames:
-        return []
-    return User.query.filter(User.username.in_(usernames)).order_by(User.username).all()
 
 @batch_bp.route('/admin/batch/manage')
 @login_required
@@ -54,7 +36,7 @@ def batch_picking_manage():
     ).order_by(BatchPickingSession.created_at.desc()).limit(10).all()
 
     # Get pickers for the assign dropdown
-    pickers = _get_picking_eligible_users()
+    pickers = get_picking_eligible_users()
 
     return render_template('batch_picking_manage.html',
                           active_sessions=active_sessions,
@@ -204,7 +186,7 @@ def filter_invoices_for_batch():
         return redirect(url_for('batch.batch_picking_filter'))
     
     # Get picker list for assignment
-    pickers = _get_picking_eligible_users()
+    pickers = get_picking_eligible_users()
     
     # Create a default session name based on zones and timestamp
     now = datetime.now().strftime('%Y-%m-%d_%H:%M')
@@ -374,7 +356,7 @@ def batch_picking_view(batch_id):
             })
     
     # Get pickers for the assign dropdown
-    pickers = _get_picking_eligible_users()
+    pickers = get_picking_eligible_users()
     
     return render_template('batch_picking_view.html',
                           batch_session=batch_session,

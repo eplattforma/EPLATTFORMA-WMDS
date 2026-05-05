@@ -5,6 +5,7 @@ Time Analysis Routes - Detailed breakdown of walking, picking, and packing times
 from flask import render_template, request, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
 from app import app, db
+from services.picking_utils import get_picking_eligible_users
 from models import (Invoice, InvoiceItem, User, OrderTimeBreakdown, ItemTimeTracking, 
                    ActivityLog, PickingException)
 from datetime import datetime, timedelta
@@ -64,7 +65,7 @@ def time_analysis_dashboard():
         completed_orders = orders_query.all()
     
     # Get all pickers for filter dropdown
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = get_picking_eligible_users()
     
     # Calculate detailed time breakdowns for each order
     order_analytics = []

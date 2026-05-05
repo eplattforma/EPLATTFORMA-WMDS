@@ -5,6 +5,7 @@ from datetime import datetime, date, timedelta
 from flask import render_template, redirect, url_for, request, flash, session
 from flask_login import login_required, current_user
 from sqlalchemy import desc
+from services.picking_utils import get_picking_eligible_users
 from timezone_utils import get_local_time, format_local_time, localize_datetime, get_local_now, get_utc_now, format_utc_datetime_to_local
 
 from app import app, db
@@ -355,7 +356,7 @@ def shift_reports():
     picker_stats.sort(key=lambda x: x['items_per_hour'], reverse=True)
     
     # Get all users for picker filter dropdown
-    all_pickers = User.query.filter_by(role='picker').all()
+    all_pickers = get_picking_eligible_users()
     
     return render_template('shift_reports.html',
                          shifts=shifts,

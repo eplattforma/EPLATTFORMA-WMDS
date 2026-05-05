@@ -12,6 +12,7 @@ from app import app, db
 from datetime import datetime, timedelta
 from routes import validate_csrf_token
 from sqlalchemy import or_, and_
+from services.picking_utils import get_picking_eligible_users
 
 
 @app.route('/operations/open-orders')
@@ -58,7 +59,7 @@ def open_orders():
         picked_lines_count.setdefault(invoice_no, 0)
     
     # Get all pickers for assignment
-    pickers = User.query.filter_by(role='picker').all()
+    pickers = get_picking_eligible_users()
     
     # Group orders by status for better organization
     orders_by_status = {
