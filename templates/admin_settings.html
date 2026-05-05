@@ -376,4 +376,226 @@
         </div>
     </div>
 </div>
+
+{% if current_user.role == 'admin' and feature_flag_metadata %}
+<div class="card shadow mb-4" id="feature-flags-card">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-flag me-2"></i>Feature Flags</h5>
+        <small class="text-white-50">Admin only &middot; every change is audit-logged</small>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-4">
+            Each row writes directly to the <code>settings</code> table when toggled.
+            <span class="badge bg-danger">HIGH RISK</span> flags require an extra
+            confirmation. Disabled flags depend on code that has not yet shipped and
+            are shown for visibility only.
+        </p>
+
+        {% for group in feature_flag_metadata %}
+        <h6 class="text-uppercase text-muted small fw-bold mt-3">{{ group.group }}</h6>
+        <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 22%">Flag</th>
+                        <th style="width: 22%">Key</th>
+                        <th style="width: 9%" class="text-center">Status</th>
+                        <th>Description</th>
+                        <th class="text-end" style="width: 18%">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for flag in group.flags %}
+                    {% set current = feature_flag_values.get(flag.key, 'false') %}
+                    {% set is_on = (current == 'true') %}
+                    <tr data-flag-key="{{ flag.key }}">
+                        <td>
+                            <div class="fw-semibold">{{ flag.label }}</div>
+                            {% if flag.risk == 'high' %}
+                                <span class="badge bg-danger" data-bs-toggle="tooltip"
+                                      title="High risk — requires confirmation before activating.">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>HIGH RISK
+                                </span>
+                            {% elif flag.risk == 'yellow' %}
+                                <span class="badge bg-warning text-dark">CAUTION</span>
+                            {% elif flag.risk == 'green' %}
+                                <span class="badge bg-success">SAFE</span>
+                            {% elif flag.risk == 'numeric' %}
+                                <span class="badge bg-info text-dark">NUMERIC</span>
+                            {% elif flag.risk == 'readonly' %}
+                                <span class="badge bg-secondary">READ-ONLY</span>
+                            {% elif flag.risk == 'disabled' %}
+                                <span class="badge bg-secondary">DISABLED</span>
+                            {% endif %}
+                        </td>
+                        <td><code class="small">{{ flag.key }}</code></td>
+                        <td class="text-center">
+                            {% if flag.kind == 'int' %}
+                                <span class="badge bg-info text-dark">{{ current }}</span>
+                            {% elif is_on %}
+                                <span class="badge bg-success">ON</span>
+                            {% else %}
+                                <span class="badge bg-secondary">OFF</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ flag.description }}</td>
+                        <td class="text-end">
+                            {% if flag.risk == 'readonly' %}
+                                <span class="text-muted small" data-bs-toggle="tooltip"
+                                      title="Set automatically by the system on first boot — cannot be edited from the UI.">
+                                    <i class="fas fa-lock me-1"></i>read-only
+                                </span>
+                            {% elif flag.risk == 'disabled' %}
+                                <span class="text-muted small" data-bs-toggle="tooltip"
+                                      title="Depends on code that has not yet shipped — toggle is intentionally disabled.">
+                                    <i class="fas fa-ban me-1"></i>not yet available
+                                </span>
+                            {% elif flag.kind == 'int' %}
+                                <form method="post" action="{{ url_for('admin_settings') }}"
+                                      class="d-inline-flex align-items-center gap-1 justify-content-end">
+                                    <input type="hidden" name="flag_key" value="{{ flag.key }}">
+                                    <input type="number" name="flag_value" value="{{ current }}"
+                                           min="{{ flag.min }}" max="{{ flag.max }}" step="1"
+                                           class="form-control form-control-sm"
+                                           style="width: 90px;">
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-save"></i>
+                                    </button>
+                                </form>
+                            {% else %}
+                                {% set new_value = 'false' if is_on else 'true' %}
+                                <form method="post" action="{{ url_for('admin_settings') }}"
+                                      class="d-inline feature-flag-toggle-form"
+                                      data-flag-key="{{ flag.key }}"
+                                      data-new-value="{{ new_value }}"
+                                      data-is-high-risk="{{ '1' if flag.risk == 'high' else '0' }}">
+                                    <input type="hidden" name="flag_key" value="{{ flag.key }}">
+                                    <input type="hidden" name="flag_value" value="{{ new_value }}">
+                                    {% if is_on %}
+                                        <button type="submit" class="btn btn-sm btn-outline-warning">
+                                            <i class="fas fa-toggle-on me-1"></i>Deactivate
+                                        </button>
+                                    {% else %}
+                                        <button type="submit"
+                                                class="btn btn-sm {% if flag.risk == 'high' %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                                            <i class="fas fa-toggle-off me-1"></i>Activate
+                                        </button>
+                                    {% endif %}
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- High-risk confirmation modal -->
+<div class="modal fade" id="featureFlagConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="featureFlagConfirmTitle">Confirm flag change</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2">
+                    You are about to change <code id="featureFlagConfirmKey"></code>.
+                </p>
+                <pre id="featureFlagConfirmBody"
+                     class="bg-light text-dark p-3 small"
+                     style="white-space: pre-wrap; max-height: 320px; overflow-y: auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="featureFlagConfirmAccept">
+                    I confirm — proceed
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() if super is defined else '' }}
+{% if current_user.role == 'admin' %}
+<script>
+// Loaded inside the {% raw %}{% block scripts %}{% endraw %} block in base.html,
+// which renders AFTER bootstrap.bundle.min.js, so `bootstrap` is defined here.
+(function () {
+    var WARNINGS = {{ high_risk_flag_warnings | tojson }};
+
+    var modalEl = document.getElementById('featureFlagConfirmModal');
+    if (!modalEl) return;
+    if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+    var modal = new bootstrap.Modal(modalEl);
+    var titleEl = document.getElementById('featureFlagConfirmTitle');
+    var bodyEl = document.getElementById('featureFlagConfirmBody');
+    var keyEl = document.getElementById('featureFlagConfirmKey');
+    var acceptBtn = document.getElementById('featureFlagConfirmAccept');
+
+    // pendingForm = the form whose submit we paused awaiting confirmation.
+    // acceptedOnce = a one-shot flag set by the Accept button so the
+    // re-dispatched submit from `form.submit()` is allowed through. The
+    // flag is consumed (cleared) on first re-entry to the submit handler
+    // so a subsequent click on the same Activate button re-shows the modal.
+    var pendingForm = null;
+    var acceptedOnce = false;
+
+    function resetState() {
+        pendingForm = null;
+        acceptedOnce = false;
+    }
+    // If the user dismisses the modal (Cancel / X / backdrop / Esc) we MUST
+    // clear pendingForm so the next submit on that form re-shows the modal
+    // instead of being treated as already-accepted.
+    modalEl.addEventListener('hidden.bs.modal', function () {
+        // Only clear if the accept path didn't already consume it.
+        if (!acceptedOnce) resetState();
+    });
+
+    document.querySelectorAll('.feature-flag-toggle-form').forEach(function (form) {
+        if (form.dataset.isHighRisk !== '1') return;
+        form.addEventListener('submit', function (ev) {
+            // Only intercept when activating (turning to true).
+            if (form.dataset.newValue !== 'true') return;
+            // Re-entry after Accept: consume the one-shot and let it through.
+            if (acceptedOnce && form === pendingForm) {
+                acceptedOnce = false;
+                pendingForm = null;
+                return;
+            }
+            ev.preventDefault();
+            var key = form.dataset.flagKey;
+            var w = WARNINGS[key] || {title: 'Confirm activation', body: 'Confirm this change?'};
+            titleEl.textContent = w.title;
+            bodyEl.textContent = w.body;
+            keyEl.textContent = key;
+            pendingForm = form;
+            acceptedOnce = false;
+            modal.show();
+        });
+    });
+
+    acceptBtn.addEventListener('click', function () {
+        if (!pendingForm) return;
+        acceptedOnce = true;
+        var f = pendingForm;
+        modal.hide();
+        f.submit();
+    });
+
+    var tts = document.querySelectorAll('#feature-flags-card [data-bs-toggle="tooltip"]');
+    tts.forEach(function (el) {
+        if (window.bootstrap && bootstrap.Tooltip) { new bootstrap.Tooltip(el); }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

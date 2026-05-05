@@ -629,3 +629,28 @@ The cache table `ai_feedback_cache` is shared with the legacy OpenAI service (`a
 **Reason:** Brief §12.4 mandates section-scoped advice without specifying the exact slicing. This pins it so the prompt size is bounded and predictable.
 
 **Reversibility:** High — single dictionary; edit in place.
+
+
+## ASSUMPTION-048: Feature Flags Admin UI scope, grouping, and modal placement
+
+**Status:** ACTIVE
+**Owner:** Task #27 (Feature Flags Admin UI)
+**Date:** 2026-05-05
+**Files affected:** `routes.py` (`FEATURE_FLAG_KEYS`, `FEATURE_FLAG_METADATA`, `HIGH_RISK_FLAG_WARNINGS`, `_process_feature_flag_post`, `admin_settings`), `templates/admin_settings.html` (Feature Flags card + modal + scripts block), `tests/test_feature_flags_ui.py`
+
+**Decision made:**
+
+1. **Whitelist of writable flags** (`FEATURE_FLAG_KEYS`, 15 keys): exactly the Phase-1/2/3/4 boolean flags plus the numeric `job_runs_retention_days`. The seed flag `permissions_auto_seed_done` is deliberately **not** in the whitelist — it surfaces as READ-ONLY to give operators visibility without letting them stomp on the seeder's bookkeeping.
+2. **Group headings** displayed (`FEATURE_FLAG_METADATA`): `Permissions`, `Job Runs & Logging`, `Batch Picking`, `Cooler Picking (not yet built)`, `Cockpit`. Phase 5 / cooler-picking flags render in a DISABLED row with a tooltip explaining the underlying feature is not yet implemented.
+3. **HIGH-RISK confirmation modal** triggers only on **activation** of: `permissions_enforcement_enabled`, `use_db_backed_picking_queue`, `summer_cooler_mode_enabled`. Deactivation is one-click (no modal) so operators can always disable a misbehaving feature quickly. The modal uses an explicit `acceptedOnce` one-shot flag (consumed on the re-entered submit) plus a `hidden.bs.modal` listener that clears `pendingForm` whenever the user dismisses the dialog — so a Cancel followed by another Activate click correctly re-shows the modal instead of submitting silently. (Found and fixed during architect review.)
+4. **Audit:** every accepted POST writes one `ActivityLog` row with `details = {"key", "old_value", "new_value"}` (JSON). The `picker_username` FK is satisfied by the logged-in admin's username.
+5. **Admin gating:** the Feature Flags card and its `{% block scripts %}` modal helper are both wrapped in `{% if current_user.role == 'admin' %}`. The `{% block scripts %}` *must* contain the `if`-check INSIDE the block (not around it) because Jinja resolves block boundaries at template-inheritance time, ignoring runtime `{% if %}` wrappers.
+6. **Bootstrap loading order:** the modal/tooltip JS lives in `{% block scripts %}` (rendered after `bootstrap.bundle.min.js` in `base.html`), not inline in `{% block content %}`. An inline placement caused a runtime `bootstrap is not defined` browser error on the live page.
+
+**Reason:** Brief asks for an additive admin UI with safety rails on the high-risk flags; surfacing read-only flags keeps operators informed without expanding the attack surface.
+
+**Safer alternative considered:** Block deactivation behind the modal too. Rejected — a kill-switch UX must always be one-click in an outage.
+
+**Feature flag / rollback:** None — pure UI; rollback is "remove the Feature Flags card + modal + helper". No schema or settings rows are introduced beyond ones admins explicitly toggle.
+
+**Reversibility:** High — single section in `admin_settings.html` and a self-contained POST short-circuit at the top of `admin_settings`.

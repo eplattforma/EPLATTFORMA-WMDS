@@ -1999,14 +1999,235 @@ def admin_sorting_settings():
                           sorting_config=sorting_config,
                           manual_priority_str=manual_priority_str)
 
+FEATURE_FLAG_KEYS = {
+    'permissions_enforcement_enabled',
+    'permissions_menu_filtering_enabled',
+    'permissions_role_fallback_enabled',
+    'forecast_watchdog_enabled',
+    'job_log_cleanup_enabled',
+    'job_runs_retention_days',
+    'use_db_backed_picking_queue',
+    'allow_legacy_session_picking_fallback',
+    'batch_claim_required',
+    'enable_consolidated_batch_picking',
+    'summer_cooler_mode_enabled',
+    'cooler_picking_enabled',
+    'cooler_labels_enabled',
+    'cooler_driver_view_enabled',
+    'cockpit_enabled',
+}
+
+# Human-readable metadata used by the Feature Flags admin UI. The "writable"
+# keys here exactly match FEATURE_FLAG_KEYS — `permissions_auto_seed_done`
+# is rendered alongside but is read-only (informational).
+FEATURE_FLAG_METADATA = [
+    {
+        'group': 'Permissions',
+        'flags': [
+            {'key': 'permissions_enforcement_enabled', 'label': 'Permission Enforcement',
+             'description': 'When ON, users without the required permission key receive 403. Admins (wildcard *) are unaffected.',
+             'risk': 'high', 'kind': 'bool'},
+            {'key': 'permissions_menu_filtering_enabled', 'label': 'Menu Filtering',
+             'description': 'When ON, navigation menu items hide automatically for users without the matching permission.',
+             'risk': 'yellow', 'kind': 'bool'},
+            {'key': 'permissions_role_fallback_enabled', 'label': 'Role Fallback Safety Net',
+             'description': 'When ON, users without explicit grants fall back to their role defaults — prevents lockout.',
+             'risk': 'yellow', 'kind': 'bool'},
+            {'key': 'permissions_auto_seed_done', 'label': 'Seeder Has Run',
+             'description': 'Informational: indicates the one-time permission seeder has completed at boot.',
+             'risk': 'readonly', 'kind': 'bool'},
+        ],
+    },
+    {
+        'group': 'Job Runs & Logging',
+        'flags': [
+            {'key': 'forecast_watchdog_enabled', 'label': 'Forecast Watchdog (5-min cadence)',
+             'description': 'Enables the background watchdog that detects stalled forecast runs.',
+             'risk': 'yellow', 'kind': 'bool'},
+            {'key': 'job_log_cleanup_enabled', 'label': 'Daily Log Cleanup',
+             'description': 'Enables the daily cron that prunes old job-run history rows.',
+             'risk': 'green', 'kind': 'bool'},
+            {'key': 'job_runs_retention_days', 'label': 'Log Retention Days',
+             'description': 'How many days of job-run history to keep. 0 means the cron runs but deletes nothing.',
+             'risk': 'numeric', 'kind': 'int', 'min': 0, 'max': 365},
+        ],
+    },
+    {
+        'group': 'Batch Picking',
+        'flags': [
+            {'key': 'use_db_backed_picking_queue', 'label': 'DB-Backed Picking Queue',
+             'description': 'Routes new batches through the durable DB queue instead of the legacy session queue.',
+             'risk': 'high', 'kind': 'bool'},
+            {'key': 'allow_legacy_session_picking_fallback', 'label': 'Legacy Session Fallback',
+             'description': 'Safety net: when ON, batches can still fall back to the legacy session queue if the DB queue fails.',
+             'risk': 'yellow', 'kind': 'bool'},
+            {'key': 'batch_claim_required', 'label': 'Claim Required Before Picking',
+             'description': 'Pickers must explicitly claim a batch before they can pick it. Depends on Phase 5 code (not yet built).',
+             'risk': 'disabled', 'kind': 'bool'},
+            {'key': 'enable_consolidated_batch_picking', 'label': 'Consolidated Batch Picking',
+             'description': 'Groups compatible batches into one picking pass. Depends on Phase 5 code (not yet built).',
+             'risk': 'disabled', 'kind': 'bool'},
+        ],
+    },
+    {
+        'group': 'Cooler Picking (not yet built)',
+        'flags': [
+            {'key': 'summer_cooler_mode_enabled', 'label': 'Cooler Mode (SENSITIVE items)',
+             'description': 'Splits SENSITIVE items into a separate cooler picking queue.',
+             'risk': 'high', 'kind': 'bool'},
+            {'key': 'cooler_picking_enabled', 'label': 'Cooler Picking UI',
+             'description': 'Enables the dedicated cooler picking screen. Depends on Phase 5 code (not yet built).',
+             'risk': 'disabled', 'kind': 'bool'},
+            {'key': 'cooler_labels_enabled', 'label': 'Cooler Label Printing',
+             'description': 'Enables printing of dedicated cooler labels at pack time.',
+             'risk': 'green', 'kind': 'bool'},
+            {'key': 'cooler_driver_view_enabled', 'label': 'Driver Cooler Loading View',
+             'description': 'Enables the driver-side view that highlights cooler items during loading.',
+             'risk': 'green', 'kind': 'bool'},
+        ],
+    },
+    {
+        'group': 'Cockpit',
+        'flags': [
+            {'key': 'cockpit_enabled', 'label': 'Account Manager Cockpit',
+             'description': 'Master switch for the entire /cockpit/ URL space. When OFF every cockpit URL returns 404.',
+             'risk': 'yellow', 'kind': 'bool'},
+        ],
+    },
+]
+
+HIGH_RISK_FLAG_WARNINGS = {
+    'permissions_enforcement_enabled': {
+        'title': 'Activate Permission Enforcement',
+        'body': (
+            'Before activating, confirm:\n'
+            '\u2022 The permission seeder has run (permissions_auto_seed_done = true above)\n'
+            '\u2022 You have tested in development with the verification guide\n'
+            '\u2022 All active users have been seeded with their role permissions\n\n'
+            'Once active, users without the correct permission key will receive a 403 '
+            'error. Admins are unaffected (wildcard * covers everything).'
+        ),
+    },
+    'use_db_backed_picking_queue': {
+        'title': 'Activate DB-Backed Picking Queue',
+        'body': (
+            'This is the highest-risk flag in the system. Before activating:\n'
+            '\u2022 Complete the drain workflow \u2014 no active batches should be in progress\n'
+            '\u2022 Confirm allow_legacy_session_picking_fallback = true (safety net)\n'
+            '\u2022 This has not been activated in production before \u2014 test on a quiet day\n\n'
+            'Existing batches created before this flip will continue on the legacy path. '
+            'New batches will use the DB-backed queue.'
+        ),
+    },
+    'summer_cooler_mode_enabled': {
+        'title': 'Activate Cooler Mode',
+        'body': (
+            'This separates SENSITIVE items from the normal picking queue. Before activating:\n'
+            '\u2022 Confirm cooler_picking_enabled is also ON (pickers need the cooler UI)\n'
+            '\u2022 Coordinate with the warehouse team \u2014 cooler picking workflow changes today\n'
+            '\u2022 Activate on a pilot route first, not all routes simultaneously'
+        ),
+    },
+}
+
+
+def _process_feature_flag_post():
+    """Handle the Feature Flags toggle/save POST.
+
+    Returns a Flask response (redirect or 400 abort) when the request is a
+    flag-toggle POST, or ``None`` to indicate the caller should fall through
+    to the regular settings-form handler.
+    """
+    flag_key = request.form.get('flag_key')
+    if not flag_key:
+        return None
+
+    # Admin-only — even if a non-admin somehow assembles the POST.
+    if current_user.role != 'admin':
+        from flask import abort
+        abort(403)
+
+    if flag_key not in FEATURE_FLAG_KEYS:
+        from flask import abort
+        abort(400)
+
+    raw_value = request.form.get('flag_value', '')
+
+    if flag_key == 'job_runs_retention_days':
+        try:
+            n = int(raw_value)
+        except (TypeError, ValueError):
+            from flask import abort
+            abort(400)
+        if n < 0 or n > 365:
+            from flask import abort
+            abort(400)
+        new_value = str(n)
+    else:
+        if raw_value not in ('true', 'false'):
+            from flask import abort
+            abort(400)
+        new_value = raw_value
+
+    old_value = Setting.get(db.session, flag_key, '')
+
+    setting = Setting.query.filter_by(key=flag_key).first()
+    if setting:
+        setting.value = new_value
+    else:
+        setting = Setting()
+        setting.key = flag_key
+        setting.value = new_value
+        db.session.add(setting)
+
+    log = ActivityLog()
+    log.picker_username = current_user.username
+    log.activity_type = 'feature_flag_change'
+    log.details = json.dumps({
+        'key': flag_key,
+        'old_value': old_value,
+        'new_value': new_value,
+    })
+    db.session.add(log)
+
+    db.session.commit()
+
+    # Flash message
+    label = flag_key
+    for grp in FEATURE_FLAG_METADATA:
+        for f in grp['flags']:
+            if f['key'] == flag_key:
+                label = f['label']
+                break
+
+    if flag_key == 'job_runs_retention_days':
+        flash(
+            f"Flag '{label}' set to {new_value} by {current_user.username}",
+            'success',
+        )
+    else:
+        flash(
+            f"Flag '{label}' set to {'ON' if new_value == 'true' else 'OFF'} "
+            f"by {current_user.username}",
+            'success',
+        )
+    return redirect(url_for('admin_settings'))
+
+
 @app.route('/admin/settings', methods=['GET', 'POST'])
 @login_required
 def admin_settings():
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('index'))
-    
+
     if request.method == 'POST':
+        # Feature Flags toggle/save: short-circuit before the regular form
+        # handler so an isolated flag POST does not clobber other settings.
+        flag_response = _process_feature_flag_post()
+        if flag_response is not None:
+            return flag_response
+
         confirm_picking = request.form.get('confirm_picking_step', 'true')
         show_image = request.form.get('show_image_on_picking_screen', 'true')
         show_multi_qty_warning = request.form.get('show_multi_qty_warning', 'true')
@@ -2117,7 +2338,16 @@ def admin_settings():
     except (json.JSONDecodeError, TypeError):
         oos_excluded_seasons = []
     
-    return render_template('admin_settings.html', 
+    # Feature Flags — current values + metadata + per-flag risk warnings.
+    from services.settings_defaults import PHASE1_DEFAULTS
+    feature_flag_values = {}
+    for grp in FEATURE_FLAG_METADATA:
+        for f in grp['flags']:
+            feature_flag_values[f['key']] = Setting.get(
+                db.session, f['key'], PHASE1_DEFAULTS.get(f['key'], 'false')
+            )
+
+    return render_template('admin_settings.html',
                          confirm_picking=confirm_picking, 
                          show_image=show_image,
                          show_multi_qty_warning=show_multi_qty_warning,
@@ -2137,7 +2367,10 @@ def admin_settings():
                          bank_bic=bank_bic,
                          bank_beneficiary=bank_beneficiary,
                          all_seasons=all_seasons,
-                         oos_excluded_seasons=oos_excluded_seasons)
+                         oos_excluded_seasons=oos_excluded_seasons,
+                         feature_flag_metadata=FEATURE_FLAG_METADATA,
+                         feature_flag_values=feature_flag_values,
+                         high_risk_flag_warnings=HIGH_RISK_FLAG_WARNINGS)
 
 @app.route('/admin/discrepancy-config', methods=['GET', 'POST'])
 @login_required
