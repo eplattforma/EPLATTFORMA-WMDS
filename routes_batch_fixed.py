@@ -415,7 +415,7 @@ def batch_picking_unassign(batch_id):
 def picker_batch_list():
     """Picker page to view assigned batch picking sessions"""
     # Only picker users can access this page
-    if current_user.role != 'admin' and current_user.role != 'picker':
+    if current_user.role not in ('admin', 'picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -440,7 +440,7 @@ def picker_batch_list():
 def start_batch_picking(batch_id):
     """Start picking a batch"""
     # Only picker users can access this endpoint
-    if current_user.role != 'admin' and current_user.role != 'picker':
+    if current_user.role not in ('admin', 'picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -568,7 +568,7 @@ def start_batch_picking(batch_id):
 def batch_picking_item(batch_id):
     """Display the current item to pick in a batch"""
     # Only picker users can access this page
-    if current_user.role != 'admin' and current_user.role != 'picker':
+    if current_user.role not in ('admin', 'picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
 
@@ -715,7 +715,7 @@ def batch_picking_item(batch_id):
 def confirm_batch_item(batch_id):
     """Confirm a picked item in a batch - redirects to confirmation screen"""
     # Only picker users can access this endpoint
-    if current_user.role != 'admin' and current_user.role != 'picker':
+    if current_user.role not in ('admin', 'picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
 
@@ -811,7 +811,7 @@ def confirm_batch_item(batch_id):
 def complete_batch_confirm(batch_id):
     """Process the confirmation of a picked item and complete the database updates"""
     # Only picker users can access this endpoint
-    if current_user.role != 'admin' and current_user.role != 'picker':
+    if current_user.role not in ('admin', 'picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
 
@@ -1021,7 +1021,7 @@ def complete_batch_confirm(batch_id):
 def skip_batch_item(batch_id):
     """Skip an item in a batch for later picking"""
     # Only picker users can access this endpoint
-    if current_user.role != 'admin' and current_user.role != 'picker':
+    if current_user.role not in ('admin', 'picker', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
 
