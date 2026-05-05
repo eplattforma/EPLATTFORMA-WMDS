@@ -86,7 +86,7 @@
           {% else %}
             <div class="text-muted small">no compare</div>
           {% endif %}
-          <canvas class="kpi-spark" data-spark="{{ d.sparkline|tojson }}"></canvas>
+          <canvas class="kpi-spark" data-spark='{{ d.sparkline|tojson }}'></canvas>
         </div>
       </div>
     </div>
@@ -279,7 +279,7 @@
     </div>
     <div class="card-body">
       <canvas id="trendChart" height="100"
-              data-trend="{{ data.trend.monthly|tojson }}"></canvas>
+              data-trend='{{ data.trend.monthly|tojson }}'></canvas>
     </div>
   </div>
 
