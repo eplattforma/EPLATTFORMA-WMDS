@@ -147,12 +147,26 @@ def cockpit(customer_code):
         # checks for ``data`` and shows an inline error if absent.
         data = None
 
+    # Synchronous cache-only prefetch for Recommended Actions
+    # (cockpit-brief §12.5: server-renders on cache hit, async fetch on miss).
+    prerendered_advice = None
+    if data and has_permission(current_user, "customers.ask_claude"):
+        try:
+            from services.claude_advice_service import get_cached_cockpit_advice
+            snap = _build_advice_snapshot(data, "all")
+            prerendered_advice = get_cached_cockpit_advice(snap)
+        except Exception:
+            logger.exception("Cockpit advice cache prefetch failed for %s",
+                             customer_code)
+            prerendered_advice = None
+
     return render_template(
         "cockpit/cockpit.html",
         customer_code=customer_code,
         data=data,
         controls={"period": period_days, "compare": compare,
                   "peer_group": peer_group},
+        prerendered_advice=prerendered_advice,
     )
 
 

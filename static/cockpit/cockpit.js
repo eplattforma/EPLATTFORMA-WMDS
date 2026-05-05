@@ -213,7 +213,8 @@ function _renderRecommendedActions(data) {
       const pri = _esc(a.priority || '');
       const act = _esc(a.action || '');
       const hint = a.script_hint
-        ? `<div class="small text-muted"><em>${_esc(a.script_hint)}</em></div>` : '';
+        ? ` <i class="fas fa-circle-info text-muted ms-1" data-bs-toggle="tooltip" title="${_esc(a.script_hint)}" aria-label="${_esc(a.script_hint)}"></i>`
+        : '';
       parts.push(`<li><span class="badge bg-secondary me-2">${pri}</span>${act}${hint}</li>`);
     });
     parts.push('</ol>');
@@ -221,9 +222,21 @@ function _renderRecommendedActions(data) {
   return parts.join('');
 }
 
+function _activateTooltipsIn(container) {
+  if (!container || !window.bootstrap || !window.bootstrap.Tooltip) return;
+  container.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    window.bootstrap.Tooltip.getOrCreateInstance(el);
+  });
+}
+
 async function _loadRecommendedActions() {
   const card = document.getElementById('recommendedActionsCard');
   if (!card) return;
+  // Server-side cache-hit render (cockpit-brief §12.5) — skip async fetch.
+  if (card.dataset.prerendered === '1') {
+    _activateTooltipsIn(card);
+    return;
+  }
   const loading = document.getElementById('raLoading');
   const content = document.getElementById('raContent');
   const err = document.getElementById('raError');
@@ -232,6 +245,7 @@ async function _loadRecommendedActions() {
   if (result.ok) {
     content.innerHTML = _renderRecommendedActions(result.body);
     content.classList.remove('d-none');
+    _activateTooltipsIn(content);
   } else if (result.status === 503 && result.body && result.body.cached_html) {
     content.innerHTML = result.body.cached_html;
     content.classList.remove('d-none');

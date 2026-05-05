@@ -1,21 +1,51 @@
 {# Recommended Actions panel — cockpit-brief §12.5.
 
-   Renders the top next_actions returned by Claude. The page may hydrate
-   this later via askClaude('all') in cockpit.js. Hidden entirely for
-   users without `customers.ask_claude`.
+   Renders the top next_actions returned by Claude. When the page route
+   has a fresh cache hit (``prerendered_advice``), we render the panel
+   server-side synchronously. Otherwise we show a skeleton and let
+   ``_loadRecommendedActions()`` in cockpit.js hydrate it asynchronously.
+   Hidden entirely for users without ``customers.ask_claude``.
 #}
-<div class="card mb-3" id="recommendedActionsCard">
+<div class="card mb-3" id="recommendedActionsCard"
+     data-prerendered="{{ '1' if prerendered_advice else '0' }}">
   <div class="card-header d-flex align-items-center">
     <strong><i class="fas fa-wand-magic-sparkles me-2"></i>Recommended Actions</strong>
     <span class="ms-auto small text-muted">Greek Claude advice · gap-to-target focus</span>
   </div>
   <div class="card-body" id="recommendedActionsBody">
-    <div class="text-muted small d-flex align-items-center" id="raLoading">
-      <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
-      <span>Δημιουργία συμβουλών…</span>
-    </div>
-    <div id="raContent" class="d-none"></div>
-    <div id="raError" class="alert alert-warning small mb-0 d-none"></div>
+    {% if prerendered_advice %}
+      {% set adv = prerendered_advice %}
+      <div id="raLoading" class="d-none"></div>
+      <div id="raContent">
+        {% if adv.summary %}
+          <p class="mb-2">{{ adv.summary }}</p>
+        {% endif %}
+        {% set actions = (adv.next_actions or [])[:4] %}
+        {% if actions %}
+          <ol class="mb-0">
+            {% for a in actions %}
+              <li>
+                <span class="badge bg-secondary me-2">{{ a.priority or '' }}</span>{{ a.action or '' }}
+                {% if a.script_hint %}
+                  <i class="fas fa-circle-info text-muted ms-1"
+                     data-bs-toggle="tooltip"
+                     title="{{ a.script_hint }}"
+                     aria-label="{{ a.script_hint }}"></i>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+        {% endif %}
+      </div>
+      <div id="raError" class="alert alert-warning small mb-0 d-none"></div>
+    {% else %}
+      <div class="text-muted small d-flex align-items-center" id="raLoading">
+        <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+        <span>Δημιουργία συμβουλών…</span>
+      </div>
+      <div id="raContent" class="d-none"></div>
+      <div id="raError" class="alert alert-warning small mb-0 d-none"></div>
+    {% endif %}
   </div>
 </div>
 

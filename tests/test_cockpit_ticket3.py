@@ -232,6 +232,70 @@ def test_recommended_actions_partial_exists():
     assert "claudeAdviceModal" in src
 
 
+def test_recommended_actions_partial_supports_server_render():
+    """Brief §12.5: panel must render synchronously on cache hit, with a
+    skeleton + async fallback only on cache miss. ``script_hint`` must be
+    rendered as a tooltip (info icon), not inline italic text."""
+    path = os.path.join(PROJECT_ROOT, "templates", "cockpit",
+                        "_partials", "recommended_actions.html")
+    src = open(path, encoding="utf-8").read()
+    # Server-side branch keyed on prerendered_advice.
+    assert "prerendered_advice" in src
+    assert 'data-prerendered=' in src
+    # Skeleton + async hydration is still the cache-miss path.
+    assert "Δημιουργία συμβουλών" in src
+    # Tooltip wiring for script_hint (Bootstrap data attribute).
+    assert 'data-bs-toggle="tooltip"' in src
+
+
+def test_cache_only_helper_returns_none_when_empty(appctx):
+    from services.claude_advice_service import (
+        get_cached_cockpit_advice, _hash_payload, CACHE_KEY_PREFIX,
+    )
+    db.session.rollback()
+    snap = {"_test_only_": "ticket3-prerender-miss"}
+    h = _hash_payload(snap)
+    db.session.execute(text(
+        "DELETE FROM ai_feedback_cache WHERE payload_hash = :h"
+    ), {"h": CACHE_KEY_PREFIX + h})
+    db.session.commit()
+    assert get_cached_cockpit_advice(snap) is None
+
+
+def test_cache_only_helper_returns_cached_dict(appctx):
+    from services.claude_advice_service import (
+        get_cached_cockpit_advice, _cache_set, _hash_payload, CACHE_KEY_PREFIX,
+    )
+    db.session.rollback()
+    snap = {"_test_only_": "ticket3-prerender-hit"}
+    response = {"summary": "ok", "next_actions": [
+        {"priority": "P0", "action": "Καλέστε τον πελάτη",
+         "script_hint": "Συζήτησε το gap"}
+    ]}
+    h = _hash_payload(snap)
+    try:
+        _cache_set(h, response)
+        out = get_cached_cockpit_advice(snap)
+        assert isinstance(out, dict)
+        assert out.get("summary") == "ok"
+        assert out["next_actions"][0]["script_hint"] == "Συζήτησε το gap"
+    finally:
+        db.session.execute(text(
+            "DELETE FROM ai_feedback_cache WHERE payload_hash = :h"
+        ), {"h": CACHE_KEY_PREFIX + h})
+        db.session.commit()
+
+
+def test_cockpit_route_passes_prerendered_advice_to_template():
+    """Brief §12.5: cockpit page route must attempt cache-only prefetch
+    and pass ``prerendered_advice`` into the template context so the panel
+    can render synchronously on cache hit."""
+    src = open(os.path.join(PROJECT_ROOT, "blueprints", "cockpit.py"),
+               encoding="utf-8").read()
+    assert "get_cached_cockpit_advice" in src
+    assert "prerendered_advice=prerendered_advice" in src
+
+
 def test_endpoint_error_responses_are_greek_only():
     """Brief §12.6 + reviewer info-leak finding: 500 must NOT echo
     raw exception detail; 503 must carry the Greek ``message`` field."""

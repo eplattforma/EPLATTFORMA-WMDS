@@ -172,6 +172,30 @@ def _strip_code_fences(out_text: str) -> str:
     return out_text
 
 
+def get_cached_cockpit_advice(snapshot: dict) -> dict | None:
+    """Cache-only lookup. Returns the cached advice dict if present and
+    fresh, otherwise ``None``. Never calls the Anthropic API and never
+    raises — safe to invoke during page render to enable synchronous
+    server-side rendering of the Recommended Actions panel on cache hit
+    (cockpit-brief §12.5).
+    """
+    try:
+        payload = _clip_payload(snapshot or {})
+        payload_hash = _hash_payload(payload)
+        cached = _cache_get(payload_hash)
+    except Exception:
+        logger.exception("Cockpit advice cache lookup failed")
+        return None
+    if cached is None:
+        return None
+    if isinstance(cached, dict):
+        return cached
+    try:
+        return json.loads(cached)
+    except Exception:
+        return None
+
+
 def generate_cockpit_advice(snapshot: dict) -> dict:
     """Generate Greek-language sales advice tied to the gap-to-target.
 
