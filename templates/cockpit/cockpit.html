@@ -86,7 +86,9 @@
           {% else %}
             <div class="text-muted small">no compare</div>
           {% endif %}
-          <canvas class="kpi-spark" data-spark='{{ d.sparkline|tojson }}'></canvas>
+          <div class="kpi-spark-wrap">
+            <canvas class="kpi-spark" data-spark='{{ d.sparkline|tojson }}'></canvas>
+          </div>
         </div>
       </div>
     </div>
