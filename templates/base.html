@@ -26,6 +26,7 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                    {% if has_permission('menu.warehouse') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management', 'admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard', 'batch.picker_batch_list'] %}active{% endif %}" 
                            href="#" id="warehouseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -101,6 +102,8 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
+                    {% if has_permission('menu.routes') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['routes.dashboard', 'delivery_issues.review_issues', 'find_invoice.find_invoice_route'] or (request.endpoint and 'reconciliation' in request.endpoint and request.endpoint != 'reconciliation.customer_balances_report') %}active{% endif %}" 
                            href="#" id="deliveryDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -133,6 +136,8 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
+                    {% if has_permission('menu.crm') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['payment_terms.index', 'customer_reporting_groups.index', 'reconciliation.customer_balances_report'] or (request.endpoint and (request.endpoint.startswith('sms.') or request.endpoint.startswith('abandoned_carts.') or request.endpoint.startswith('customer_analytics.') or request.endpoint.startswith('customer_benchmark.') or request.endpoint.startswith('crm_dashboard.'))) %}active{% endif %}" 
                            href="#" id="customersDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -205,6 +210,8 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
+                    {% if has_permission('menu.dashboard') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['analytics.analytics_home', 'shift_reports', 'time_analysis_dashboard'] %}active{% endif %}" 
                            href="#" id="reportsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -231,6 +238,7 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
                     {% if has_permission('settings.manage_users') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['manage_users', 'admin_settings', 'admin_sorting_settings', 'datawarehouse.dw_menu'] or request.path == '/crm/admin/offers' or (request.endpoint and request.endpoint.startswith('dropbox_integration.')) %}active{% endif %}" 
