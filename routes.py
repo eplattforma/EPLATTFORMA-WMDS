@@ -1704,6 +1704,38 @@ PERMISSION_EDITOR_GROUPS = [
 ]
 ALL_EDITOR_KEYS = [k for _, ks in PERMISSION_EDITOR_GROUPS for k in ks]
 
+PERMISSION_DESCRIPTIONS = {
+    # Menu Visibility
+    "menu.dashboard":       "Shows the Reports dropdown — AI Insights, Time Reports, Time Analysis.",
+    "menu.crm":             "Shows the Customers dropdown — Ordering Dashboard, EP SmartGrowth AI, Customer Terms, Balances, SMS, Analytics, CRM Dashboard.",
+    "menu.forecast":        "Reserved — no nav or route guard currently wired.",
+    "menu.communications":  "Gates all pages in the Communications Hub and SMS blueprint. No nav dropdown effect; returns 403 without this permission.",
+    "menu.warehouse":       "Shows the Warehouse dropdown — Picking Dashboard, Batch Picking, My Picking Queue, Intake, Stock, PO Receiving, Scan Item, Shift Tracking, Import Invoices. Also gates Category Manager and Peer Analytics routes.",
+    "menu.picking":         "Reserved — picker nav is role-based, not permission-gated.",
+    "menu.routes":          "Shows the Delivery dropdown — Delivery Dashboard, Find Invoice/Route, Delivery Issues, Route Reconciliation.",
+    "menu.driver":          "Reserved — driver nav is role-based, not permission-gated.",
+    "menu.datawarehouse":   "Reserved — no nav or route guard currently wired.",
+    "menu.settings":        "Reserved — no nav or route guard currently wired.",
+    # Picking
+    "picking.perform":      "Individual order picking routes — start picking, pick item, complete, skip, exception handling.",
+    "picking.manage_batches": "All batch create / manage / view routes (~14 endpoints). Required to create, open, or administer batches.",
+    "picking.claim_batch":  "Claim / accept a batch assignment from the batch list.",
+    "picking.cancel_batch": "Reserved — no route guard wired yet.",
+    # Routes & Sync
+    "routes.manage":        "Route management actions — assign driver, lock/unlock manifest, route-level operations.",
+    "sync.run_manual":      "Trigger manual forecast / ordering sync runs in Forecast Workbench (5 action endpoints).",
+    "sync.view_logs":       "Reserved — present in role defaults but no route guard wired yet.",
+    # Settings
+    "settings.manage_users":       "Shows the Admin dropdown and gates all user management routes — create, edit, delete users, general settings, picking sort settings, CRM settings.",
+    "settings.manage_permissions": "Reserved — no route guard wired yet.",
+    # AM Cockpit
+    "menu.cockpit":              "Shows the AM Cockpit link in the Customers nav (cockpit_enabled flag must also be on). Gates the cockpit index and list pages.",
+    "customers.use_cockpit":     "Access a customer's cockpit detail page and activity timeline.",
+    "customers.propose_target":  "Submit a spend target proposal for a customer.",
+    "customers.approve_target":  "Approve, reject, or edit proposed targets and all financial target actions.",
+    "customers.ask_claude":      "Greek-language AI advice panel on each cockpit section (requires ANTHROPIC_API_KEY).",
+}
+
 
 @app.route('/admin/users/<username>/permissions', methods=['GET', 'POST'])
 @login_required
@@ -1863,6 +1895,7 @@ def manage_user_permissions(username):
         'user_permissions.html',
         user=user,
         permission_groups=PERMISSION_EDITOR_GROUPS,
+        permission_descriptions=PERMISSION_DESCRIPTIONS,
         current_perms=current_perms,
         direct_wildcards=direct_wildcards,
         inherited_wildcards=inherited_wildcards,

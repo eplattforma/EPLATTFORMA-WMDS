@@ -52,17 +52,20 @@
                 </div>
                 <div class="list-group list-group-flush">
                     {% for key in group_keys %}
-                    <label class="list-group-item d-flex align-items-center">
+                    <label class="list-group-item d-flex align-items-start py-2">
                         <input type="checkbox"
-                               class="form-check-input me-2"
+                               class="form-check-input me-2 mt-1"
                                name="permission_keys"
                                value="{{ key }}"
                                {% if key in current_perms %}checked{% endif %}>
                         <span class="flex-grow-1">
                             <code>{{ key }}</code>
+                            {% if permission_descriptions.get(key) %}
+                            <br><small class="text-muted">{{ permission_descriptions[key] }}</small>
+                            {% endif %}
                         </span>
                         {% if key in role_perm_set %}
-                        <span class="badge bg-light text-dark border" title="Granted by role">
+                        <span class="badge bg-light text-dark border ms-2 mt-1 flex-shrink-0" title="Granted by role">
                             from role
                         </span>
                         {% endif %}
