@@ -1249,8 +1249,9 @@ def assign_picker():
         flash(f'Invoice {invoice_no} not found', 'danger')
         return redirect(url_for('admin_dashboard'))
     
-    picker = User.query.filter_by(username=picker_username, role='picker').first()
-    if not picker:
+    eligible_usernames = {u.username for u in get_picking_eligible_users()}
+    picker = User.query.filter_by(username=picker_username).first()
+    if not picker or picker.username not in eligible_usernames:
         flash(f'Picker {picker_username} not found', 'danger')
         return redirect(url_for('admin_dashboard'))
     
