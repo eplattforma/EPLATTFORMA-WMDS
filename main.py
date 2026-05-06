@@ -1,5 +1,10 @@
 import os
 os.environ['TZ'] = 'Europe/Athens'
+import time
+time.tzset()   # Required on POSIX: activates the TZ change for the C library,
+               # which is what logging's Formatter.converter (time.localtime)
+               # reads. Without this call the process keeps using UTC even
+               # though os.environ['TZ'] is set.
 import logging
 logging.basicConfig(level=logging.INFO)
 logging.warning("PHASE 1: top of main.py")
