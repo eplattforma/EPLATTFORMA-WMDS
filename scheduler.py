@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 # Global scheduler instance
 scheduler = None
 
+# Single source of truth for the scheduler's timezone. Used by:
+#   - setup_scheduler (live designated-worker scheduler)
+#   - _JobstoreContext (proxy scheduler used by non-designated workers
+#     when handling UI reschedule/pause/resume requests)
+#   - reschedule_job (CronTrigger built from UI hour/minute inputs)
+# WHY THIS EXISTS: the proxy scheduler used to default to the container's
+# local timezone (UTC on Replit). When the user clicked "Edit time → 09:38"
+# from a non-designated worker, the resulting CronTrigger was pickled with
+# UTC, so the job was actually scheduled for 09:38 UTC = 12:38 Cairo and
+# would silently miss the user's intended time. All three sites now
+# reference SCHEDULER_TZ so UI edits land in the right wall-clock zone.
+SCHEDULER_TZ = 'Africa/Cairo'
+
 
 class JobSkipped(Exception):
     """Body funcs raise this to signal an early-return guard path.
@@ -197,12 +210,12 @@ def setup_scheduler(app):
         except Exception as e:
             logger.warning(f"Could not access Flask-SQLAlchemy engine for jobstore ({e}); will fall back to DATABASE_URL")
 
-        # Phase 2: scheduler timezone is anchored to Africa/Cairo so the
-        # daily fixed-time jobs (17:35 Forecast, 17:55 Cost Update,
-        # 18:10 Offers, 18:05 Stock 777, etc.) match the cadence stated
-        # in SCHEDULING.md regardless of host TZ. Cairo and Athens differ
-        # in DST so an explicit IANA tz is required for correctness.
-        SCHEDULER_TZ = 'Africa/Cairo'
+        # Phase 2: scheduler timezone is anchored to Africa/Cairo (see the
+        # module-level SCHEDULER_TZ constant) so the daily fixed-time jobs
+        # (17:35 Forecast, 17:55 Cost Update, 18:10 Offers, 18:05 Stock
+        # 777, etc.) match the cadence stated in SCHEDULING.md regardless
+        # of host TZ. Cairo and Athens differ in DST so an explicit IANA
+        # tz is required for correctness.
         if jobstore_engine is not None:
             jobstores = {
                 'default': SQLAlchemyJobStore(
@@ -604,6 +617,69 @@ def setup_scheduler(app):
                     f"Could not refresh preserved job '{_job_id}': {_e} — "
                     f"job will keep running with its previously persisted state"
                 )
+
+        # One-time healer: re-apply the timezone on any preserved CronTrigger
+        # whose tz != SCHEDULER_TZ. Older versions of `reschedule_job` built
+        # CronTriggers without an explicit tz, so a UI edit handled by a
+        # non-designated worker baked the proxy scheduler's local zone (UTC
+        # on Replit) into the trigger. Result: a UI input of "09:38" was
+        # silently scheduled for 09:38 UTC = 12:38 Cairo and missed every
+        # day. The healer rebuilds those triggers in Africa/Cairo with the
+        # SAME hour/minute/dow the user originally chose, so their wall-
+        # clock intent is preserved while the tz is corrected.
+        try:
+            from pytz import timezone as _pytz_tz
+            _expected_tz = _pytz_tz(SCHEDULER_TZ)
+            for _job in scheduler.get_jobs():
+                _trig = getattr(_job, 'trigger', None)
+                if _trig is None or not isinstance(_trig, CronTrigger):
+                    continue
+                _trig_tz = getattr(_trig, 'timezone', None)
+                # Compare canonical tz names — different tz objects with the
+                # same IANA zone (pytz vs zoneinfo) are equivalent for our
+                # purposes; only mismatched zone names need healing.
+                _trig_tz_name = getattr(_trig_tz, 'zone', str(_trig_tz)) if _trig_tz else None
+                if _trig_tz_name == SCHEDULER_TZ:
+                    continue
+                # Clone the FULL trigger spec so healing can never broaden
+                # or narrow the user's schedule. We copy every cron field
+                # (year/month/day/week/day_of_week/hour/minute/second) plus
+                # the boundary args (start_date/end_date/jitter) and only
+                # swap the timezone.
+                _fields = {}
+                try:
+                    for _f in getattr(_trig, 'fields', []):
+                        _fields[_f.name] = str(_f)
+                except Exception:
+                    _fields = {}
+                if not _fields:
+                    # Nothing safe to clone — leave the trigger alone.
+                    continue
+                _new_kwargs = dict(_fields)
+                _new_kwargs['timezone'] = _expected_tz
+                # Boundaries: pass through if the original had them.
+                _start = getattr(_trig, 'start_date', None)
+                _end = getattr(_trig, 'end_date', None)
+                _jitter = getattr(_trig, 'jitter', None)
+                if _start is not None:
+                    _new_kwargs['start_date'] = _start
+                if _end is not None:
+                    _new_kwargs['end_date'] = _end
+                if _jitter:
+                    _new_kwargs['jitter'] = _jitter
+                try:
+                    scheduler.reschedule_job(_job.id, trigger=CronTrigger(**_new_kwargs))
+                    logger.warning(
+                        f"  🩹 Healed timezone for job '{_job.id}': "
+                        f"{_trig_tz_name!r} → {SCHEDULER_TZ!r} "
+                        f"(cloned full spec: {_fields})"
+                    )
+                except Exception as _he:
+                    logger.warning(
+                        f"  Could not heal timezone for job '{_job.id}': {_he}"
+                    )
+        except Exception as _e:
+            logger.warning(f"Timezone healer skipped: {_e}")
 
         # Cleanup: remove the legacy FTP Price Master Sync job from the
         # jobstore if a previous deploy registered it. The Cost Update
@@ -1600,7 +1676,14 @@ class _JobstoreContext:
                 )
             }
 
-        self._proxy = BackgroundScheduler(daemon=True, jobstores=jobstores)
+        # Bind the proxy to the same Africa/Cairo timezone as the live
+        # designated-worker scheduler. Without this the proxy would use the
+        # container's local timezone (UTC on Replit), and any CronTrigger
+        # built without an explicit `timezone=` here would inherit UTC —
+        # causing UI edits like "09:38" to mean 09:38 UTC = 12:38 Cairo.
+        self._proxy = BackgroundScheduler(
+            daemon=True, jobstores=jobstores, timezone=SCHEDULER_TZ
+        )
         # Start paused so the proxy reads jobs from the jobstore but never
         # fires anything (only the designated worker's scheduler should fire).
         self._proxy.start(paused=True)
@@ -1671,14 +1754,26 @@ def list_scheduled_jobs_full():
 
 
 def reschedule_job(job_id, hour, minute, day_of_week=None):
-    """Reschedule a job's CronTrigger. hour/minute are strings (cron syntax OK)."""
-    kwargs = {'hour': hour, 'minute': minute}
+    """Reschedule a job's CronTrigger. hour/minute are strings (cron syntax OK).
+
+    The CronTrigger is built with an explicit ``timezone=SCHEDULER_TZ``
+    (Africa/Cairo) so that UI inputs like ``hour=9, minute=38`` always
+    mean 09:38 Cairo wall-clock — not 09:38 in whatever the host's local
+    timezone happens to be. Without the explicit tz, CronTrigger inherits
+    the *creating scheduler*'s tz, which on a non-designated worker used
+    to be the proxy scheduler's default (UTC on Replit), silently shifting
+    all UI-edited daily jobs by 3 hours.
+    """
+    kwargs = {'hour': hour, 'minute': minute, 'timezone': SCHEDULER_TZ}
     if day_of_week:
         kwargs['day_of_week'] = day_of_week
     new_trigger = CronTrigger(**kwargs)
     with _JobstoreContext() as sch:
         sch.reschedule_job(job_id, trigger=new_trigger)
-    logger.info(f"Job {job_id} rescheduled: hour={hour} minute={minute} dow={day_of_week or '*'}")
+    logger.info(
+        f"Job {job_id} rescheduled: hour={hour} minute={minute} "
+        f"dow={day_of_week or '*'} tz={SCHEDULER_TZ}"
+    )
 
 
 def pause_job(job_id):
