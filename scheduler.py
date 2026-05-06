@@ -363,7 +363,7 @@ def setup_scheduler(app):
             scheduler.add_job(
                 func=_tracked,
                 kwargs={'job_id': 'erp_item_cost_refresh', 'job_name': 'Cost Update'},
-                trigger=CronTrigger(hour=17, minute=55),
+                trigger=CronTrigger(hour=9, minute=0),
                 id='erp_item_cost_refresh',
                 name='Cost Update',
                 replace_existing=True,
@@ -371,7 +371,7 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Cost Update scheduled: Daily at 17:55 Cairo (ERP Item Catalogue cost refresh)")
+            logger.info("✓ Cost Update scheduled: Daily at 09:00 Cairo (ERP Item Catalogue cost refresh)")
 
             # Offers Update: pull the latest customer price master from FTP
             # and rebuild per-customer offer rows + summary KPIs. Runs after
@@ -1341,7 +1341,7 @@ def list_scheduled_jobs():
             {'id': 'customer_sync', 'name': 'Customer Sync from PS365', 'trigger': 'Daily at 4:00 AM', 'next_run': None},
             {'id': 'invoice_sync', 'name': 'Invoice Sync from PS365', 'trigger': 'Daily at 6:00 PM', 'next_run': None},
             {'id': 'balance_fetch', 'name': 'Customer Balance Fetch from PS365', 'trigger': 'Daily at 2:30 AM', 'next_run': None},
-            {'id': 'erp_item_cost_refresh', 'name': 'Cost Update', 'trigger': 'Daily at 17:55 Cairo', 'next_run': None},
+            {'id': 'erp_item_cost_refresh', 'name': 'Cost Update', 'trigger': 'Daily at 09:00 Cairo', 'next_run': None},
             {'id': 'nightly_forecast', 'name': 'Nightly Forecast Run', 'trigger': 'Daily at 5:00 AM', 'next_run': None},
             {'id': 'pending_orders', 'name': 'PS365 Pending Orders Sync', 'trigger': 'Every 30 minutes', 'next_run': None},
             {'id': 'payment_retry', 'name': 'Retry PENDING_RETRY Payments to PS365', 'trigger': 'Every 5 minutes', 'next_run': None},
