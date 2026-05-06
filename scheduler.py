@@ -137,6 +137,45 @@ def _tracked(job_id, job_name=None, trigger_source="scheduled"):
             _CURRENT_JOB_RUN_ID.reset(token)
 
 
+def _get_existing_job_ids(app):
+    """Return the set of job IDs already persisted in the apscheduler_jobs
+    table.
+
+    Used by ``setup_scheduler`` to decide, on each worker boot, whether to
+    register a job with its code-default trigger (new job) or *preserve* the
+    persisted trigger (existing job — likely a user edit made via the admin
+    scheduler UI).
+
+    Without this check, every boot would overwrite the user's UI-edited
+    schedule because ``add_job(..., replace_existing=True)`` rewrites the
+    whole job — trigger included — back to the hard-coded default.
+
+    Returns an empty set on any failure so we fall back to the safe behaviour
+    of registering everything fresh (matches the pre-change behaviour).
+    """
+    try:
+        from app import db as _db
+        from sqlalchemy import text
+        with app.app_context():
+            # APScheduler creates apscheduler_jobs lazily on scheduler.start()
+            # so on a brand-new DB the table won't exist yet — that's a
+            # legitimate "no pre-existing jobs" case, not an error.
+            exists = _db.session.execute(text(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'apscheduler_jobs')"
+            )).scalar()
+            if not exists:
+                return set()
+            rows = _db.session.execute(text("SELECT id FROM apscheduler_jobs")).fetchall()
+            return {row[0] for row in rows}
+    except Exception as e:
+        logger.warning(
+            f"Could not query existing apscheduler_jobs ({e}); "
+            f"will register all jobs with code defaults"
+        )
+        return set()
+
+
 def setup_scheduler(app):
     """
     Initialize and start the background scheduler.
@@ -188,11 +227,66 @@ def setup_scheduler(app):
 
         # Only set up scheduled jobs in production or if explicitly enabled
         is_production = os.environ.get("REPLIT_ENVIRONMENT") == "production" or os.environ.get("REPLIT_DEPLOYMENT") == "1"
+        # Defined unconditionally so the post-`scheduler.start()` refresh
+        # loop is safe even when no jobs are registered (dev runs without
+        # ENABLE_BACKGROUND_JOBS).
+        deferred_modifies = []
         if os.environ.get("ENABLE_BACKGROUND_JOBS") == "true" or is_production:
             from datawarehouse_sync import full_dw_update, incremental_dw_update
             from app import db
             
             logger.info("Setting up background scheduled jobs...")
+
+            # --- User-trigger preservation -----------------------------------
+            # Look up which job IDs are already persisted in apscheduler_jobs.
+            # For those, we want to keep whatever trigger is in the jobstore
+            # (typically a user edit made via the admin scheduler UI) instead
+            # of overwriting it with the code default on every boot.
+            #
+            # The old pattern — `add_job(..., replace_existing=True)` on every
+            # boot — wiped UI edits because Autoscale boots a new worker on
+            # every traffic burst. With the helper below, only NEW job IDs
+            # are added with code defaults; pre-existing ones are skipped at
+            # add time and then refreshed via `modify_job` AFTER
+            # `scheduler.start()` so the function reference, kwargs, and
+            # safety options stay in sync with current code while the
+            # user's chosen trigger time is preserved.
+            #
+            # Trade-off: changing a hard-coded `CronTrigger(hour=..., ...)`
+            # in this file no longer updates production for jobs already in
+            # the jobstore. Use the admin scheduler UI ("Edit time") to
+            # change schedules, or remove the row from apscheduler_jobs to
+            # force a fresh registration.
+            existing_job_ids = _get_existing_job_ids(app)
+            if existing_job_ids:
+                logger.info(
+                    f"Found {len(existing_job_ids)} pre-existing job(s) in jobstore; "
+                    f"their triggers will be preserved (UI edits win): "
+                    f"{sorted(existing_job_ids)}"
+                )
+
+            def _add_job_smart(*, trigger, id, **kwargs):
+                """Register a job, preserving any user-edited trigger.
+
+                If ``id`` is already in the jobstore, skip ``add_job`` so the
+                persisted trigger survives, and queue a ``modify_job`` (run
+                after ``scheduler.start()``) to refresh func/kwargs/options.
+                Otherwise, ``add_job`` with the code-default trigger.
+                """
+                # The helper owns replace_existing — strip any caller value.
+                kwargs.pop('replace_existing', None)
+                if id in existing_job_ids:
+                    deferred_modifies.append({'id': id, **kwargs})
+                    logger.info(
+                        f"  ↩ Job '{id}' preserved from jobstore "
+                        f"(user UI edit overrides code default)"
+                    )
+                    return False
+                scheduler.add_job(
+                    trigger=trigger, id=id, replace_existing=True, **kwargs
+                )
+                return True
+            # -----------------------------------------------------------------
             
             # NOTE on scheduling window:
             # The production deployment runs on Replit Autoscale, which spins
@@ -209,7 +303,7 @@ def setup_scheduler(app):
             # the run.
 
             # Full DW sync - daily at 17:15 Cairo (heavy, given a 15min gap after incremental)
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'full_dw_sync', 'job_name': 'Full Data Warehouse Sync'},
                 trigger=CronTrigger(hour=17, minute=15),
@@ -223,7 +317,7 @@ def setup_scheduler(app):
             logger.info("✓ Full DW sync scheduled: Daily at 17:15 Cairo")
 
             # Incremental sync - twice daily at 13:00 (lunch traffic) and 17:00 Cairo
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'incremental_dw_sync', 'job_name': 'Incremental Data Warehouse Sync'},
                 trigger=CronTrigger(hour="13,17", minute=0),
@@ -236,7 +330,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ Incremental DW sync scheduled: Daily at 13:00 and 17:00 Cairo")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'customer_sync', 'job_name': 'Customer Sync from PS365'},
                 trigger=CronTrigger(hour=16, minute=40),
@@ -249,7 +343,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ Customer sync scheduled: Daily at 16:40 Cairo")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'invoice_sync', 'job_name': 'Invoice Sync from PS365'},
                 trigger=CronTrigger(hour=16, minute=50),
@@ -262,7 +356,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ Invoice sync scheduled: Daily at 16:50 Cairo (last 2 days)")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'balance_fetch', 'job_name': 'Customer Balance Fetch from PS365'},
                 trigger=CronTrigger(hour=16, minute=30),
@@ -275,7 +369,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ Balance fetch scheduled: Daily at 16:30 Cairo")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'forecast_run', 'job_name': 'Nightly Forecast Run'},
                 trigger=CronTrigger(hour=17, minute=35),
@@ -319,7 +413,7 @@ def setup_scheduler(app):
                 wd_interval = 5
 
             wd_cadence = wd_interval if wd_enabled else 10
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'forecast_watchdog',
                         'job_name': 'Forecast Run Watchdog (auto-retry)'},
@@ -336,7 +430,7 @@ def setup_scheduler(app):
                 f"(forecast_watchdog_enabled={'on' if wd_enabled else 'off → legacy 10min cadence'})"
             )
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'pending_orders_sync', 'job_name': 'PS365 Pending Orders Sync'},
                 trigger=CronTrigger(minute="0,30"),
@@ -348,7 +442,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'retry_pending_payments', 'job_name': 'Retry PENDING_RETRY Payments to PS365'},
                 trigger=CronTrigger(minute="*/5"),
@@ -360,7 +454,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ PENDING_RETRY payment retry scheduled: Every 5 minutes")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'erp_item_cost_refresh', 'job_name': 'Cost Update'},
                 trigger=CronTrigger(hour=9, minute=0),
@@ -377,7 +471,7 @@ def setup_scheduler(app):
             # and rebuild per-customer offer rows + summary KPIs. Runs after
             # Cost Update so cost columns are fresh when offer margins are
             # recomputed.
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'offers_update', 'job_name': 'Offers Update'},
                 trigger=CronTrigger(hour=18, minute=10),
@@ -409,7 +503,7 @@ def setup_scheduler(app):
             # without deleting any rows. 06:00 Europe/Nicosia ≈ 06:00
             # Cairo (no DST in EG; minor UA/EET drift acceptable for a
             # quiet-hour cleanup) — the scheduler timezone is Africa/Cairo.
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'log_cleanup', 'job_name': 'Job Runs Log Cleanup'},
                 trigger=CronTrigger(hour=6, minute=0),
@@ -422,7 +516,7 @@ def setup_scheduler(app):
             )
             logger.info("✓ Job Runs log cleanup scheduled: Daily at 06:00 Cairo (gated by job_log_cleanup_enabled, default OFF)")
 
-            scheduler.add_job(
+            _add_job_smart(
                 func=_tracked,
                 kwargs={'job_id': 'expiry_ftp_upload', 'job_name': 'Expiry Dates FTP Upload'},
                 trigger=CronTrigger(hour=17, minute=45),
@@ -436,7 +530,7 @@ def setup_scheduler(app):
             logger.info("✓ Expiry dates FTP upload scheduled: Daily at 17:45 Cairo")
 
             if is_production:
-                scheduler.add_job(
+                _add_job_smart(
                     func=_tracked,
                     kwargs={'job_id': 'stock_777_sync_production',
                             'job_name': 'PS365 Stock 777 Daily Sync (Production)'},
@@ -450,7 +544,7 @@ def setup_scheduler(app):
                 )
                 logger.info("✓ Stock 777 production sync scheduled: Daily at 18:05 Cairo")
             else:
-                scheduler.add_job(
+                _add_job_smart(
                     func=_tracked,
                     kwargs={'job_id': 'stock_777_sync',
                             'job_name': 'PS365 Stock 777 Daily Sync'},
@@ -469,7 +563,7 @@ def setup_scheduler(app):
 
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
-                scheduler.add_job(
+                _add_job_smart(
                     func=_tracked,
                     kwargs={'job_id': 'ftp_login_sync', 'job_name': 'FTP Login Logs Sync'},
                     trigger=CronTrigger(minute="15,45"),
@@ -485,6 +579,31 @@ def setup_scheduler(app):
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
+
+        # Apply deferred modifies for jobs whose trigger we preserved from
+        # the jobstore. This refreshes the function reference, kwargs, and
+        # safety options to match current code, while leaving the user-set
+        # trigger intact. modify_job needs the scheduler to be started
+        # because it dispatches through the in-memory job index.
+        for _m in deferred_modifies:
+            _job_id = _m['id']
+            _update = {}
+            for _key in ('func', 'kwargs', 'name', 'max_instances',
+                         'misfire_grace_time', 'coalesce'):
+                if _key in _m:
+                    _update[_key] = _m[_key]
+            try:
+                if _update:
+                    scheduler.modify_job(_job_id, **_update)
+                    logger.info(
+                        f"  ✎ Refreshed func/options for preserved job '{_job_id}' "
+                        f"(trigger left unchanged)"
+                    )
+            except Exception as _e:
+                logger.warning(
+                    f"Could not refresh preserved job '{_job_id}': {_e} — "
+                    f"job will keep running with its previously persisted state"
+                )
 
         # Cleanup: remove the legacy FTP Price Master Sync job from the
         # jobstore if a previous deploy registered it. The Cost Update

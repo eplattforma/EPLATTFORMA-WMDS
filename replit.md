@@ -31,7 +31,7 @@ Preferred communication style: Simple, everyday language.
     - **PS365 OOS Daily Sync**: Daily synchronization of Out-Of-Stock (OOS) items for Store 777 (Eshop).
     - **Synchronization & Data Refresh**: Automated FTP login sync, PS365 sync logging, and pending order import.
     - **CRM Dashboard**: A central dashboard for customer activity monitoring, classification management, delivery slot filtering, task logging, and open orders integration.
-    - **Scheduler Management**: Every scheduled job is wrapped for tracking, logging, and progress reporting. Includes an admin UI for managing jobs (reschedule, pause, resume, run now) and a log cleanup service.
+    - **Scheduler Management**: Every scheduled job is wrapped for tracking, logging, and progress reporting. Includes an admin UI for managing jobs (reschedule, pause, resume, run now) and a log cleanup service. Boot-time registration in `scheduler.setup_scheduler` preserves user-edited triggers persisted in `apscheduler_jobs` (via the `_add_job_smart` helper) — code-default `CronTrigger(...)` values only apply on first registration; subsequent edits via the UI survive worker boots. To force a code default to take effect, delete the row from `apscheduler_jobs` for that job id.
     - **Account-Manager Cockpit**: A new module for account managers featuring customer spend targets, performance tracking, offer opportunities, an activity timeline, and a Greek-language Claude-powered Recommended Actions panel + per-section Ask Claude advice (gated by `customers.ask_claude`; requires `ANTHROPIC_API_KEY` secret).
 
 ### System Design Choices
