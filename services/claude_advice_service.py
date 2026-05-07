@@ -43,20 +43,38 @@ def _cfg(key: str, default: str = "") -> str:
 
 
 def _get_client():
-    api_key = _cfg("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return None
-    cached = _client_cache.get(api_key)
-    if cached is not None:
-        return cached
-    try:
-        from anthropic import Anthropic
-        client = Anthropic(api_key=api_key)
-        _client_cache[api_key] = client
-        return client
-    except Exception:
-        logger.exception("Failed to initialise Anthropic client")
-        return None
+    # Prefer Replit-managed AI Integration credentials (no personal API key needed).
+    # Falls back to a direct ANTHROPIC_API_KEY if set (e.g. dev/local use).
+    ai_key      = _cfg("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
+    ai_base_url = _cfg("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "")
+    direct_key  = _cfg("ANTHROPIC_API_KEY", "")
+
+    if ai_key and ai_base_url:
+        cache_key = ai_key
+        cached = _client_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=ai_key, base_url=ai_base_url)
+            _client_cache[cache_key] = client
+            return client
+        except Exception:
+            logger.exception("Failed to initialise Anthropic client (AI Integrations)")
+            return None
+    elif direct_key:
+        cached = _client_cache.get(direct_key)
+        if cached is not None:
+            return cached
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=direct_key)
+            _client_cache[direct_key] = client
+            return client
+        except Exception:
+            logger.exception("Failed to initialise Anthropic client (direct key)")
+            return None
+    return None
 
 
 GREEK_SYSTEM_PROMPT = """\
@@ -223,7 +241,7 @@ def generate_cockpit_advice(snapshot: dict) -> dict:
         return cached if isinstance(cached, dict) else json.loads(cached)
 
     user_content = json.dumps(payload, ensure_ascii=False, default=str)
-    model = _cfg("CLAUDE_MODEL", "claude-sonnet-4-5")
+    model = _cfg("CLAUDE_MODEL", "claude-sonnet-4-6")
 
     resp = client.messages.create(
         model=model,

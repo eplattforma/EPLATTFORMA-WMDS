@@ -75,3 +75,4 @@ Preferred communication style: Simple, everyday language.
 - **Magento/BSS**: For customer pricing and abandoned cart data.
 - **Playwright**: Browser automation for ERP export bot (e.g., item costs).
 - **APScheduler**: Background scheduler for managing cron jobs.
+- **Anthropic Claude** (via Replit AI Integrations): Powers the Greek-language Recommended Actions panel and per-section "Ask Claude" advice in the Account-Manager Cockpit. Uses Replit-managed credentials (`AI_INTEGRATIONS_ANTHROPIC_API_KEY` + `AI_INTEGRATIONS_ANTHROPIC_BASE_URL`); falls back to `ANTHROPIC_API_KEY` secret if set. Model: `claude-sonnet-4-6` (configurable via `CLAUDE_MODEL` env var).
