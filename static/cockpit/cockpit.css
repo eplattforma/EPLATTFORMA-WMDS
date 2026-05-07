@@ -35,3 +35,30 @@
 @media (max-width: 768px) {
   .cockpit-page .kpi-value { font-size: 1.3rem; }
 }
+
+/* ── Login Behaviour heatmap ───────────────────────────────────────────── */
+.login-heatmap { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.login-heatmap th { text-align: center; padding: 4px 6px; color: #6c757d;
+                    font-weight: 500; white-space: nowrap; }
+.login-heatmap td { text-align: center; padding: 5px 4px; border-radius: 3px;
+                    min-width: 36px; cursor: default; }
+.login-heatmap td.hb-0 { background: #f8f9fa; color: #adb5bd; }
+.login-heatmap td.hb-1 { background: #d0e8ff; color: #0d6efd; }
+.login-heatmap td.hb-2 { background: #9ecbf7; color: #0a58ca; }
+.login-heatmap td.hb-3 { background: #5badee; color: #fff; }
+.login-heatmap td.hb-4 { background: #2188dd; color: #fff; }
+.login-heatmap td.hb-5 { background: #0d6efd; color: #fff; font-weight: 600; }
+.login-heatmap-wrap { overflow-x: auto; }
+
+/* Trend arrows */
+.trend-up   { color: #198754; font-weight: 600; }
+.trend-down { color: #dc3545; font-weight: 600; }
+.trend-stable { color: #6c757d; }
+
+/* Login insights fleet page */
+.login-insights-page .section-card { margin-bottom: 1.5rem; }
+.login-insights-page .cockpit-tbl-wrap { max-height: 420px; overflow-y: auto; }
+.login-insights-page .cockpit-tbl-wrap table { font-size: .85rem; }
+.login-insights-page .cockpit-tbl-wrap thead th {
+  position: sticky; top: 0; background: #fff; z-index: 1;
+}

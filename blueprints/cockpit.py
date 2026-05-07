@@ -370,6 +370,16 @@ def api_advice(customer_code):
         return jsonify({"message": GREEK_500}), 500
 
 
+@cockpit_bp.route("/login-insights")
+@login_required
+@require_permission_hard("customers.use_cockpit")
+def login_insights():
+    """Fleet-level login behaviour intelligence for marketing planning."""
+    from services.cockpit_data import get_login_insights_fleet
+    data = get_login_insights_fleet(top_n=500)
+    return render_template("cockpit/login_insights.html", data=data)
+
+
 @cockpit_bp.route("/api/targets/bulk_set", methods=["POST"])
 @login_required
 @require_permission_hard("customers.approve_target")

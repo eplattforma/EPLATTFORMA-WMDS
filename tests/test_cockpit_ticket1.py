@@ -60,12 +60,17 @@ def flag_off(appctx):
 
 def test_master_flag_off_returns_404_for_all_routes(flag_off):
     client = app.test_client()
+    # GET routes — before_request gate fires and aborts(404)
     for path in ("/cockpit/", "/cockpit/12345", "/cockpit/admin/targets",
                  "/cockpit/api/12345/target",
                  "/cockpit/api/search?q=x",
-                 "/cockpit/api/targets/bulk_set"):
+                 "/cockpit/login-insights"):
         r = client.get(path)
         assert r.status_code == 404, f"{path} returned {r.status_code}, expected 404"
+    # POST-only routes — must be tested with POST (GET → 405 before before_request fires)
+    for path in ("/cockpit/api/targets/bulk_set",):
+        r = client.post(path, json={})
+        assert r.status_code == 404, f"POST {path} returned {r.status_code}, expected 404"
 
 
 def test_search_redirects_on_exact_code_match(real_customer):

@@ -295,6 +295,211 @@ def _compute_engagement_score(customer_code: str, header: dict) -> dict:
     }
 
 
+def _fetch_login_behaviour(customer_code: str, lookback_days: int = 90) -> dict | None:
+    """Returns login pattern analysis for one customer.
+
+    Reads from magento_customer_login_log (full history table).
+
+    Returns dict with keys:
+      heatmap                   — list of {day_of_week, time_bucket, count}
+                                  where day_of_week is 0=Mon..6=Sun
+                                  and time_bucket is "morning"/"afternoon"/"evening"
+      peak_day_name             — Greek string like "Τρίτη" or None
+      peak_hour_range           — string like "14:00 – 16:00" or None
+      avg_session_minutes       — float (capped at 120) or None
+      session_count_with_logout — int
+      logins_last_30d           — int
+      logins_prev_30d           — int
+      trend_direction           — "up" / "down" / "stable" / None
+      trend_pct                 — float or None
+      last_login_at             — datetime or None
+      total_logins_in_window    — int
+      best_contact_window       — human-readable text (Greek)
+      data_quality              — "good" / "limited" / "insufficient"
+
+    Returns None when the customer has no login history in the window.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=lookback_days)
+    cutoff_30d = now - timedelta(days=30)
+    cutoff_60d = now - timedelta(days=60)
+
+    # ── 1. Heatmap: logins bucketed by day-of-week × time-of-day ──────────
+    #   Postgres DOW: 0=Sun..6=Sat → convert to 0=Mon..6=Sun via (DOW+6)%7
+    #   Time buckets use Europe/Athens local time (customers are Greek B2B).
+    #   00:00–05:59 Athens is treated as "evening" (late-night / previous day).
+    heatmap_rows = db.session.execute(text("""
+        SELECT
+            ((EXTRACT(DOW FROM last_login_at AT TIME ZONE 'Europe/Athens'))::int + 6) % 7
+                AS dow,
+            CASE
+                WHEN EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens') < 6
+                    THEN 'evening'
+                WHEN EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens') < 12
+                    THEN 'morning'
+                WHEN EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens') < 18
+                    THEN 'afternoon'
+                ELSE 'evening'
+            END AS time_bucket,
+            COUNT(*) AS cnt
+        FROM magento_customer_login_log
+        WHERE customer_code_365 = :code
+          AND last_login_at >= :cutoff
+        GROUP BY dow, time_bucket
+    """), {"code": customer_code, "cutoff": cutoff}).mappings().all()
+
+    total_logins_in_window = sum(int(r["cnt"]) for r in heatmap_rows)
+    if total_logins_in_window == 0:
+        return None
+
+    heatmap = [
+        {"day_of_week": int(r["dow"]), "time_bucket": r["time_bucket"],
+         "count": int(r["cnt"])}
+        for r in heatmap_rows
+    ]
+
+    data_quality = (
+        "good"        if total_logins_in_window >= 10 else
+        "limited"     if total_logins_in_window >= 3  else
+        "insufficient"
+    )
+
+    # ── 2. Peak day ────────────────────────────────────────────────────────
+    DAY_NAMES_EL = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη",
+                    "Παρασκευή", "Σάββατο", "Κυριακή"]
+
+    day_totals: dict[int, int] = {}
+    for r in heatmap_rows:
+        d = int(r["dow"])
+        day_totals[d] = day_totals.get(d, 0) + int(r["cnt"])
+
+    peak_day_num: int | None = None
+    peak_day_name: str | None = None
+    if day_totals:
+        max_cnt = max(day_totals.values())
+        tied = [d for d, c in day_totals.items() if c == max_cnt]
+        if len(tied) > 1:
+            rec = db.session.execute(text("""
+                SELECT ((EXTRACT(DOW FROM last_login_at AT TIME ZONE 'Europe/Athens'))::int + 6) % 7
+                           AS dow
+                FROM magento_customer_login_log
+                WHERE customer_code_365 = :code
+                  AND last_login_at >= :cutoff
+                  AND ((EXTRACT(DOW FROM last_login_at AT TIME ZONE 'Europe/Athens'))::int + 6) % 7
+                      = ANY(:days)
+                ORDER BY last_login_at DESC LIMIT 1
+            """), {"code": customer_code, "cutoff": cutoff,
+                   "days": tied}).mappings().first()
+            peak_day_num = int(rec["dow"]) if rec else tied[0]
+        else:
+            peak_day_num = tied[0]
+
+        if day_totals.get(peak_day_num, 0) >= 5:
+            peak_day_name = DAY_NAMES_EL[peak_day_num]
+
+    # ── 3. Peak 2-hour window ──────────────────────────────────────────────
+    peak_hour_range: str | None = None
+    if total_logins_in_window >= 5:
+        hour_rows = db.session.execute(text("""
+            SELECT EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens')::int AS hr,
+                   COUNT(*) AS cnt
+            FROM magento_customer_login_log
+            WHERE customer_code_365 = :code AND last_login_at >= :cutoff
+            GROUP BY hr
+        """), {"code": customer_code, "cutoff": cutoff}).mappings().all()
+        hour_map = {int(r["hr"]): int(r["cnt"]) for r in hour_rows}
+        best_start, best_sum = None, 0
+        for h in range(24):
+            s = hour_map.get(h, 0) + hour_map.get((h + 1) % 24, 0)
+            if s > best_sum:
+                best_sum, best_start = s, h
+        if best_start is not None and best_sum > 0:
+            end_h = (best_start + 2) % 24
+            peak_hour_range = f"{best_start:02d}:00 – {end_h:02d}:00"
+
+    # ── 4. Session duration (only rows with both login + logout) ───────────
+    session_rows = db.session.execute(text("""
+        SELECT EXTRACT(EPOCH FROM (last_logout_at - last_login_at)) / 60.0 AS dur
+        FROM magento_customer_login_log
+        WHERE customer_code_365 = :code
+          AND last_login_at >= :cutoff
+          AND last_logout_at IS NOT NULL
+          AND last_logout_at > last_login_at
+          AND EXTRACT(EPOCH FROM (last_logout_at - last_login_at)) / 60.0 <= 120
+    """), {"code": customer_code, "cutoff": cutoff}).mappings().all()
+    valid_durs = [float(r["dur"]) for r in session_rows if r["dur"] is not None]
+    avg_session_minutes = (
+        round(sum(valid_durs) / len(valid_durs), 1)
+        if len(valid_durs) >= 3 else None
+    )
+    session_count_with_logout = len(valid_durs)
+
+    # ── 5. Trend: last 30d vs previous 30d ────────────────────────────────
+    trend_row = db.session.execute(text("""
+        SELECT
+            COUNT(*) FILTER (WHERE last_login_at >= :c30) AS last_30d,
+            COUNT(*) FILTER (WHERE last_login_at >= :c60 AND last_login_at < :c30) AS prev_30d
+        FROM magento_customer_login_log
+        WHERE customer_code_365 = :code AND last_login_at >= :c60
+    """), {"code": customer_code, "c30": cutoff_30d, "c60": cutoff_60d}).mappings().first()
+
+    logins_last_30d = int(trend_row["last_30d"]) if trend_row else 0
+    logins_prev_30d = int(trend_row["prev_30d"]) if trend_row else 0
+    trend_direction: str | None = None
+    trend_pct: float | None = None
+    if logins_prev_30d > 0:
+        pct = (logins_last_30d - logins_prev_30d) / logins_prev_30d * 100
+        trend_pct = round(pct, 1)
+        trend_direction = "up" if pct > 20 else ("down" if pct < -20 else "stable")
+
+    # ── 6. Last login timestamp ────────────────────────────────────────────
+    last_row = db.session.execute(text("""
+        SELECT MAX(last_login_at) AS last_login
+        FROM magento_customer_login_log WHERE customer_code_365 = :code
+    """), {"code": customer_code}).mappings().first()
+    last_login_at = last_row["last_login"] if last_row else None
+
+    # ── 7. Best contact window text (Greek-first) ──────────────────────────
+    if data_quality == "good" and peak_day_name and peak_hour_range:
+        start_h = int(peak_hour_range.split(":")[0])
+        if start_h >= 18 or start_h < 6:
+            earlier = "το απόγευμα"
+        elif start_h >= 12:
+            earlier = "το πρωί"
+        else:
+            earlier = "νωρίς το πρωί"
+        best_contact_window = (
+            f"Συνδέεται συνήθως {peak_day_name} {peak_hour_range}. "
+            f"Στείλτε επικοινωνία {earlier} για μέγιστη αποδοχή."
+        )
+    else:
+        best_contact_window = (
+            "Ανεπαρκή δεδομένα σύνδεσης — επικοινωνήστε μέσω "
+            "του προτιμώμενου καναλιού."
+        )
+
+    logger.info(
+        "login_behaviour(%s): %d logins in %dd, peak_day=%s, quality=%s",
+        customer_code, total_logins_in_window, lookback_days,
+        peak_day_name, data_quality,
+    )
+    return {
+        "heatmap": heatmap,
+        "peak_day_name": peak_day_name,
+        "peak_hour_range": peak_hour_range,
+        "avg_session_minutes": avg_session_minutes,
+        "session_count_with_logout": session_count_with_logout,
+        "logins_last_30d": logins_last_30d,
+        "logins_prev_30d": logins_prev_30d,
+        "trend_direction": trend_direction,
+        "trend_pct": trend_pct,
+        "last_login_at": last_login_at,
+        "total_logins_in_window": total_logins_in_window,
+        "best_contact_window": best_contact_window,
+        "data_quality": data_quality,
+    }
+
+
 def _fetch_open_orders(customer_code: str) -> dict:
     """Open / pending orders. Reads the canonical sources used by the rest
     of the codebase (`crm_customer_open_orders` rollup written by the
@@ -1207,6 +1412,11 @@ def _build_cockpit_payload(customer_code: str, period_days: int,
                                                      header.get("magento_customer_id")),
                      [], "activity_timeline")
     freshness = _safe(lambda: _fetch_data_freshness(), {}, "data_freshness")
+    login_behaviour = _safe(
+        lambda: _fetch_login_behaviour(customer_code, lookback_days=90),
+        None,
+        "login_behaviour",
+    )
 
     payload = {
         "header": header,
@@ -1243,5 +1453,162 @@ def _build_cockpit_payload(customer_code: str, period_days: int,
         "activity_timeline": timeline,
         "data_freshness": freshness,
         "recommended_actions": [],  # Ticket 3.
+        "login_behaviour": login_behaviour,
     }
     return payload
+
+
+# ── Fleet-level login analytics ──────────────────────────────────────────────
+
+def get_login_insights_fleet(top_n: int = 500) -> dict:
+    """Fleet-level login analytics for /cockpit/login-insights.
+
+    Returns dict with:
+      most_engaged       — top 20 by logins in last 30 days
+      at_risk            — customers whose login freq dropped 30%+ vs prior 30d
+      dow_heatmap        — aggregated {day_of_week, time_bucket, count} for last 90d
+      dormant_with_sales — no login 14+d but invoiced in last 60d
+      generated_at       — UTC datetime
+    """
+    now = datetime.now(timezone.utc)
+    cutoff_30d  = now - timedelta(days=30)
+    cutoff_60d  = now - timedelta(days=60)
+    cutoff_90d  = now - timedelta(days=90)
+
+    # Ensure index exists once per process lifetime (harmless if already present)
+    try:
+        db.session.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_login_log_customer_time
+              ON magento_customer_login_log (customer_code_365, last_login_at DESC)
+        """))
+        db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+    # ── Most engaged: top 20 by logins in last 30 days ────────────────────
+    engaged_rows = db.session.execute(text("""
+        SELECT
+            l.customer_code_365,
+            COALESCE(c.company_name, l.customer_code_365) AS company_name,
+            COUNT(*) AS logins_last_30d,
+            MAX(l.last_login_at) AS last_login_at,
+            COUNT(*) FILTER (
+                WHERE l.last_login_at >= :c60 AND l.last_login_at < :c30
+            ) AS logins_prev_30d
+        FROM magento_customer_login_log l
+        LEFT JOIN ps_customers c ON c.customer_code_365 = l.customer_code_365
+        WHERE l.last_login_at >= :c30
+        GROUP BY l.customer_code_365, c.company_name
+        ORDER BY logins_last_30d DESC
+        LIMIT 20
+    """), {"c30": cutoff_30d, "c60": cutoff_60d}).mappings().all()
+
+    most_engaged = []
+    for r in engaged_rows:
+        prev = int(r["logins_prev_30d"] or 0)
+        last = int(r["logins_last_30d"] or 0)
+        trend = "→"
+        if prev > 0:
+            pct = (last - prev) / prev * 100
+            trend = "↑" if pct > 20 else ("↓" if pct < -20 else "→")
+        most_engaged.append({
+            "customer_code": r["customer_code_365"],
+            "company_name": r["company_name"],
+            "logins_last_30d": last,
+            "logins_prev_30d": prev,
+            "last_login_at": r["last_login_at"],
+            "trend": trend,
+        })
+
+    # ── At-risk: login frequency dropped 30%+ vs prior 30-day window ──────
+    at_risk_rows = db.session.execute(text("""
+        WITH counts AS (
+            SELECT
+                l.customer_code_365,
+                COUNT(*) FILTER (WHERE l.last_login_at >= :c30)                         AS last_30d,
+                COUNT(*) FILTER (WHERE l.last_login_at >= :c60 AND l.last_login_at < :c30) AS prev_30d,
+                MAX(l.last_login_at)                                                     AS last_login_at
+            FROM magento_customer_login_log l
+            WHERE l.last_login_at >= :c60
+            GROUP BY l.customer_code_365
+        )
+        SELECT
+            c2.customer_code_365,
+            COALESCE(ps.company_name, c2.customer_code_365) AS company_name,
+            c2.last_30d,
+            c2.prev_30d,
+            c2.last_login_at,
+            ROUND(
+                (c2.last_30d::numeric - c2.prev_30d) / NULLIF(c2.prev_30d, 0) * 100,
+                1
+            ) AS drop_pct
+        FROM counts c2
+        LEFT JOIN ps_customers ps ON ps.customer_code_365 = c2.customer_code_365
+        WHERE c2.prev_30d > 5
+          AND c2.last_30d < c2.prev_30d * 0.7
+        ORDER BY (c2.prev_30d - c2.last_30d) DESC
+        LIMIT 20
+    """), {"c30": cutoff_30d, "c60": cutoff_60d}).mappings().all()
+
+    at_risk = [dict(r) for r in at_risk_rows]
+
+    # ── DOW heatmap: all customers, last 90 days ───────────────────────────
+    dow_rows = db.session.execute(text("""
+        SELECT
+            ((EXTRACT(DOW FROM last_login_at AT TIME ZONE 'Europe/Athens'))::int + 6) % 7
+                AS dow,
+            CASE
+                WHEN EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens') < 6  THEN 'evening'
+                WHEN EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens') < 12 THEN 'morning'
+                WHEN EXTRACT(HOUR FROM last_login_at AT TIME ZONE 'Europe/Athens') < 18 THEN 'afternoon'
+                ELSE 'evening'
+            END AS time_bucket,
+            COUNT(*) AS cnt
+        FROM magento_customer_login_log
+        WHERE last_login_at >= :c90
+        GROUP BY dow, time_bucket
+    """), {"c90": cutoff_90d}).mappings().all()
+
+    dow_heatmap = [
+        {"day_of_week": int(r["dow"]), "time_bucket": r["time_bucket"],
+         "count": int(r["cnt"])}
+        for r in dow_rows
+    ]
+
+    # ── Dormant but recently bought ────────────────────────────────────────
+    # "Dormant" = no login for 14+ days; "recently bought" = invoices in last 60d.
+    # Uses the `invoices` table (customer_code_365, upload_date as VARCHAR 'YYYY-MM-DD').
+    dormant_rows = db.session.execute(text("""
+        SELECT
+            l.customer_code_365,
+            COALESCE(ps.company_name, l.customer_code_365) AS company_name,
+            l.last_login_at,
+            SUM(i.total_grand)  AS recent_invoice_value,
+            MAX(i.upload_date)  AS last_invoice_date
+        FROM magento_customer_last_login_current l
+        JOIN ps_customers ps ON ps.customer_code_365 = l.customer_code_365
+        JOIN invoices i ON i.customer_code_365 = l.customer_code_365
+        WHERE (l.last_login_at IS NULL
+               OR l.last_login_at < NOW() - INTERVAL '14 days')
+          AND i.upload_date >= to_char(NOW() - INTERVAL '60 days', 'YYYY-MM-DD')
+        GROUP BY l.customer_code_365, ps.company_name, l.last_login_at
+        ORDER BY recent_invoice_value DESC
+        LIMIT 30
+    """)).mappings().all()
+
+    dormant_with_sales = [dict(r) for r in dormant_rows]
+
+    logger.info(
+        "login_insights_fleet: %d engaged, %d at_risk, %d dormant_with_sales",
+        len(most_engaged), len(at_risk), len(dormant_with_sales),
+    )
+    return {
+        "most_engaged": most_engaged,
+        "at_risk": at_risk,
+        "dow_heatmap": dow_heatmap,
+        "dormant_with_sales": dormant_with_sales,
+        "generated_at": now,
+    }

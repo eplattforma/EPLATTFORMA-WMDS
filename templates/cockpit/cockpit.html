@@ -9,6 +9,11 @@
     <div class="card-body py-2">
       <div class="d-flex flex-wrap align-items-center gap-3">
         <a href="/cockpit/" class="btn btn-sm btn-outline-secondary">← Search</a>
+        {% if has_permission('customers.use_cockpit') %}
+          <a href="/cockpit/login-insights" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-chart-bar me-1"></i>Login Insights
+          </a>
+        {% endif %}
         <div>
           <div class="fs-4 mb-0">
             {% if data %}{{ data.header.customer_name or '(no name)' }}{% else %}{{ customer_code }}{% endif %}
@@ -581,6 +586,123 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Login Behaviour panel ──────────────────────────────────── #}
+  {% if data.login_behaviour %}
+  {% set lb = data.login_behaviour %}
+  {# Build a flat lookup: "dow_bucket" → count, e.g. "0_morning" → 3 #}
+  {% set hm = namespace(d={}) %}
+  {% for cell in lb.heatmap %}
+    {% set key = cell.day_of_week|string + '_' + cell.time_bucket %}
+    {% set _ = hm.d.update({key: cell.count}) %}
+  {% endfor %}
+  {# Intensity class: 0→hb-0, 1-2→hb-1, 3-5→hb-2, 6-10→hb-3, 11-20→hb-4, 21+→hb-5 #}
+  {%- macro hb_class(n) -%}
+    {%- if n == 0 %}hb-0
+    {%- elif n <= 2 %}hb-1
+    {%- elif n <= 5 %}hb-2
+    {%- elif n <= 10 %}hb-3
+    {%- elif n <= 20 %}hb-4
+    {%- else %}hb-5{% endif -%}
+  {%- endmacro -%}
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center">
+      <strong><i class="fas fa-right-to-bracket me-2"></i>Login Behaviour</strong>
+      <span class="ms-auto small text-muted">last 90 days</span>
+      {% if has_permission('customers.ask_claude') %}
+        <button type="button" class="btn btn-sm btn-outline-primary ms-2"
+                onclick="askClaude('login')">✦ Ask Claude about logins</button>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-lg-8">
+          <div class="login-heatmap-wrap">
+            <table class="login-heatmap">
+              <thead>
+                <tr>
+                  <th></th>
+                  {% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+                    <th>{{ day }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for bucket in ['morning','afternoon','evening'] %}
+                  <tr>
+                    <th class="text-start pe-2">
+                      {% if bucket == 'morning' %}Morning<br><span class="text-muted" style="font-size:.7rem">06–12</span>
+                      {% elif bucket == 'afternoon' %}Afternoon<br><span class="text-muted" style="font-size:.7rem">12–18</span>
+                      {% else %}Evening<br><span class="text-muted" style="font-size:.7rem">18–06</span>
+                      {% endif %}
+                    </th>
+                    {% for dow in range(7) %}
+                      {% set cnt = hm.d.get(dow|string + '_' + bucket, 0) %}
+                      <td class="{{ hb_class(cnt) }}" title="{{ cnt }} login{{ 's' if cnt != 1 }}">
+                        {{ cnt if cnt > 0 else '' }}
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="d-flex flex-column gap-2 small">
+            <div>
+              <span class="text-muted">Total logins (90d)</span><br>
+              <strong>{{ lb.total_logins_in_window }}</strong>
+              <span class="badge ms-1
+                {% if lb.data_quality == 'good' %}bg-success
+                {% elif lb.data_quality == 'limited' %}bg-warning text-dark
+                {% else %}bg-secondary{% endif %}">
+                {{ lb.data_quality }}
+              </span>
+            </div>
+            {% if lb.peak_day_name %}
+            <div>
+              <span class="text-muted">Peak day</span><br>
+              <strong>{{ lb.peak_day_name }}</strong>
+              {% if lb.peak_hour_range %}<span class="text-muted ms-1">{{ lb.peak_hour_range }}</span>{% endif %}
+            </div>
+            {% endif %}
+            <div>
+              <span class="text-muted">Last 30d vs prev 30d</span><br>
+              <strong>{{ lb.logins_last_30d }}</strong> vs {{ lb.logins_prev_30d }}
+              {% if lb.trend_direction == 'up' %}
+                <span class="trend-up ms-1">↑ {{ lb.trend_pct }}%</span>
+              {% elif lb.trend_direction == 'down' %}
+                <span class="trend-down ms-1">↓ {{ lb.trend_pct }}%</span>
+              {% elif lb.trend_direction == 'stable' %}
+                <span class="trend-stable ms-1">→ stable</span>
+              {% endif %}
+            </div>
+            {% if lb.avg_session_minutes is not none %}
+            <div>
+              <span class="text-muted">Avg session</span><br>
+              <strong>{{ lb.avg_session_minutes }} min</strong>
+              <span class="text-muted">({{ lb.session_count_with_logout }} w/ logout)</span>
+            </div>
+            {% endif %}
+            {% if lb.last_login_at %}
+            <div>
+              <span class="text-muted">Last login</span><br>
+              <strong>{{ lb.last_login_at|local_time('%d/%m/%y %H:%M') }}</strong>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if lb.best_contact_window %}
+      <div class="alert alert-info mt-3 mb-0 py-2 small">
+        <i class="fas fa-lightbulb me-1"></i>
+        <strong>Marketing insight:</strong> {{ lb.best_contact_window }}
+      </div>
+      {% endif %}
     </div>
   </div>
   {% endif %}

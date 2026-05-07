@@ -654,3 +654,43 @@ The cache table `ai_feedback_cache` is shared with the legacy OpenAI service (`a
 **Feature flag / rollback:** None — pure UI; rollback is "remove the Feature Flags card + modal + helper". No schema or settings rows are introduced beyond ones admins explicitly toggle.
 
 **Reversibility:** High — single section in `admin_settings.html` and a self-contained POST short-circuit at the top of `admin_settings`.
+
+---
+
+## Task #28 — Login Behaviour Analytics (2026-05-07)
+
+### ASSUMPTION-T28-001: Heatmap colour intensity thresholds (per-customer)
+Absolute count thresholds: hb-0=0, hb-1=1–2, hb-2=3–5, hb-3=6–10, hb-4=11–20, hb-5=21+. B2B customers log in infrequently; absolute thresholds make sparse data readable. Fleet heatmap uses relative thresholds (% of max cell) since aggregate volume varies widely.
+
+### ASSUMPTION-T28-002: Greek day names for peak_day_name
+Full Greek day names used: Δευτέρα, Τρίτη, Τετάρτη, Πέμπτη, Παρασκευή, Σάββατο, Κυριακή.
+
+### ASSUMPTION-T28-003: "One step earlier" logic for marketing insight
+Evening peak → suggest "το απόγευμα"; Afternoon → "το πρωί"; Morning → "νωρίς το πρωί". Goal: land in inbox before the ordering session starts.
+
+### ASSUMPTION-T28-004: Postgres DOW conversion
+`(EXTRACT(DOW FROM ...) + 6) % 7` converts Postgres DOW (0=Sun) to task spec (0=Mon, 6=Sun).
+
+### ASSUMPTION-T28-005: 00:00–05:59 mapped to "evening" bucket
+Late-night logins placed in the "evening" row (same as 18:00–23:59) per task brief. Represents same behavioural category for B2B analysis.
+
+### ASSUMPTION-T28-006: Peak hour window wraps at midnight
+Hour 23 + hour 0 treated as a contiguous pair using `(h+1) % 24`. Correctly identifies a 23:00–01:00 peak.
+
+### ASSUMPTION-T28-007: Trend window definitions
+`logins_last_30d` = now−30d to now; `logins_prev_30d` = now−60d to now−30d. Independent of the 90-day heatmap window.
+
+### ASSUMPTION-T28-008: `invoice_headers` → `invoices` table
+Task brief references `invoice_headers` (does not exist). The `invoices` table (model `Invoice`, columns: customer_code_365, upload_date VARCHAR 'YYYY-MM-DD', total_grand) is used instead.
+
+### ASSUMPTION-T28-009: `upload_date` string comparison in dormant query
+`upload_date >= to_char(NOW() - INTERVAL '60 days', 'YYYY-MM-DD')` — lexicographic comparison works because upload_date is consistently formatted as 'YYYY-MM-DD'.
+
+### ASSUMPTION-T28-010: `login_behaviour` in `_clip_payload` for Claude
+Added to key list. Since `login_behaviour` is a dict (not a list), the list-clipping branch is not triggered — dict passes through whole. Heatmap has ≤21 cells so no clipping is needed.
+
+### ASSUMPTION-T28-011: Fleet heatmap colour intensity is relative
+Fleet heatmap uses relative thresholds (% of max cell). Aggregate counts are much higher than per-customer; relative scale shows meaningful variation across days/buckets.
+
+### ASSUMPTION-T28-012: T14/T15 implemented as blueprint source-code assertions
+HTTP-level tests verify the route and permission decorator exist in the blueprint source rather than requiring an authenticated live session. The actual HTTP behaviour is covered by `_gate_master_flag` + `require_permission_hard`, which are regression-tested in `test_cockpit_ticket1.py` (now extended to include `/cockpit/login-insights`).

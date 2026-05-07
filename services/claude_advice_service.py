@@ -85,6 +85,9 @@ CONTENT RULES:
 - Prefer actions the AM can execute today (assign offer, propose order, send SMS).
 - Tie expected impact to the gap. "Κλείνει €X από το €Y gap" beats "increases sales".
 - If data doesn't support a recommendation, omit it. Do not pad.
+- Έχεις πρόσβαση σε δεδομένα συνδέσεων του πελάτη: peak_day_name, peak_hour_range,
+  trend_direction, last_login_at (στο login_behaviour του snapshot). Χρησιμοποίησέ τα
+  όταν είναι σχετικά για να προτείνεις πότε ο AM να επικοινωνήσει με τον πελάτη.
 
 OUTPUT FORMAT:
 Return valid JSON with these exact top-level keys (no wrapper):
@@ -120,7 +123,8 @@ def _clip_payload(payload: dict) -> dict:
     for k in ("white_space", "lapsed_items", "top_items_by_gp",
               "top_items_by_revenue", "price_index_outliers", "trend",
               "category_mix_vs_peers", "active_offers", "offer_opportunities",
-              "cross_sell", "churn_risk_by_category", "activity_timeline"):
+              "cross_sell", "churn_risk_by_category", "activity_timeline",
+              "login_behaviour"):
         v = p.get(k)
         if isinstance(v, list):
             p[k] = v[:MAX_ROWS]
