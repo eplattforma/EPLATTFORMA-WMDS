@@ -224,16 +224,18 @@
                         <img src="{{ url_for('static', filename='images/warning.gif') }}" alt="Warning" style="width: 25px; height: auto; margin-right: 15px;">
                         {% endif %}
                         <span>
+                            {% set _disp_qty = item.display_qty or item.total_qty %}
+                            {% set _disp_unit = item.display_unit_type or item.unit_type %}
                             {% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' %}
-                                {% if item.display_unit_type == 'Pieces' %}
-                                    {{ item.display_qty|int }} {{ item.display_unit_type }}
+                                {% if _disp_unit == 'Pieces' %}
+                                    {{ _disp_qty|int }} {{ _disp_unit }}
                                 {% elif item.unit_type|lower not in ['piece', 'item'] %}
-                                    {{ item.display_qty|int }} {{ item.unit_type }} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>
+                                    {{ _disp_qty|int }} {{ item.unit_type }} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>
                                 {% else %}
-                                    {{ item.display_qty|int }} {{ item.unit_type }}
+                                    {{ _disp_qty|int }} {{ item.unit_type }}
                                 {% endif %}
                             {% else %}
-                                {{ item.display_qty|int }} {{ item.display_unit_type }}
+                                {{ _disp_qty|int }} {{ _disp_unit }}
                             {% endif %}
                         </span>
                     </div>
@@ -305,7 +307,9 @@
                 
                 <div class="text-center mb-3">
                     <!-- Quantity Display - Large, Bold and Yellow -->
-                    <h2 class="display-5 fw-bold mb-3">Pick <span id="expectedQuantity" style="color: #ffff00; background-color: #000; padding: 5px 10px; border-radius: 5px;">{{ item.display_qty|int }}</span> {{ item.display_unit_type }}{% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' and item.display_unit_type != 'Pieces' and item.unit_type|lower not in ['piece', 'item'] %} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>{% endif %}</h2>
+                    {% set _disp_qty2 = item.display_qty or item.total_qty %}
+                    {% set _disp_unit2 = item.display_unit_type or item.unit_type %}
+                    <h2 class="display-5 fw-bold mb-3">Pick <span id="expectedQuantity" style="color: #ffff00; background-color: #000; padding: 5px 10px; border-radius: 5px;">{{ _disp_qty2|int }}</span> {{ _disp_unit2 }}{% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' and _disp_unit2 != 'Pieces' and item.unit_type|lower not in ['piece', 'item'] %} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>{% endif %}</h2>
                 </div>
                 
                 <!-- Quantity Entry Section for items > 1 -->
