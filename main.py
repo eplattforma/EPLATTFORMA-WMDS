@@ -296,6 +296,8 @@ app.register_blueprint(replenishment_bp)
 
 from blueprints.cooler_picking import cooler_bp, register_template_helpers as _register_cooler_helpers
 app.register_blueprint(cooler_bp)
+from blueprints.cooler_admin import cooler_admin_bp
+app.register_blueprint(cooler_admin_bp)
 _register_cooler_helpers(app)
 
 from blueprints.forecast_workbench import forecast_bp
@@ -453,6 +455,12 @@ if _db_available:
         update_phase5_cooler_picking_schema()
     except Exception as e:
         logging.error(f"Phase 5 cooler picking schema updater failed: {e}")
+
+    try:
+        from update_phase6_cooler_integration_schema import update_phase6_cooler_integration_schema
+        update_phase6_cooler_integration_schema()
+    except Exception as e:
+        logging.error(f"Phase 6 cooler integration schema updater failed: {e}")
 
     try:
         from update_batch_number_schema import update_database_schema as update_batch_number_schema

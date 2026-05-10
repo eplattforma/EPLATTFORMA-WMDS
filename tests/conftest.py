@@ -36,6 +36,16 @@ def app():
     import routes  # Main routes
     import routes_operations  # CSV export routes
     import routes_batch  # Other routes
+
+    # Register cooler_admin blueprint up-front so it's available before
+    # any test makes its first request (Flask blocks late blueprint
+    # registration once the URL map has been finalized by a request).
+    try:
+        from blueprints.cooler_admin import cooler_admin_bp
+        if "cooler_admin" not in app.blueprints:
+            app.register_blueprint(cooler_admin_bp)
+    except Exception:
+        pass
     
     # Create the database and tables
     with app.app_context():

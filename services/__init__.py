@@ -116,6 +116,26 @@ def attach_invoices_to_stop(route_stop_id: int, invoice_nos: list):
         attached.append(rsi)
     
     db.session.commit()
+
+    # Phase 6 — auto-extract SENSITIVE items into the per-route cooler
+    # queue and lock them from regular picking. Honours the
+    # ``summer_cooler_mode_enabled`` flag (defaults OFF). Failure here
+    # MUST NOT roll back the route attachment — log and continue.
+    try:
+        from services.cooler_route_extraction import (
+            extract_sensitive_for_route_stop_invoices,
+        )
+        extract_sensitive_for_route_stop_invoices(attached)
+    except Exception as _cooler_exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "cooler extraction post-attach hook failed: %s", _cooler_exc,
+        )
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
     return attached
 
 

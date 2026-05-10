@@ -390,6 +390,64 @@
     </div>
     {% endif %}
 
+    {# Phase 6: Cooler Status card — shows sequence-lock state, estimator,
+       and a deep link to the picking screen. Only rendered when this route
+       has a cooler session (i.e. SENSITIVE items were extracted). #}
+    {% if cooler_status is defined and cooler_status %}
+    <div class="card mt-4 border-info">
+      <div class="card-header bg-info-subtle d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-snowflake me-2"></i>Cooler Status</span>
+        {% if cooler_status.is_locked %}
+          <span class="badge bg-success"><i class="fas fa-lock me-1"></i>Sequence locked</span>
+        {% else %}
+          <span class="badge bg-warning text-dark"><i class="fas fa-lock-open me-1"></i>Not locked</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-3"><strong>Cooler items:</strong> {{ cooler_status.total }}</div>
+          <div class="col-md-3"><strong>Sequenced:</strong>
+            <span class="text-success">{{ cooler_status.sequenced }}</span></div>
+          <div class="col-md-3"><strong>Unsequenced:</strong>
+            <span class="{{ 'text-warning' if cooler_status.unsequenced else '' }}">
+              {{ cooler_status.unsequenced }}
+            </span></div>
+          <div class="col-md-3"><strong>Picked:</strong>
+            <span class="text-info">{{ cooler_status.picked }}</span></div>
+        </div>
+        {% if cooler_estimate %}
+          <hr>
+          <div class="row">
+            <div class="col-md-6">
+              <strong>Volume:</strong> {{ cooler_estimate.total_volume_l }} L
+              · <strong>Data quality:</strong>
+              <span class="badge {% if cooler_estimate.data_quality_label == 'good' %}bg-success
+                                  {% elif cooler_estimate.data_quality_label == 'limited' %}bg-warning text-dark
+                                  {% else %}bg-danger{% endif %}">
+                {{ cooler_estimate.data_quality_label }} ({{ cooler_estimate.data_quality_pct }}%)
+              </span>
+            </div>
+            <div class="col-md-6 text-end">
+              {% if cooler_estimate.box_estimates %}
+                {% set _be = cooler_estimate.box_estimates[0] %}
+                <small>
+                  <strong>Estimated:</strong>
+                  {% for a in _be.allocation %}{{ a.count }} × {{ a.box_type_name }}{% if not loop.last %}, {% endif %}{% endfor %}
+                </small>
+              {% endif %}
+            </div>
+          </div>
+        {% endif %}
+        <div class="mt-3">
+          <a class="btn btn-sm btn-outline-primary"
+             href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date) }}">
+            <i class="fas fa-arrow-right me-1"></i>Open cooler picking screen
+          </a>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     {# Phase 5: Cooler boxes overlay (read-only, gated by cooler_driver_view_enabled). #}
     {% if cooler_driver_view_enabled is defined and cooler_driver_view_enabled() %}
         {% set _cooler_boxes = cooler_boxes_for_route(route.id, route.delivery_date) %}

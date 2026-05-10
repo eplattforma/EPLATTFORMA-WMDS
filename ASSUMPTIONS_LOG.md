@@ -694,3 +694,74 @@ Fleet heatmap uses relative thresholds (% of max cell). Aggregate counts are muc
 
 ### ASSUMPTION-T28-012: T14/T15 implemented as blueprint source-code assertions
 HTTP-level tests verify the route and permission decorator exist in the blueprint source rather than requiring an authenticated live session. The actual HTTP behaviour is covered by `_gate_master_flag` + `require_permission_hard`, which are regression-tested in `test_cockpit_ticket1.py` (now extended to include `/cockpit/login-insights`).
+
+## Task #30 — Phase 6: Cooler Picking Integration with Regular Order Picking
+
+### ASSUMPTION-T30-001: Per-route cooler session naming convention
+Phase 1 creates one `BatchPickingSession` per route with `name='COOLER-ROUTE-<rid>'`,
+`batch_number='COOLER-<rid>'`, `zones='SENSITIVE'`, `picking_mode='Cooler'`,
+`session_type='cooler_route'`. This stable naming lets later phases (lock-sequencing
+and estimator) locate the session by `name` without a separate route→session map table.
+
+### ASSUMPTION-T30-002: `summer_cooler_mode_enabled` defaults OFF
+Both the cooler-extraction post-attach hook and the lock-sequencing endpoint honour
+`Setting('summer_cooler_mode_enabled')`. If the setting row is missing, behaviour is
+treated as OFF — no extraction, no lock — so production is unaffected until an admin
+explicitly opts in.
+
+### ASSUMPTION-T30-003: Already-picked items skip the cooler queue
+If an `InvoiceItem` is already in a non-pending picking state when a route attach
+fires the extraction hook, the item is logged to `cooler_data_quality_log`
+(`issue_type='already_picked'`) and an `ActivityLog` row is written, but no
+`batch_pick_queue` row is created — picking it twice is unsafe.
+
+### ASSUMPTION-T30-004: Missing dimensions still lock + queue
+Items missing length/width/height are still extracted and locked; the data-quality
+gap is logged (`issue_type='missing_dimensions'`) and surfaced in the
+`/admin/cooler-items-missing-dimensions` report. The estimator handles them
+gracefully (downgrades confidence mode rather than crashing).
+
+### ASSUMPTION-T30-005: `cooler.lock_sequencing` permission auto-covered
+The new permission key `cooler.lock_sequencing` is intentionally NOT seeded into
+`role_permissions`. It is auto-granted by the existing wildcard rules
+`cooler.*` (warehouse_manager) and `*` (admin), matching how
+`cooler.manage_boxes` and `cooler.print_labels` already work.
+
+### ASSUMPTION-T30-006: FFD heuristic with default 70% fill efficiency
+The Phase 5 estimator uses a First-Fit-Decreasing (FFD) bin-packing heuristic with
+a per-box-type `fill_efficiency` defaulting to `0.70` (i.e. usable internal volume
+= L×W×H × 0.70). This conservatively accounts for irregular shapes, ice packs, and
+gaps. Admins can tune per box type via `/admin/cooler-box-types/`.
+
+### ASSUMPTION-T30-007: Item dimension units are centimetres
+`dw_items.length_cm/width_cm/height_cm` are interpreted as centimetres throughout
+the estimator. Volumes therefore use cm³ consistently against
+`cooler_box_types.internal_*_cm`. Box types stored in cm to match.
+
+### ASSUMPTION-T30-008: Estimator confidence modes
+`mode='good'` when at least one open `cooler_boxes` row exists for the route+dd
+(operator has already opened a box, so estimate is reliable). `mode='medium'`
+when no open box exists but the cooler session has been sequence-locked
+(extraction is complete and item set is final). `mode='low'` otherwise.
+`caveat='outsized_dimension'` is added when any single item exceeds every active
+box-type's internal dimension on at least one axis.
+
+### ASSUMPTION-T30-009: Phase 3 (late additions) and Phase 4 (cancellation/route
+removal) deferred as follow-up tasks (per user "Option B" scope decision). The
+auto-extraction hook is idempotent (handles re-attach), so a manual re-run of
+attach_invoices_to_stop is the temporary workaround for late additions until
+Phase 3 ships.
+
+### ASSUMPTION-T30-010: Test 403 handler override
+Three Phase 6 test files register a minimal `@app.errorhandler(403)` that returns
+plain text. The default handler renders `403.html`, which extends `base.html` and
+references blueprint endpoints (e.g. `help.help_dashboard`) that are not all
+registered in the bare test app — without the override, role-blocked tests
+surface as `BuildError` instead of HTTP 403. Production is unaffected.
+
+### ASSUMPTION-T30-011: `cooler_admin` blueprint registered up-front in conftest
+Phase 6 added `blueprints/cooler_admin.py`. To avoid Flask's late-blueprint-
+registration block (after the URL map is finalized by the first request),
+`tests/conftest.py` registers the blueprint inside the `app` fixture before any
+test makes its first request. This keeps the per-test fixture conditional
+(`if "cooler_admin" not in app.blueprints`) safe across cross-file test runs.

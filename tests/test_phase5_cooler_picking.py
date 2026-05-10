@@ -1258,6 +1258,7 @@ class TestArchitectFixupRegressions:
             "pick": "pick",
             "manage_boxes": "manage",
             "print_labels": "print",
+            "lock_sequencing": "manage",
         }
         for perm, guard in decorator_pairs:
             assert expected[perm] == guard, (

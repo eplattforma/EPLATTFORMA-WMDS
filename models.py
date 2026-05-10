@@ -262,6 +262,13 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
     archived_at = db.Column(UTCDateTime(), nullable=True)
     archived_by = db.Column(db.String(64), nullable=True)
 
+    # Phase 6 — Cooler / Regular-Picking Integration. Postgres tables get
+    # them via update_phase6_cooler_integration_schema.py; SQLite test DBs
+    # get them via db.create_all() reading these declarations.
+    session_type = db.Column(db.String(20), default='standard')  # 'standard' | 'cooler_route'
+    sequence_locked_at = db.Column(UTCDateTime(), nullable=True)
+    sequence_locked_by = db.Column(db.String(64), nullable=True)
+
     # Relationships
     creator = db.relationship('User', foreign_keys=[created_by], backref='created_batch_sessions')
     picker = db.relationship('User', foreign_keys=[assigned_to], backref='assigned_batch_sessions')

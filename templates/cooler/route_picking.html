@@ -2,12 +2,91 @@
 {% block title %}Cooler Picking — {{ route_id }} / {{ delivery_date }}{% endblock %}
 {% block content %}
 <div class="container-fluid my-4">
-  <h2>Cooler Picking</h2>
+  <h2><i class="fas fa-snowflake me-2"></i>Cooler Picking</h2>
   <p class="text-muted mb-4">Route {{ route_id }} · Delivery date {{ delivery_date }}</p>
 
-  <h4 class="mt-4">Cooler queue</h4>
-  {% if not queue %}
-    <div class="alert alert-info">No cooler items for this route + date.</div>
+  {# Phase 6 — Cooler Status + Lock Sequencing card #}
+  <div class="card mb-4 border-info">
+    <div class="card-header bg-info-subtle d-flex justify-content-between align-items-center">
+      <span><i class="fas fa-shield me-2"></i>Cooler Status</span>
+      {% if cooler_session and cooler_session.is_locked %}
+        <span class="badge bg-success">
+          <i class="fas fa-lock me-1"></i>
+          Sequence locked
+          {% if cooler_session.sequence_locked_by %}
+            by {{ cooler_session.sequence_locked_by }}
+          {% endif %}
+        </span>
+      {% else %}
+        <span class="badge bg-warning text-dark">
+          <i class="fas fa-lock-open me-1"></i>Not locked
+        </span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <div class="row align-items-center">
+        <div class="col-md-8">
+          <p class="mb-1"><strong>Sequenced (pickable):</strong> {{ sequenced|length }}</p>
+          <p class="mb-1">
+            <strong>Unsequenced (blocked):</strong>
+            <span class="{{ 'text-warning' if unsequenced else '' }}">
+              {{ unsequenced|length }}
+            </span>
+          </p>
+          {% if estimate %}
+            <p class="mb-1">
+              <strong>Volume:</strong> {{ estimate.total_volume_l }} L ·
+              <strong>Items:</strong> {{ estimate.item_count }} ·
+              <strong>Data quality:</strong>
+              <span class="badge {% if estimate.data_quality_label == 'good' %}bg-success
+                                  {% elif estimate.data_quality_label == 'limited' %}bg-warning text-dark
+                                  {% else %}bg-danger{% endif %}">
+                {{ estimate.data_quality_label }} ({{ estimate.data_quality_pct }}%)
+              </span>
+              · <strong>Mode:</strong> {{ estimate.mode }}
+            </p>
+            {% if estimate.box_estimates %}
+              <p class="mb-0"><small>
+                <strong>Estimated boxes:</strong>
+                {% for be in estimate.box_estimates %}
+                  {{ be.label }} —
+                  {% for a in be.allocation %}{{ a.count }} × {{ a.box_type_name }}{% if not loop.last %}, {% endif %}{% endfor %}
+                  {% if not loop.last %}<br>{% endif %}
+                {% endfor %}
+              </small></p>
+            {% endif %}
+          {% endif %}
+        </div>
+        <div class="col-md-4 text-end">
+          {% if has_permission('cooler.lock_sequencing') %}
+            <form method="post"
+                  action="{{ url_for('cooler.lock_sequencing', route_id=route_id) }}">
+              <button class="btn btn-{{ 'outline-success' if cooler_session and cooler_session.is_locked else 'success' }}"
+                      type="submit"
+                      {% if not unsequenced and cooler_session and cooler_session.is_locked %}disabled{% endif %}>
+                <i class="fas fa-lock me-1"></i>
+                {% if cooler_session and cooler_session.is_locked %}
+                  Re-lock sequencing ({{ unsequenced|length }} new)
+                {% else %}
+                  Lock cooler sequencing
+                {% endif %}
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Sequenced (pickable) queue #}
+  <h4 class="mt-4">
+    <i class="fas fa-check-circle text-success me-1"></i>Sequenced — pickable
+    <span class="badge bg-success">{{ sequenced|length }}</span>
+  </h4>
+  {% if not sequenced %}
+    <div class="alert alert-info">
+      No sequenced cooler items yet — click <strong>Lock cooler sequencing</strong> above.
+    </div>
   {% else %}
     <table class="table table-sm">
       <thead>
@@ -17,14 +96,46 @@
         </tr>
       </thead>
       <tbody>
-        {% for q in queue %}
+        {% for q in sequenced %}
           <tr>
-            <td>{{ q.stop_seq_no if q.stop_seq_no is not none else '-' }}</td>
+            <td>{{ q.delivery_sequence }}</td>
             <td>{{ q.customer_name or q.customer_code or '-' }}</td>
             <td>{{ q.invoice_no }}</td>
             <td>{{ q.item_code }}</td>
             <td class="text-end">{{ q.expected_qty }}</td>
             <td>{{ q.status }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {# Unsequenced (blocked) queue #}
+  {% if unsequenced %}
+    <h4 class="mt-4">
+      <i class="fas fa-clock text-warning me-1"></i>Unsequenced — awaiting lock
+      <span class="badge bg-warning text-dark">{{ unsequenced|length }}</span>
+    </h4>
+    <div class="alert alert-warning small mb-2">
+      These items are locked from regular picking but cannot be picked from the cooler queue
+      until <strong>Lock cooler sequencing</strong> is clicked. Late additions land here
+      automatically.
+    </div>
+    <table class="table table-sm table-bordered">
+      <thead class="table-light">
+        <tr>
+          <th>Customer</th><th>Invoice</th><th>Item</th>
+          <th class="text-end">Qty</th><th>Stop (live)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in unsequenced %}
+          <tr>
+            <td>{{ q.customer_name or q.customer_code or '-' }}</td>
+            <td>{{ q.invoice_no }}</td>
+            <td>{{ q.item_code }}</td>
+            <td class="text-end">{{ q.expected_qty }}</td>
+            <td>{{ q.stop_seq_no if q.stop_seq_no is not none else '—' }}</td>
           </tr>
         {% endfor %}
       </tbody>

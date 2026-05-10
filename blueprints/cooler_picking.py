@@ -303,7 +303,7 @@ def route_picking(route_id, delivery_date):
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
             "       bpq.qty_picked, bpq.status, bpq.wms_zone, "
             "       i.customer_name, i.customer_code, "
-            "       rs.seq_no, rs.route_stop_id "
+            "       rs.seq_no, rs.route_stop_id, bpq.delivery_sequence "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
             "JOIN shipments s ON s.id = i.route_id "
@@ -315,7 +315,8 @@ def route_picking(route_id, delivery_date):
             "WHERE bpq.pick_zone_type = 'cooler' "
             "  AND i.route_id = :route_id "
             "  AND s.delivery_date = :delivery_date "
-            "ORDER BY rs.seq_no NULLS LAST, i.customer_code, "
+            "ORDER BY bpq.delivery_sequence NULLS LAST, "
+            "         rs.seq_no NULLS LAST, i.customer_code, "
             "         bpq.invoice_no, bpq.item_code"
         ),
         {"route_id": _route_id_int, "delivery_date": str(delivery_date),
@@ -334,9 +335,29 @@ def route_picking(route_id, delivery_date):
             "customer_code": r[8],
             "stop_seq_no": float(r[9]) if r[9] is not None else None,
             "route_stop_id": r[10],
+            "delivery_sequence": float(r[11]) if r[11] is not None else None,
         }
         for r in rows
     ]
+    # Phase 6 — split queue into "Sequenced (pickable)" vs
+    # "Unsequenced (blocked until lock-sequencing)".
+    sequenced = [q for q in queue if q["delivery_sequence"] is not None]
+    unsequenced = [q for q in queue if q["delivery_sequence"] is None]
+
+    # Phase 6 — fetch the per-route cooler session lock state.
+    lock_row = db.session.execute(text(
+        "SELECT id, sequence_locked_at, sequence_locked_by "
+        "FROM batch_picking_sessions "
+        "WHERE name = :n LIMIT 1"
+    ), {"n": f"COOLER-ROUTE-{_route_id_int}"}).fetchone()
+    cooler_session = None
+    if lock_row is not None:
+        cooler_session = {
+            "id": lock_row[0],
+            "sequence_locked_at": lock_row[1],
+            "sequence_locked_by": lock_row[2],
+            "is_locked": lock_row[1] is not None,
+        }
     # scope cooler boxes by BOTH route_id and
     # delivery_date. Filtering by delivery_date alone leaks boxes from
     # other routes on the same day into this picker's view, breaking
@@ -354,11 +375,112 @@ def route_picking(route_id, delivery_date):
         {"delivery_date": str(delivery_date), "route_id": _route_id_int},
     ).fetchall()
     boxes = [_box_dict(b) for b in boxes]
+
+    # Phase 6 — surface estimator on the picking screen so the
+    # warehouse manager sees the suggested box mix before locking.
+    estimate = None
+    try:
+        from services.cooler_estimator import estimate_cooler_boxes
+        estimate = estimate_cooler_boxes(_route_id_int)
+    except Exception as e:
+        import logging as _l
+        _l.getLogger(__name__).debug("cooler estimator failed: %s", e)
+
     return render_template(
         "cooler/route_picking.html",
         route_id=route_id, delivery_date=delivery_date,
-        queue=queue, boxes=boxes,
+        queue=queue, sequenced=sequenced, unsequenced=unsequenced,
+        cooler_session=cooler_session, estimate=estimate, boxes=boxes,
     )
+
+
+@cooler_bp.route("/route/<route_id>/lock-sequencing", methods=["POST"])
+@login_required
+@require_permission("cooler.lock_sequencing")
+@_require_cooler_manage
+@_require_picking_flag
+def lock_sequencing(route_id):
+    """Phase 6 — Lock cooler sequencing for a route.
+
+    For every pending cooler queue row on the route, snapshot the
+    ``RouteStop.seq_no`` (resolved via ``route_stop_invoice``) into
+    ``batch_pick_queue.delivery_sequence`` so the picker UI can render
+    them in delivery order. Also stamps
+    ``batch_picking_sessions.sequence_locked_at/by`` for audit.
+
+    Idempotent: rows that already have a non-null
+    ``delivery_sequence`` are skipped (the lock can be re-run safely
+    after late additions arrive).
+    """
+    try:
+        route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "route_id must be int"}), 400
+
+    session_row = db.session.execute(text(
+        "SELECT id, sequence_locked_at FROM batch_picking_sessions "
+        "WHERE name = :n LIMIT 1"
+    ), {"n": f"COOLER-ROUTE-{route_id_int}"}).fetchone()
+    if session_row is None:
+        return jsonify({
+            "error": "No cooler session for this route. "
+                     "Attach SENSITIVE invoices first.",
+        }), 404
+    session_id = session_row[0]
+
+    rows = db.session.execute(text(
+        "SELECT bpq.id, bpq.invoice_no, rs.seq_no "
+        "FROM batch_pick_queue bpq "
+        "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+        "LEFT JOIN route_stop_invoice rsi "
+        "       ON rsi.invoice_no = bpq.invoice_no "
+        "      AND rsi.is_active = :truthy "
+        "LEFT JOIN route_stop rs "
+        "       ON rs.route_stop_id = rsi.route_stop_id "
+        "WHERE bpq.pick_zone_type = 'cooler' "
+        "  AND bpq.batch_session_id = :sid "
+        "  AND bpq.status = 'pending' "
+        "  AND bpq.delivery_sequence IS NULL"
+    ), {"sid": session_id, "truthy": True}).fetchall()
+
+    stamped = 0
+    skipped_no_stop = 0
+    for queue_id, _inv, seq_no in rows:
+        if seq_no is None:
+            skipped_no_stop += 1
+            continue
+        db.session.execute(text(
+            "UPDATE batch_pick_queue SET delivery_sequence = :seq, "
+            "       updated_at = :now "
+            "WHERE id = :id"
+        ), {"id": queue_id, "seq": float(seq_no), "now": get_utc_now()})
+        stamped += 1
+
+    now = get_utc_now()
+    db.session.execute(text(
+        "UPDATE batch_picking_sessions "
+        "SET sequence_locked_at = :now, sequence_locked_by = :who, "
+        "    last_activity_at = :now "
+        "WHERE id = :sid"
+    ), {"sid": session_id, "now": now, "who": _username()})
+
+    _audit(
+        "cooler.lock_sequencing",
+        f"Locked cooler sequencing for route {route_id_int}: "
+        f"stamped={stamped} skipped_no_stop={skipped_no_stop} "
+        f"session_id={session_id}",
+    )
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "route_id": route_id_int,
+        "session_id": session_id,
+        "stamped": stamped,
+        "skipped_no_stop": skipped_no_stop,
+        "locked_at": now.isoformat(),
+        "locked_by": _username(),
+    })
 
 
 @cooler_bp.route("/box/create", methods=["POST"])
