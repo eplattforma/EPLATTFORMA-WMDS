@@ -297,6 +297,13 @@
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('cooler_admin.') %}active{% endif %}"
+                                   href="{{ url_for('cooler_admin.cooler_box_types') }}">
+                                    <i class="fas fa-temperature-low me-2"></i>Cooler Box Types
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
                             {% if legacy_replenishment_enabled %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint and 'replenishment_mvp' in request.endpoint %}active{% endif %}" 
