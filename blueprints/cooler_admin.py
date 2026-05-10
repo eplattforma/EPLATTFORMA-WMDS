@@ -236,11 +236,12 @@ def cooler_backfill_extraction():
     try:
         # Find every active route (not fully delivered/cancelled/archived).
         rows = db.session.execute(text("""
-            SELECT DISTINCT rs.route_id
+            SELECT DISTINCT rs.shipment_id
             FROM route_stop_invoice rsi
-            JOIN route_stop rs ON rs.id = rsi.route_stop_id
-            JOIN shipments s   ON s.id  = rs.route_id
-            WHERE s.status NOT IN ('Delivered','Cancelled','Archived')
+            JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+            JOIN shipments s   ON s.id = rs.shipment_id
+            WHERE rsi.is_active = TRUE
+              AND s.status NOT IN ('Delivered','Cancelled','Archived')
         """)).fetchall()
 
         route_ids = [r[0] for r in rows]
@@ -249,10 +250,11 @@ def cooler_backfill_extraction():
 
         for rid in route_ids:
             rsi_rows = db.session.execute(text("""
-                SELECT rsi.id
+                SELECT rsi.route_stop_invoice_id
                 FROM route_stop_invoice rsi
-                JOIN route_stop rs ON rs.id = rsi.route_stop_id
-                WHERE rs.route_id = :rid
+                JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+                WHERE rs.shipment_id = :rid
+                  AND rsi.is_active = TRUE
             """), {"rid": rid}).fetchall()
 
             rsi_ids = [r[0] for r in rsi_rows]
@@ -260,7 +262,7 @@ def cooler_backfill_extraction():
                 continue
 
             rsi_objects = RouteStopInvoice.query.filter(
-                RouteStopInvoice.id.in_(rsi_ids)
+                RouteStopInvoice.route_stop_invoice_id.in_(rsi_ids)
             ).all()
 
             if not rsi_objects:
