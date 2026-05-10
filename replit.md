@@ -46,6 +46,7 @@ Preferred communication style: Simple, everyday language.
 - **Power BI Integration**: Provides database views for Power BI reporting.
 - **Additive Schema Changes**: All schema updates are additive and idempotent to ensure smooth migrations.
 - **Feature Flagging**: High-risk behaviors and new features are controlled by feature flags, enabled by default only for safe functionalities.
+- **Jinja `|tojson` in HTML attributes**: Flask 3.1's `|tojson` filter no longer escapes `"` inside HTML attributes. Any `data-*="{{ x|tojson }}"` will silently break the page if `x` ever contains a string with a `"` (and even today emits invalid HTML for booleans/numbers in some browsers). Always wrap `|tojson` attributes in **single quotes**: `data-x='{{ x|tojson }}'`. See `templates/cockpit/cockpit.html` and `templates/admin/sms_templates.html` for the correct pattern.
 
 ## External Dependencies
 

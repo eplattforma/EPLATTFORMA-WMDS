@@ -91,16 +91,16 @@
                   data-title="{{ t.title|e }}"
                   data-sender="{{ (t.sender_title or '')|e }}"
                   data-body="{{ t.body|e }}"
-                  data-enabled="{{ t.is_enabled|tojson }}"
-                  data-unicode="{{ t.force_unicode|tojson }}"
-                  data-allow-microsms="{{ t.allow_microsms|tojson }}"
-                  data-allow-phone-sms="{{ t.allow_phone_sms|tojson }}"
-                  data-allow-call="{{ t.allow_call|tojson }}"
-                  data-allow-whatsapp="{{ t.allow_whatsapp|tojson }}"
-                  data-allow-viber="{{ t.allow_viber|tojson }}"
-                  data-allow-onesignal-push="{{ t.allow_onesignal_push|tojson }}"
+                  data-enabled='{{ t.is_enabled|tojson }}'
+                  data-unicode='{{ t.force_unicode|tojson }}'
+                  data-allow-microsms='{{ t.allow_microsms|tojson }}'
+                  data-allow-phone-sms='{{ t.allow_phone_sms|tojson }}'
+                  data-allow-call='{{ t.allow_call|tojson }}'
+                  data-allow-whatsapp='{{ t.allow_whatsapp|tojson }}'
+                  data-allow-viber='{{ t.allow_viber|tojson }}'
+                  data-allow-onesignal-push='{{ t.allow_onesignal_push|tojson }}'
                   data-call-script="{{ (t.call_script or '')|e }}"
-                  data-is-bulk="{{ t.is_bulk_allowed|tojson }}"
+                  data-is-bulk='{{ t.is_bulk_allowed|tojson }}'
                   data-sort-order="{{ t.sort_order }}">
             <i class="fas fa-edit me-1"></i>Edit
           </button>
