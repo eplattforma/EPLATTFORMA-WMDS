@@ -220,6 +220,68 @@ def cooler_box_type_toggle(type_id):
     return redirect(url_for("cooler_admin.cooler_box_types"))
 
 
+@cooler_admin_bp.route("/cooler-backfill-extraction", methods=["POST"])
+@login_required
+@_require_manage
+@require_permission("cooler.manage_box_catalogue")
+def cooler_backfill_extraction():
+    """Re-run cooler extraction for all active routes that were attached
+    before Phase 6 was deployed.  Safe to call repeatedly — the extractor
+    is idempotent."""
+    from models import RouteStopInvoice
+    from services.cooler_route_extraction import (
+        extract_sensitive_for_route_stop_invoices,
+    )
+
+    try:
+        # Find every active route (not fully delivered/cancelled/archived).
+        rows = db.session.execute(text("""
+            SELECT DISTINCT rs.route_id
+            FROM route_stop_invoices rsi
+            JOIN route_stops rs ON rs.id = rsi.route_stop_id
+            JOIN shipments s    ON s.id  = rs.route_id
+            WHERE s.status NOT IN ('Delivered','Cancelled','Archived')
+        """)).fetchall()
+
+        route_ids = [r[0] for r in rows]
+        processed = 0
+        total_extracted = 0
+
+        for rid in route_ids:
+            rsi_rows = db.session.execute(text("""
+                SELECT rsi.id
+                FROM route_stop_invoices rsi
+                JOIN route_stops rs ON rs.id = rsi.route_stop_id
+                WHERE rs.route_id = :rid
+            """), {"rid": rid}).fetchall()
+
+            rsi_ids = [r[0] for r in rsi_rows]
+            if not rsi_ids:
+                continue
+
+            rsi_objects = RouteStopInvoice.query.filter(
+                RouteStopInvoice.id.in_(rsi_ids)
+            ).all()
+
+            if not rsi_objects:
+                continue
+
+            summary = extract_sensitive_for_route_stop_invoices(rsi_objects)
+            total_extracted += summary.get("extracted", 0)
+            processed += 1
+
+        flash(
+            f"Backfill complete — checked {processed} active route(s), "
+            f"newly extracted {total_extracted} SENSITIVE item(s) to the cooler queue.",
+            "success",
+        )
+    except Exception as e:
+        logger.exception("cooler backfill extraction failed: %s", e)
+        flash(f"Backfill failed: {e}", "danger")
+
+    return redirect(url_for("cooler_admin.cooler_box_types"))
+
+
 @cooler_admin_bp.route("/cooler-items-missing-dimensions/")
 @login_required
 @_require_manage
