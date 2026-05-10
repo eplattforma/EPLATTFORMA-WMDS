@@ -1,6 +1,8 @@
 import csv
 import io
+import json
 import logging
+import re
 from datetime import datetime, date
 from decimal import Decimal
 from functools import wraps
@@ -72,7 +74,12 @@ def _float(val, default=0):
 @forecast_bp.route('/suppliers')
 @admin_or_warehouse_required
 def suppliers():
-    return render_template('forecast_workbench/suppliers.html')
+    from services.forecast.week_utils import get_data_through_date
+    try:
+        data_through = get_data_through_date()
+    except Exception:
+        data_through = None
+    return render_template('forecast_workbench/suppliers.html', data_through=data_through)
 
 
 @forecast_bp.route('/help')
@@ -1982,6 +1989,8 @@ def admin_settings():
         'forecast_trend_down_floor',
         'forecast_seasonal_cap_min',
         'forecast_seasonal_cap_max',
+        'forecast_week_rollover_weekday',
+        'forecast_week_rollover_time',
     ]
     settings = {}
     for key in setting_keys:
@@ -1992,6 +2001,15 @@ def admin_settings():
 @forecast_bp.route('/admin/settings', methods=['POST'])
 @admin_or_warehouse_required
 def admin_settings_save():
+    from models import ActivityLog
+
+    _ROLLOVER_KEYS = ('forecast_week_rollover_weekday', 'forecast_week_rollover_time')
+
+    # Reject non-admins if rollover keys are present in the submission
+    if any(request.form.get(k, '').strip() for k in _ROLLOVER_KEYS):
+        if current_user.role != 'admin':
+            return 'Forecast rollover settings require admin role.', 403
+
     setting_keys = [
         'forecast_default_cover_days',
         'forecast_review_cycle_days',
@@ -2008,6 +2026,44 @@ def admin_settings_save():
         val = request.form.get(key, '').strip()
         if val:
             Setting.set(db.session, key, val)
+
+    # --- Rollover weekday ---
+    wd_val = request.form.get('forecast_week_rollover_weekday', '').strip()
+    if wd_val:
+        try:
+            wd_int = int(wd_val)
+        except ValueError:
+            return 'forecast_week_rollover_weekday must be an integer.', 400
+        if not (0 <= wd_int <= 6):
+            return 'forecast_week_rollover_weekday must be 0–6.', 400
+        old_wd = Setting.get(db.session, 'forecast_week_rollover_weekday', '')
+        Setting.set(db.session, 'forecast_week_rollover_weekday', str(wd_int))
+        log = ActivityLog()
+        log.picker_username = current_user.username
+        log.activity_type = 'forecast_settings_change'
+        log.details = json.dumps({
+            'key': 'forecast_week_rollover_weekday',
+            'old_value': old_wd,
+            'new_value': str(wd_int),
+        })
+        db.session.add(log)
+
+    # --- Rollover time ---
+    tm_val = request.form.get('forecast_week_rollover_time', '').strip()
+    if tm_val:
+        if not re.match(r'^\d{2}:\d{2}$', tm_val):
+            return 'forecast_week_rollover_time must be HH:MM.', 400
+        old_tm = Setting.get(db.session, 'forecast_week_rollover_time', '')
+        Setting.set(db.session, 'forecast_week_rollover_time', tm_val)
+        log = ActivityLog()
+        log.picker_username = current_user.username
+        log.activity_type = 'forecast_settings_change'
+        log.details = json.dumps({
+            'key': 'forecast_week_rollover_time',
+            'old_value': old_tm,
+            'new_value': tm_val,
+        })
+        db.session.add(log)
 
     db.session.commit()
     flash('Forecast settings saved.', 'success')

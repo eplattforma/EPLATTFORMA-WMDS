@@ -59,9 +59,17 @@
 {% block content %}
 <div class="container-fluid px-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0">
-            <i class="fas fa-chart-line text-primary me-2"></i>Forecast Workbench
-        </h4>
+        <div>
+            <h4 class="mb-0">
+                <i class="fas fa-chart-line text-primary me-2"></i>Forecast Workbench
+            </h4>
+            {% if data_through %}
+            <div class="text-muted small mt-1">
+                <i class="fas fa-calendar-check me-1"></i>Forecast considers sales through:
+                <strong>{{ data_through.strftime('%a %b %-d, %Y') }}</strong>
+            </div>
+            {% endif %}
+        </div>
         <div class="d-flex align-items-center gap-2">
             <a href="{{ url_for('forecast_workbench.help_manual') }}" class="btn btn-outline-secondary btn-sm" title="View manual">
                 <i class="fas fa-question-circle me-1"></i>Help

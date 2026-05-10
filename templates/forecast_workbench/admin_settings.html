@@ -94,6 +94,41 @@
             </div>
         </div>
 
+        {% if current_user.role == 'admin' %}
+        <div class="card mb-3" id="rollover-settings-card">
+            <div class="card-header"><i class="fas fa-calendar-week me-2"></i>Forecast Week Rollover</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    After the configured weekday and time (Athens local), the in-progress week is treated
+                    as "complete enough" and included in the forecast. The suppliers page shows a
+                    "Forecast considers sales through" subtitle based on this setting.
+                </p>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Rollover Weekday</label>
+                        <select name="forecast_week_rollover_weekday" class="form-select">
+                            {% set cur_wd = settings.get('forecast_week_rollover_weekday', '4') %}
+                            <option value="0" {% if cur_wd == '0' %}selected{% endif %}>Monday</option>
+                            <option value="1" {% if cur_wd == '1' %}selected{% endif %}>Tuesday</option>
+                            <option value="2" {% if cur_wd == '2' %}selected{% endif %}>Wednesday</option>
+                            <option value="3" {% if cur_wd == '3' %}selected{% endif %}>Thursday</option>
+                            <option value="4" {% if cur_wd == '4' or cur_wd == '' %}selected{% endif %}>Friday (default)</option>
+                            <option value="5" {% if cur_wd == '5' %}selected{% endif %}>Saturday</option>
+                            <option value="6" {% if cur_wd == '6' %}selected{% endif %}>Sunday</option>
+                        </select>
+                        <div class="form-text">Day of the week at which the rollover occurs.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Rollover Time (Athens)</label>
+                        <input type="time" name="forecast_week_rollover_time" class="form-control"
+                               value="{{ settings.get('forecast_week_rollover_time', '10:00') or '10:00' }}">
+                        <div class="form-text">Local Athens time at which the rollover triggers.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="d-flex justify-content-end gap-2">
             <a href="{{ url_for('forecast_workbench.suppliers') }}" class="btn btn-outline-secondary">Cancel</a>
             <button type="submit" class="btn btn-success">

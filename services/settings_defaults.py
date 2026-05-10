@@ -69,6 +69,13 @@ PHASE1_DEFAULTS = {
     # When ``false`` the entire ``/cockpit/...`` URL space returns HTTP 404 and
     # the menu entry is hidden; permission keys are registered but unassigned.
     "cockpit_enabled": "false",
+
+    # Forecast Week Rollover (Task #29 — Configurable Week Cutoff).
+    # Weekday 0=Mon … 6=Sun; default Friday. Time is Athens wall-clock (HH:MM).
+    # When Athens local time reaches this weekday+time, the in-progress week is
+    # treated as "complete enough" and included in the forecast.
+    "forecast_week_rollover_weekday": "4",
+    "forecast_week_rollover_time": "10:00",
 }
 
 
