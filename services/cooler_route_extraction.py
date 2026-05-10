@@ -239,13 +239,7 @@ def extract_sensitive_for_route_stop_invoices(rsi_list):
     now = get_utc_now()
 
     for route_id, pairs in by_route.items():
-        session = get_or_create_cooler_session(route_id)
-        if session is None:
-            continue
-
-        existing_keys = _existing_queue_keys(session.id)
-
-        # Fetch all unpicked items across these invoices in one query.
+        # Fetch all items across these invoices in one query.
         invs_for_route = list({inv for inv, _ in pairs})
         items = InvoiceItem.query.filter(
             InvoiceItem.invoice_no.in_(invs_for_route),
@@ -255,8 +249,19 @@ def extract_sensitive_for_route_stop_invoices(rsi_list):
         all_codes = {it.item_code for it in items}
         sensitive = _sensitive_codes(all_codes)
         if not sensitive:
+            # No SENSITIVE items on this route — do NOT create an empty
+            # cooler session. (Pre-fix this would leave a "COOLER-ROUTE-N"
+            # shell on every active route.)
             continue
         missing_dims = _items_missing_dimensions(sensitive)
+
+        # Now that we know there's real cooler work, materialize the
+        # singleton cooler session for this route.
+        session = get_or_create_cooler_session(route_id)
+        if session is None:
+            continue
+
+        existing_keys = _existing_queue_keys(session.id)
 
         for item in items:
             if item.item_code not in sensitive:
