@@ -160,7 +160,7 @@ def update_phase6_cooler_integration_schema():
                     internal_volume_cm3 NUMERIC(12, 2) NOT NULL,
                     fill_efficiency NUMERIC(4, 3) NOT NULL DEFAULT 0.75,
                     max_weight_kg NUMERIC(8, 2),
-                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     sort_order INTEGER DEFAULT 0,
                     created_at {ts_type} NOT NULL {ts_default},
                     updated_at {ts_type} NOT NULL {ts_default}
