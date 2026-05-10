@@ -22,26 +22,26 @@
 
                     <div class="row mb-4">
                         <div class="col-md-4">
-                            <div class="card bg-light">
+                            <div class="card bg-light text-dark">
                                 <div class="card-body">
-                                    <h6 class="card-title">Zones Covered</h6>
-                                    <p class="card-text">{{ batch_session.zones }}</p>
+                                    <h6 class="card-title text-dark">Zones Covered</h6>
+                                    <p class="card-text text-dark">{{ batch_session.zones }}</p>
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-4">
-                            <div class="card bg-light">
+                            <div class="card bg-light text-dark">
                                 <div class="card-body">
-                                    <h6 class="card-title">Picking Mode</h6>
-                                    <p class="card-text">{{ batch_session.picking_mode or 'Sequential' }}</p>
+                                    <h6 class="card-title text-dark">Picking Mode</h6>
+                                    <p class="card-text text-dark">{{ batch_session.picking_mode or 'Sequential' }}</p>
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-4">
-                            <div class="card bg-light">
+                            <div class="card bg-light text-dark">
                                 <div class="card-body">
-                                    <h6 class="card-title">Completed At</h6>
-                                    <p class="card-text">{{ batch_session.created_at.strftime('%H:%M') }}</p>
+                                    <h6 class="card-title text-dark">Completed At</h6>
+                                    <p class="card-text text-dark">{{ batch_session.created_at.strftime('%H:%M') }}</p>
                                 </div>
                             </div>
                         </div>
