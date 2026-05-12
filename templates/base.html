@@ -51,12 +51,14 @@
                                     <i class="fas fa-tasks me-2"></i>My Picking Queue
                                 </a>
                             </li>
+                            {% if has_permission('cooler.pick') %}
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'cooler.route_picking' %}active{% endif %}"
-                                   href="{{ url_for('routes.dashboard') }}?filter=cooler">
+                                <a class="dropdown-item {% if request.endpoint == 'cooler.route_list' or request.endpoint == 'cooler.route_picking' %}active{% endif %}"
+                                   href="{{ url_for('cooler.route_list') }}">
                                     <i class="fas fa-snowflake me-2"></i>Cooler Picking
                                 </a>
                             </li>
+                            {% endif %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'warehouse.intake_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('warehouse.intake_dashboard') }}">
