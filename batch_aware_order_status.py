@@ -65,8 +65,21 @@ def update_order_status_batch_aware(invoice_no):
     old_status = invoice.status
     
     if picked_items == total_items:
-        # All items picked - order is now awaiting packing
-        invoice.status = 'awaiting_packing'
+        # All items picked. If the order had already been packed earlier
+        # and was sitting in 'awaiting_batch_items' waiting on this batch
+        # (Phase-5 cooler/batch integration), promote it straight to
+        # ready_for_dispatch — packing is already done; the only thing
+        # that was holding it back was the batch queue. Otherwise fall
+        # back to the legacy behaviour of routing through awaiting_packing.
+        try:
+            from services.order_readiness import is_order_ready
+            ready = is_order_ready(invoice_no)
+        except Exception:
+            ready = False
+        if old_status == 'awaiting_batch_items' and ready:
+            invoice.status = 'ready_for_dispatch'
+        else:
+            invoice.status = 'awaiting_packing'
         
     elif unpicked_items > 0 and batch_locked_items == unpicked_items:
         # All remaining unpicked items are locked by batches
