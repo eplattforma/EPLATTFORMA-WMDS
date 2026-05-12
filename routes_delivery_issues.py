@@ -694,7 +694,7 @@ def view_issue(issue_id):
 @login_required
 def picker_review_issues():
     """Allow pickers to review delivery issues for orders they picked"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'admin', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'error')
         return redirect(url_for('index'))
     
@@ -720,7 +720,7 @@ def picker_review_issues():
 @login_required
 def picker_validate_form(issue_id):
     """Show validation form for picker"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'admin', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'error')
         return redirect(url_for('index'))
     
@@ -741,7 +741,7 @@ def picker_validate_form(issue_id):
 @login_required
 def picker_validate_submit(issue_id):
     """Submit picker validation with reason and notes"""
-    if current_user.role != 'picker':
+    if current_user.role not in ('picker', 'admin', 'warehouse_manager'):
         flash('Access denied. Picker privileges required.', 'error')
         return redirect(url_for('index'))
     
