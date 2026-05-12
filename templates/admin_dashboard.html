@@ -412,6 +412,10 @@
                             <span class="badge bg-success">Shipped</span>
                             {% elif invoice.status == 'delivered' %}
                             <span class="badge bg-info">Delivered</span>
+                            {% elif invoice.status == 'awaiting_batch_items' %}
+                            <span class="badge" style="background-color:#fd7e14; color:#fff;" title="Regular items packed; waiting on cooler/batch items">Awaiting Batch Items</span>
+                            {% elif invoice.status == 'awaiting_packing' %}
+                            <span class="badge" style="background-color:#fd7e14; color:#fff;">Awaiting Packing</span>
                             {% else %}
                             <span class="badge bg-secondary">{{ invoice.status|title }}</span>
                             {% endif %}
@@ -425,7 +429,7 @@
                             {% endif %}
                             {% if invoice.invoice_no in cooler_invoice_nos %}
                             <span class="badge ms-1" style="background-color:#0d6efd; color:#fff;" data-bs-toggle="tooltip" title="Has items in a cooler batch">
-                                <i class="fas fa-snowflake"></i> Cooler
+                                <i class="fas fa-snowflake"></i>
                             </span>
                             {% endif %}
                         </td>
