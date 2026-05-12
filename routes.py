@@ -3234,8 +3234,9 @@ def start_picking(invoice_no):
         db.session.commit()
         
         # End any active idle periods when picker starts picking
-        from utils.shift_tracking import end_idle_period
-        end_idle_period(active_shift.id)
+        if active_shift:
+            from utils.shift_tracking import end_idle_period
+            end_idle_period(active_shift.id)
         
         # Pre-fetch all images for this invoice in background (performance optimization)
         from image_handler import prefetch_images_for_invoice
