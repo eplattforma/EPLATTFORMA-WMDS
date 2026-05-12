@@ -28,7 +28,7 @@
                     {% if current_user.role in ['admin', 'warehouse_manager'] %}
                     {% if has_permission('menu.warehouse') %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management', 'admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard', 'batch.picker_batch_list'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management', 'admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard', 'batch.picker_batch_list', 'cooler.route_list', 'cooler.route_picking'] %}active{% endif %}" 
                            href="#" id="warehouseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-warehouse me-1"></i>Warehouse
                         </a>
@@ -49,6 +49,12 @@
                                 <a class="dropdown-item {% if request.endpoint == 'picker_dashboard' %}active{% endif %}"
                                    href="{{ url_for('picker_dashboard') }}">
                                     <i class="fas fa-tasks me-2"></i>My Picking Queue
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'cooler.route_list' %}active{% endif %}"
+                                   href="{{ url_for('cooler.route_list') }}">
+                                    <i class="fas fa-snowflake me-2"></i>Cooler Picking
                                 </a>
                             </li>
                             <li>
