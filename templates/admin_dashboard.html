@@ -371,11 +371,6 @@
                             {% else %}
                             <strong>{{ invoice.invoice_no }}</strong>
                             {% endif %}
-                            {% if invoice.invoice_no in cooler_invoice_nos %}
-                            <span class="badge ms-1" style="background-color:#0d6efd20; color:#0d6efd; border:1px solid #0d6efd60;" data-bs-toggle="tooltip" title="Has items in a cooler batch">
-                                <i class="fas fa-snowflake"></i> Cooler
-                            </span>
-                            {% endif %}
                             {% if invoice_exceptions[invoice.invoice_no] > 0 %}
                             <span class="badge bg-danger ms-1" data-bs-toggle="tooltip" title="{{ invoice_exceptions[invoice.invoice_no] }} picking exceptions">
                                 <i class="fas fa-exclamation-triangle"></i> {{ invoice_exceptions[invoice.invoice_no] }}
@@ -427,6 +422,11 @@
                                data-bs-html="true">
                                 <i class="fas fa-layer-group text-info ms-1" data-bs-toggle="tooltip" title="Batch picked"></i>
                             </a>
+                            {% endif %}
+                            {% if invoice.invoice_no in cooler_invoice_nos %}
+                            <span class="badge ms-1" style="background-color:#0d6efd; color:#fff;" data-bs-toggle="tooltip" title="Has items in a cooler batch">
+                                <i class="fas fa-snowflake"></i> Cooler
+                            </span>
                             {% endif %}
                         </td>
                         <td class="text-center">
