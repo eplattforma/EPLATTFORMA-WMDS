@@ -95,7 +95,7 @@ def update_phase6_cooler_integration_schema():
         with db.engine.connect() as conn:
             insp = inspect(conn)
 
-            # ── batch_picking_sessions: session_type, lock cols ──
+            # ── batch_picking_sessions: session_type, lock cols, route_id ──
             if "batch_picking_sessions" in insp.get_table_names():
                 _add_column_if_missing(
                     conn, insp, "batch_picking_sessions", "session_type",
@@ -109,11 +109,55 @@ def update_phase6_cooler_integration_schema():
                     conn, insp, "batch_picking_sessions",
                     "sequence_locked_by", "VARCHAR(64)", is_pg=is_pg,
                 )
+                # Cooler enhancement: route_id lets us find the latest cooler
+                # session for a route (so we can create COOLER-ROUTE-<id>-2,
+                # -3, ... for late additions when the previous one is closed).
+                _add_column_if_missing(
+                    conn, insp, "batch_picking_sessions", "route_id",
+                    "INTEGER", is_pg=is_pg,
+                )
                 conn.execute(text(
                     "CREATE INDEX IF NOT EXISTS "
                     "idx_batch_picking_sessions_session_type "
                     "ON batch_picking_sessions (session_type)"
                 ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "idx_batch_picking_sessions_route_id "
+                    "ON batch_picking_sessions (route_id)"
+                ))
+                # Backfill route_id from the legacy `COOLER-ROUTE-<n>` and
+                # `COOLER-ROUTE-<n>-<seq>` name patterns. Idempotent: skips
+                # rows that already have a value.
+                if is_pg:
+                    conn.execute(text(
+                        "UPDATE batch_picking_sessions "
+                        "SET route_id = CAST("
+                        "    substring(name FROM 'COOLER-ROUTE-([0-9]+)') AS INTEGER"
+                        ") "
+                        "WHERE session_type = 'cooler_route' "
+                        "  AND route_id IS NULL "
+                        "  AND name ~ '^COOLER-ROUTE-[0-9]+'"
+                    ))
+                else:
+                    # SQLite: use a Python-side backfill (no regex CAST).
+                    rows = conn.execute(text(
+                        "SELECT id, name FROM batch_picking_sessions "
+                        "WHERE session_type = 'cooler_route' "
+                        "  AND route_id IS NULL "
+                        "  AND name LIKE 'COOLER-ROUTE-%'"
+                    )).fetchall()
+                    for sid, name in rows:
+                        try:
+                            tail = name[len("COOLER-ROUTE-"):]
+                            head = tail.split("-", 1)[0]
+                            rid = int(head)
+                        except (ValueError, IndexError):
+                            continue
+                        conn.execute(text(
+                            "UPDATE batch_picking_sessions SET route_id = :rid "
+                            "WHERE id = :id"
+                        ), {"rid": rid, "id": sid})
 
             # ── batch_pick_queue: delivery_sequence ──
             if "batch_pick_queue" in insp.get_table_names():

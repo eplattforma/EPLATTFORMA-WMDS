@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 COOLER_SESSION_TYPE = "cooler_route"
 
+# Statuses that mean a cooler session is "done" — when the latest cooler
+# session for a route is in one of these, the next late SENSITIVE addition
+# spawns a NEW sibling session (COOLER-ROUTE-<id>-2, -3, ...) instead of
+# being silently ignored on a closed batch.
+TERMINAL_COOLER_STATUSES = ("Completed", "Cancelled", "Archived")
+
 
 def _is_summer_cooler_mode_enabled():
     try:
@@ -53,49 +59,122 @@ def _current_username():
     return "system"
 
 
-def get_or_create_cooler_session(route_id, created_by=None):
-    """Return the singleton ``cooler_route`` session for ``route_id``.
+def _latest_cooler_session_for_route(route_id):
+    """Return the most-recently-created cooler session for ``route_id``,
+    or ``None`` if there is none. Looks up by the ``route_id`` column
+    (preferred) and falls back to the legacy ``name`` pattern for any
+    rows the migration backfill missed.
+    """
+    q = BatchPickingSession.query.filter_by(
+        session_type=COOLER_SESSION_TYPE,
+    )
+    try:
+        q_by_route = q.filter(BatchPickingSession.route_id == route_id)
+        latest = q_by_route.order_by(
+            BatchPickingSession.created_at.desc()
+        ).first()
+        if latest is not None:
+            return latest
+    except Exception:
+        # ORM may not know about route_id yet (e.g. very early test boot).
+        pass
+    # Legacy fallback: name = "COOLER-ROUTE-<id>" or "COOLER-ROUTE-<id>-N".
+    legacy_pattern = f"COOLER-ROUTE-{route_id}"
+    return (
+        BatchPickingSession.query.filter(
+            BatchPickingSession.session_type == COOLER_SESSION_TYPE,
+            db.or_(
+                BatchPickingSession.name == legacy_pattern,
+                BatchPickingSession.name.like(f"{legacy_pattern}-%"),
+            ),
+        )
+        .order_by(BatchPickingSession.created_at.desc())
+        .first()
+    )
 
-    Created on first call. Reused for every subsequent extraction on
-    the same route. Identified by ``session_type='cooler_route'`` and
-    ``name='COOLER-ROUTE-<route_id>'``.
+
+def _next_cooler_session_name(route_id):
+    """Compute the next free `COOLER-ROUTE-<id>[-N]` name for ``route_id``.
+
+    First session: ``COOLER-ROUTE-<id>``.
+    Subsequent siblings: ``COOLER-ROUTE-<id>-2``, ``-3``, ...
+    """
+    base = f"COOLER-ROUTE-{route_id}"
+    existing_names = {
+        n for (n,) in db.session.query(BatchPickingSession.name).filter(
+            db.or_(
+                BatchPickingSession.name == base,
+                BatchPickingSession.name.like(f"{base}-%"),
+            ),
+        ).all()
+    }
+    if base not in existing_names:
+        return base, f"COOLER-{route_id}"
+    n = 2
+    while f"{base}-{n}" in existing_names:
+        n += 1
+    return f"{base}-{n}", f"COOLER-{route_id}-{n}"
+
+
+def get_or_create_cooler_session(route_id, created_by=None):
+    """Return an active ``cooler_route`` session for ``route_id``.
+
+    Behaviour:
+      - If the latest cooler session for the route is non-terminal
+        (Created / In Progress / picking / Active / Paused), reuse it.
+      - If the latest is in a terminal status (Completed / Cancelled /
+        Archived), or if there is no session yet, create a NEW one.
+        New sibling sessions get a sequential name suffix
+        (``COOLER-ROUTE-<id>-2``, ``-3``, ...) so the previous closed
+        batch stays intact and the new late-arrival items land on a
+        fresh batch the picker sees in their list.
     """
     if route_id is None:
         return None
-    name = f"COOLER-ROUTE-{route_id}"
-    session = BatchPickingSession.query.filter_by(name=name).first()
-    if session is not None:
-        return session
+
+    latest = _latest_cooler_session_for_route(route_id)
+    if latest is not None and (latest.status or "") not in TERMINAL_COOLER_STATUSES:
+        return latest
 
     created_by = created_by or _current_username()
-    # batch_number must be unique → use the route id directly.
+    name, batch_number = _next_cooler_session_name(route_id)
+
     session = BatchPickingSession(
         name=name,
-        batch_number=f"COOLER-{route_id}",
+        batch_number=batch_number,
         zones="SENSITIVE",
         picking_mode="Cooler",
         created_by=created_by,
         status="Created",
     )
-    # session_type is a Phase 6 additive column. Set via setattr so
-    # tests on a stock SQLite DB (no migration applied yet) don't
-    # crash if the column is absent — they will pick it up via
-    # db.create_all() reading the ORM declaration anyway.
+    # Additive Phase 6 columns — set via setattr so tests on a stock
+    # SQLite DB (no migration applied yet) don't crash if the column
+    # is absent. db.create_all() picks them up from the ORM anyway.
     try:
         session.session_type = COOLER_SESSION_TYPE
+    except Exception:
+        pass
+    try:
+        session.route_id = int(route_id)
     except Exception:
         pass
     try:
         session.last_activity_at = get_utc_now()
     except Exception:
         pass
-    db.session.add(session)
+    # Wrap the insert in a SAVEPOINT so a unique-key collision from a
+    # concurrent worker rolls back ONLY the failed insert — not the
+    # caller's outer transaction (which may already hold queue rows,
+    # audit log entries, lock stamps, etc. for this extraction batch).
     try:
-        db.session.flush()
+        with db.session.begin_nested():
+            db.session.add(session)
+            db.session.flush()
     except IntegrityError:
-        # Sibling worker won the race — refetch.
-        db.session.rollback()
-        session = BatchPickingSession.query.filter_by(name=name).first()
+        # Sibling worker won the race — refetch the latest cooler session
+        # for this route (it now exists thanks to the other worker). The
+        # outer transaction is intact thanks to the SAVEPOINT.
+        session = _latest_cooler_session_for_route(route_id)
     return session
 
 

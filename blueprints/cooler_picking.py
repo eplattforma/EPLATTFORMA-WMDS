@@ -351,20 +351,51 @@ def route_picking(route_id, delivery_date):
     sequenced = [q for q in queue if q["delivery_sequence"] is not None]
     unsequenced = [q for q in queue if q["delivery_sequence"] is None]
 
-    # Phase 6 — fetch the per-route cooler session lock state.
+    # Phase 6 — fetch the LATEST per-route cooler session lock state.
+    # We look up by route_id (preferred) and fall back to the legacy
+    # name pattern, ordered by created_at DESC so late-addition sibling
+    # batches (COOLER-ROUTE-<id>-2, -3, ...) take precedence.
     lock_row = db.session.execute(text(
-        "SELECT id, sequence_locked_at, sequence_locked_by "
+        "SELECT id, sequence_locked_at, sequence_locked_by, name, status "
         "FROM batch_picking_sessions "
-        "WHERE name = :n LIMIT 1"
-    ), {"n": f"COOLER-ROUTE-{_route_id_int}"}).fetchone()
+        "WHERE session_type = 'cooler_route' "
+        "  AND (route_id = :rid OR name = :legacy "
+        "       OR name LIKE :legacy_prefix) "
+        "ORDER BY created_at DESC LIMIT 1"
+    ), {
+        "rid": _route_id_int,
+        "legacy": f"COOLER-ROUTE-{_route_id_int}",
+        "legacy_prefix": f"COOLER-ROUTE-{_route_id_int}-%",
+    }).fetchone()
     cooler_session = None
     if lock_row is not None:
         cooler_session = {
             "id": lock_row[0],
             "sequence_locked_at": lock_row[1],
             "sequence_locked_by": lock_row[2],
+            "name": lock_row[3],
+            "status": lock_row[4],
             "is_locked": lock_row[1] is not None,
         }
+
+    # Cooler enhancement — picking-phase status across ALL cooler sessions
+    # for this route (siblings included). The cooler screen is the
+    # box-assignment phase; the actual picking happens via the standard
+    # batch picking interface (sorted by warehouse location).
+    pending_count = sum(1 for q in queue if q["status"] == "pending")
+    picked_count = sum(1 for q in queue if q["status"] == "picked")
+    other_count = len(queue) - pending_count - picked_count
+    picking_phase = {
+        "complete": (len(queue) > 0 and pending_count == 0),
+        "in_progress": pending_count > 0,
+        "empty": len(queue) == 0,
+        "pending_count": pending_count,
+        "picked_count": picked_count,
+        "other_count": other_count,
+        "total_count": len(queue),
+        "batch_name": cooler_session["name"] if cooler_session else None,
+        "batch_status": cooler_session["status"] if cooler_session else None,
+    }
     # scope cooler boxes by BOTH route_id and
     # delivery_date. Filtering by delivery_date alone leaks boxes from
     # other routes on the same day into this picker's view, breaking
@@ -401,6 +432,7 @@ def route_picking(route_id, delivery_date):
         queue=queue, sequenced=sequenced, unsequenced=unsequenced,
         cooler_session=cooler_session, estimate=estimate,
         boxes=boxes, open_boxes=open_boxes,
+        picking_phase=picking_phase,
     )
 
 
@@ -427,10 +459,20 @@ def lock_sequencing(route_id):
     except (TypeError, ValueError):
         return jsonify({"error": "route_id must be int"}), 400
 
+    # Look up the latest cooler session for this route (siblings included).
+    # We sequence the LATEST session because that's where late-addition
+    # rows with NULL delivery_sequence live.
     session_row = db.session.execute(text(
         "SELECT id, sequence_locked_at FROM batch_picking_sessions "
-        "WHERE name = :n LIMIT 1"
-    ), {"n": f"COOLER-ROUTE-{route_id_int}"}).fetchone()
+        "WHERE session_type = 'cooler_route' "
+        "  AND (route_id = :rid OR name = :legacy "
+        "       OR name LIKE :legacy_prefix) "
+        "ORDER BY created_at DESC LIMIT 1"
+    ), {
+        "rid": route_id_int,
+        "legacy": f"COOLER-ROUTE-{route_id_int}",
+        "legacy_prefix": f"COOLER-ROUTE-{route_id_int}-%",
+    }).fetchone()
     if session_row is None:
         return jsonify({
             "error": "No cooler session for this route. "
@@ -486,8 +528,12 @@ def lock_sequencing(route_id):
     )
     db.session.commit()
 
-    # If called via API (Accept: application/json), return JSON
-    if request.accept_mimetypes.best == "application/json":
+    # Default response is JSON so API/test clients keep working. The HTML
+    # form on the cooler page sets a hidden ``_html_form=1`` marker so we
+    # can return a flash + redirect instead. Sniffing ``Accept`` headers
+    # is unreliable because Werkzeug's test client and most XHR callers
+    # send ``*/*``.
+    if not request.form.get("_html_form"):
         return jsonify({
             "ok": True,
             "route_id": route_id_int,
@@ -499,7 +545,7 @@ def lock_sequencing(route_id):
             "locked_by": _username(),
         })
 
-    # Normal form POST — flash and redirect back to the picking screen
+    # HTML form POST — flash and redirect back to the picking screen
     if stamped:
         flash(f"Sequencing locked — {stamped} item(s) stamped with delivery order.", "success")
     else:
@@ -615,7 +661,7 @@ def box_create():
     )
     db.session.commit()
 
-    if not request.is_json:
+    if request.form.get("_html_form"):
         flash(f"Box #{box_no} created.", "success")
         return redirect(url_for("cooler.route_picking",
                                 route_id=route_id,
@@ -908,7 +954,7 @@ def box_close(box_id):
 
     db.session.commit()
 
-    if not request.is_json:
+    if request.form.get("_html_form"):
         flash(f"Box #{box_id} closed.", "success")
         box_data = _fetch_box(box_id)
         route_id = box_data["route_id"] if box_data else None

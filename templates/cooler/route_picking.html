@@ -61,6 +61,7 @@
           {% if has_permission('cooler.lock_sequencing') %}
             <form method="post"
                   action="{{ url_for('cooler.lock_sequencing', route_id=route_id) }}">
+              <input type="hidden" name="_html_form" value="1">
               <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
               <button class="btn btn-{{ 'outline-success' if cooler_session and cooler_session.is_locked else 'success' }}"
                       type="submit"
@@ -78,6 +79,47 @@
       </div>
     </div>
   </div>
+
+  {# Cooler enhancement — Picking-phase status indicator.
+     The cooler screen handles only the box-assignment phase. The actual
+     picking is done via the standard batch picking interface (sorted by
+     warehouse location). This banner makes the two-phase flow explicit. #}
+  {% if picking_phase and not picking_phase.empty %}
+    {% if picking_phase.complete %}
+      <div class="alert alert-success d-flex align-items-center mt-4 mb-2">
+        <i class="fas fa-check-circle fa-lg me-2"></i>
+        <div>
+          <strong>Picking phase: COMPLETE</strong>
+          {% if picking_phase.batch_name %}
+            (via batch <code>{{ picking_phase.batch_name }}</code>)
+          {% endif %}
+          <br>
+          <small>
+            All {{ picking_phase.total_count }} item(s) physically picked.
+            Now assign picked items to cooler boxes below.
+          </small>
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-info d-flex align-items-center mt-4 mb-2">
+        <i class="fas fa-hourglass-half fa-lg me-2"></i>
+        <div>
+          <strong>Picking in progress</strong>
+          {% if picking_phase.batch_name %}
+            — batch <code>{{ picking_phase.batch_name }}</code> not yet complete
+          {% endif %}
+          <br>
+          <small>
+            {{ picking_phase.picked_count }} picked,
+            {{ picking_phase.pending_count }} pending
+            (out of {{ picking_phase.total_count }}).
+            Items appear here as <em>Picked</em> once the picker finishes them
+            in the standard batch picking interface (sorted by warehouse location).
+          </small>
+        </div>
+      </div>
+    {% endif %}
+  {% endif %}
 
   {# Sequenced (pickable) queue #}
   <h4 class="mt-4">
@@ -211,6 +253,7 @@
     <div class="card card-body">
       <form method="post" action="{{ url_for('cooler.box_create') }}"
             class="d-flex gap-2 align-items-end flex-wrap">
+        <input type="hidden" name="_html_form" value="1">
         <input type="hidden" name="route_id" value="{{ route_id }}">
         <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
         <div>
@@ -249,17 +292,12 @@
             </td>
             <td>{{ b.first_stop_sequence if b.first_stop_sequence is not none else '-' }}</td>
             <td>{{ b.last_stop_sequence if b.last_stop_sequence is not none else '-' }}</td>
-            <td>
-              {% set item_count = namespace(n=0) %}
-              {% for q in sequenced %}
-                {# count items assigned — status picked means they may be in a box #}
-              {% endfor %}
-              —
-            </td>
+            <td>—</td>
             <td class="text-end">
               {% if has_permission('cooler.manage_boxes') and b.status == 'open' %}
                 <form method="post" action="{{ url_for('cooler.box_close', box_id=b.id) }}"
                       class="d-inline">
+                  <input type="hidden" name="_html_form" value="1">
                   <button type="submit" class="btn btn-sm btn-outline-secondary">
                     <i class="fas fa-lock me-1"></i>Close
                   </button>

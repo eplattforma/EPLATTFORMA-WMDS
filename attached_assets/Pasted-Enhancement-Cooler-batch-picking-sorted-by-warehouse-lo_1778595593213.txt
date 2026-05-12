@@ -1,0 +1,77 @@
+Enhancement: Cooler batch picking sorted by warehouse location
+Background
+The cooler picking screen currently shows SENSITIVE items sorted by delivery stop sequence. This is wrong for the physical picking phase — pickers need to walk the warehouse in location order, same as regular batches.
+The system already creates a cooler batch session (COOLER-ROUTE-<id>) that appears in "My Batch Picking Sessions." This batch should be the primary picking interface for SENSITIVE items, sorted by warehouse location. The cooler screen (/cooler/route/<id>/<date>) then handles only the box assignment phase after items are physically picked.
+What To Change
+Change 1 — Cooler batch sorted by warehouse location
+In services/cooler_route_extraction.py, when batch_pick_queue rows are created for SENSITIVE items, populate the sort fields using the same location data used by regular batches.
+Check services/batch_picking.py to see which fields drive the pick sequence for regular batches. Most likely wms_aisle, wms_bay, wms_level, wms_position from ps_items_dw. Use identical sorting for cooler queue rows.
+The cooler batch appearing in /picker/batch/list should show items in warehouse location order — identical experience to a regular batch.
+Change 2 — The cooler batch pick flow marks items as picked
+When the picker completes an item in the cooler batch (via the standard batch picking interface), it should set batch_pick_queue.status = 'picked' for that row. This is probably already working — confirm that completing the cooler batch correctly updates the cooler queue row statuses.
+Verify with:
+sqlSELECT item_code, pick_zone_type, status, qty_picked
+FROM batch_pick_queue
+WHERE batch_session_id = <cooler_session_id>
+AFTER picking completes;
+All rows should show status = 'picked'.
+Change 3 — Cooler screen only shows box assignment after batch is picked
+On the cooler picking screen (/cooler/route/<id>/<date>), the Sequenced section should show items sorted by stop sequence (current behaviour) for box assignment. This is correct for this phase.
+Add a clear status indicator at the top of the Sequenced section:
+Picking phase: COMPLETE (via batch COOLER-410)
+Now assign picked items to cooler boxes below.
+If the batch is not yet complete (items still pending in the cooler batch), show:
+⏳ Picking in progress — batch COOLER-410 not yet complete
+Items will appear as "Picked" here once the batch is finished.
+This makes the two-phase flow explicit:
+
+Phase 1: Picker uses the batch interface (location order) to physically collect items
+Phase 2: Manager uses the cooler screen (stop order) to assign to boxes
+
+Change 4 — Automatic cooler batch creation on sequencing lock
+Currently the cooler batch (COOLER-ROUTE-<id>) is created when Phase 6 extraction runs. Confirm that after "Lock Cooler Sequencing" is clicked, the batch is immediately visible in /picker/batch/list with items sorted by location.
+If the batch is not visible after locking, trigger batch visibility at lock time rather than at extraction time — the picker shouldn't see unsequenced items in their batch list.
+Change 5 — New cooler batch when previous is closed
+Per the operational requirement: when a new invoice is added to a route after the initial cooler batch has been completed and closed, a new cooler batch should be created automatically for the late-addition items.
+In services/cooler_route_extraction.py, the idempotency check should be:
+python# Current behaviour: reuse existing cooler session for this route
+# New behaviour: if existing session is 'completed' or 'closed',
+# create a NEW session for late additions
+
+existing_session = BatchPickingSession.query.filter_by(
+    session_type='cooler_route',
+    route_id=route_id
+).order_by(BatchPickingSession.created_at.desc()).first()
+
+if existing_session and existing_session.status in ('completed', 'closed'):
+    # Previous cooler batch is done — create a new one for late additions
+    session = create_new_cooler_session(route_id)
+else:
+    # Reuse existing session (it's still in progress)
+    session = existing_session or create_new_cooler_session(route_id)
+This means:
+
+Morning cooler batch: COOLER-ROUTE-410 — 6 items, picked and closed
+Late addition at 10am: COOLER-ROUTE-410-2 — 4 new items, new batch
+Picker sees the new batch in their list, picks in location order
+Manager assigns to a new exception box on the cooler screen
+
+Verification
+
+Lock cooler sequencing for a route
+Cooler batch appears in /picker/batch/list with items in warehouse location order
+Picker claims batch, picks items — cooler screen shows status updating to "Picked" in real time
+After batch complete, cooler screen Sequenced section shows all items as Picked, sorted by stop
+Manager creates boxes, assigns items, closes — all invoices go to Ready for Dispatch
+Add a late invoice to the route — new cooler batch COOLER-ROUTE-410-2 created automatically
+New batch appears in picker's list with new items only
+
+No Schema Changes
+The session_type = 'cooler_route' column and naming convention already exist from Phase 6. The only schema addition needed is a route_id column on batch_picking_sessions if it doesn't already exist — check first.
+sqlSELECT column_name FROM information_schema.columns
+WHERE table_name = 'batch_picking_sessions'
+AND column_name = 'route_id';
+If missing, add:
+sqlALTER TABLE batch_picking_sessions
+ADD COLUMN IF NOT EXISTS route_id INTEGER REFERENCES shipments(id);
+This is additive and idempotent.
