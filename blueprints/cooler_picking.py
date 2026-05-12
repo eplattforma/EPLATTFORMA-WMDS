@@ -508,7 +508,19 @@ def lock_sequencing(route_id):
             "warning",
         )
 
-    delivery_date = request.form.get("delivery_date", "")
+    # Prefer delivery_date from form; fall back to looking it up from the shipment
+    delivery_date = request.form.get("delivery_date", "").strip()
+    if not delivery_date:
+        date_row = db.session.execute(
+            text("SELECT delivery_date FROM shipments WHERE id = :rid"),
+            {"rid": route_id_int},
+        ).fetchone()
+        delivery_date = str(date_row[0]) if date_row and date_row[0] else ""
+
+    if not delivery_date:
+        # Last resort: go back to the list
+        return redirect(url_for("cooler.route_list"))
+
     return redirect(url_for("cooler.route_picking",
                             route_id=route_id_int,
                             delivery_date=delivery_date))
