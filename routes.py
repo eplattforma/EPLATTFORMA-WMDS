@@ -2975,7 +2975,7 @@ def admin_reset_item(invoice_no, item_code):
 @app.route('/picker/dashboard')
 @login_required
 def picker_dashboard():
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -3201,7 +3201,7 @@ def picker_dashboard():
 @app.route('/picker/invoice/<invoice_no>/start')
 @login_required
 def start_picking(invoice_no):
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -3251,7 +3251,7 @@ def start_picking(invoice_no):
 @login_required
 def api_picker_arrived(invoice_no):
     """Sets item_started timestamp and computes walking_time when picker clicks 'Proceed to Pick'"""
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         return jsonify({'ok': False, 'error': 'Access denied'}), 403
 
     # Get tracking_id from request
@@ -3319,7 +3319,7 @@ def api_picker_arrived(invoice_no):
 @login_required
 def api_confirm_pick(invoice_no):
     """Fast JSON endpoint for confirming picks - allows async UI updates"""
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         return jsonify({'ok': False, 'error': 'Access denied'}), 403
 
     invoice = Invoice.query.get_or_404(invoice_no)
@@ -3418,7 +3418,7 @@ def api_confirm_pick(invoice_no):
 @app.route('/picker/invoice/<invoice_no>/item', methods=['GET', 'POST'])
 @login_required
 def pick_item(invoice_no):
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -3844,7 +3844,7 @@ def pick_item(invoice_no):
 @app.route('/picker/invoice/<invoice_no>/completed')
 @login_required
 def picking_completed(invoice_no):
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -4175,7 +4175,7 @@ def print_invoice(invoice_no):
 @app.route('/picker/invoice/<invoice_no>/ready-for-packing')
 @login_required
 def ready_for_packing(invoice_no):
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -4206,7 +4206,7 @@ def ready_for_packing(invoice_no):
 @app.route('/picker/invoice/<invoice_no>/mark-as-packed', methods=['POST'])
 @login_required
 def mark_as_packed(invoice_no):
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     

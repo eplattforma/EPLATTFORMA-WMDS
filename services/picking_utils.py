@@ -20,7 +20,7 @@ def get_picking_eligible_users():
     try:
         rows = db.session.execute(text("""
             SELECT username FROM users
-            WHERE role IN ('picker', 'warehouse_manager')
+            WHERE role IN ('picker', 'warehouse_manager', 'admin')
             UNION
             SELECT DISTINCT username FROM user_permissions
             WHERE permission_key IN ('picking.perform', 'picking.claim_batch')
