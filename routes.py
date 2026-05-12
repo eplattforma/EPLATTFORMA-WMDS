@@ -653,6 +653,25 @@ def admin_dashboard():
             
             batch_picked_info[invoice.invoice_no] = batch_sessions
     
+    # BATCH QUERY 4: Find invoices that have items queued in a cooler batch session
+    cooler_invoice_nos = set()
+    if invoice_nos:
+        try:
+            cooler_rows = db.session.execute(
+                db.text(
+                    "SELECT DISTINCT bpq.invoice_no "
+                    "FROM batch_pick_queue bpq "
+                    "JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id "
+                    "WHERE bps.session_type = 'cooler_route' "
+                    "AND bpq.invoice_no = ANY(:invoice_nos)"
+                ),
+                {"invoice_nos": list(invoice_nos)}
+            ).fetchall()
+            cooler_invoice_nos = {row[0] for row in cooler_rows}
+        except Exception as _e:
+            import logging as _log
+            _log.warning(f"admin_dashboard: cooler indicator query failed: {_e}")
+
     # Calculate total remaining time for all warehouse orders
     total_remaining_time = 0
     for invoice in invoices:
@@ -739,7 +758,8 @@ def admin_dashboard():
                           use_shipments=use_shipments,
                           unresolved_issues_count=unresolved_issues_count,
                           review_issues_count=review_issues_count,
-                          active_pickers_data=active_pickers_data)
+                          active_pickers_data=active_pickers_data,
+                          cooler_invoice_nos=cooler_invoice_nos)
 
 
 @app.route('/ready-to-ship')
