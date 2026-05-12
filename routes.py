@@ -4229,11 +4229,20 @@ def mark_as_packed(invoice_no):
         flash('You have skipped items that need to be resolved before packing. Please complete picking all items.', 'warning')
         return redirect(url_for('pick_item', invoice_no=invoice_no))
     
-    # Update the invoice status to ready_for_dispatch and record packing time
+    # Update the invoice status and record packing time.
+    # Phase-5 cooler integration: only flip to ready_for_dispatch when the
+    # full readiness check passes (cooler queue + cooler boxes terminal).
+    # If cooler items are still pending in a batch, hold the invoice in
+    # 'awaiting_batch_items' so it cannot be dispatched incomplete.
     from timezone_utils import get_local_time
+    from services.order_readiness import is_order_ready
     now = utc_now_for_db()
-    invoice.status = 'ready_for_dispatch'
     invoice.packing_complete_time = now
+    if is_order_ready(invoice_no):
+        invoice.status = 'ready_for_dispatch'
+    else:
+        invoice.status = 'awaiting_batch_items'
+        flash('Regular items packed. Order is waiting for cooler items to be picked before dispatch.', 'info')
     
     # Record confirmation_time on the last item's tracking record
     # This captures time from last item confirm → packing confirmation

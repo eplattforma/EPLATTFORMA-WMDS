@@ -22,8 +22,8 @@ from datetime import datetime, date
 from io import BytesIO
 
 from flask import (
-    Blueprint, abort, jsonify, make_response, render_template, request,
-    send_file, url_for,
+    Blueprint, abort, current_app, jsonify, make_response, render_template,
+    request, send_file, url_for,
 )
 from flask_login import current_user, login_required
 from sqlalchemy import text
@@ -816,11 +816,49 @@ def box_close(box_id):
         f"Cooler box #{box_id} closed by {_username()} "
         f"first_seq={first_seq} last_seq={last_seq}",
     )
+
+    # Phase-5 cooler integration: closing a cooler box is the trigger
+    # event that may complete the cooler side of an order. For every
+    # invoice that had items in this box, if the order packed regular
+    # items earlier and is sitting in 'awaiting_batch_items', and
+    # is_order_ready now returns True, promote it to ready_for_dispatch.
+    invoice_rows = db.session.execute(
+        text(
+            "SELECT DISTINCT invoice_no FROM cooler_box_items "
+            "WHERE cooler_box_id = :bid"
+        ),
+        {"bid": box_id},
+    ).fetchall()
+    promoted = []
+    try:
+        from services.order_readiness import is_order_ready
+        from models import Invoice
+        for (inv_no,) in invoice_rows:
+            inv = Invoice.query.filter_by(invoice_no=inv_no).first()
+            if inv is None:
+                continue
+            if inv.status == 'awaiting_batch_items' and is_order_ready(inv_no):
+                inv.status = 'ready_for_dispatch'
+                promoted.append(inv_no)
+                _audit(
+                    "cooler.order_ready_for_dispatch",
+                    f"Invoice {inv_no} promoted "
+                    f"awaiting_batch_items -> ready_for_dispatch "
+                    f"after cooler box #{box_id} closed",
+                    invoice_no=inv_no,
+                )
+    except Exception as exc:  # never block box close on promotion failure
+        current_app.logger.warning(
+            "cooler.box_close: promotion check failed for box %s: %s",
+            box_id, exc,
+        )
+
     db.session.commit()
     return jsonify({
         "cooler_box_id": box_id, "status": "closed",
         "first_stop_sequence": float(first_seq) if first_seq is not None else None,
         "last_stop_sequence": float(last_seq) if last_seq is not None else None,
+        "promoted_invoices": promoted,
     }), 200
 
 
