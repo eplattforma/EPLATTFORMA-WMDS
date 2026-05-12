@@ -52,12 +52,6 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint in ['routes.dashboard', 'cooler.route_list', 'cooler.route_picking'] %}active{% endif %}"
-                                   href="{{ url_for('routes.dashboard', view='active') }}#cooler">
-                                    <i class="fas fa-snowflake me-2"></i>Cooler Picking
-                                </a>
-                            </li>
-                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'warehouse.intake_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('warehouse.intake_dashboard') }}">
                                     <i class="fas fa-warehouse me-2"></i>Warehouse Intake Dashboard
