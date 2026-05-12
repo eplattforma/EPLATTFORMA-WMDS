@@ -52,8 +52,8 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'cooler.route_list' %}active{% endif %}"
-                                   href="{{ url_for('cooler.route_list') }}">
+                                <a class="dropdown-item {% if request.endpoint == 'cooler.route_picking' %}active{% endif %}"
+                                   href="{{ url_for('routes.dashboard') }}?filter=cooler">
                                     <i class="fas fa-snowflake me-2"></i>Cooler Picking
                                 </a>
                             </li>
