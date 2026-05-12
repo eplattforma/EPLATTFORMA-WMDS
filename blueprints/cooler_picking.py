@@ -393,11 +393,14 @@ def route_picking(route_id, delivery_date):
         import logging as _l
         _l.getLogger(__name__).debug("cooler estimator failed: %s", e)
 
+    open_boxes = [b for b in boxes if b["status"] == "open"]
+
     return render_template(
         "cooler/route_picking.html",
         route_id=route_id, delivery_date=delivery_date,
         queue=queue, sequenced=sequenced, unsequenced=unsequenced,
-        cooler_session=cooler_session, estimate=estimate, boxes=boxes,
+        cooler_session=cooler_session, estimate=estimate,
+        boxes=boxes, open_boxes=open_boxes,
     )
 
 
@@ -611,6 +614,13 @@ def box_create():
         f"box_no={box_no} by {_username()}",
     )
     db.session.commit()
+
+    if not request.is_json:
+        flash(f"Box #{box_no} created.", "success")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id,
+                                delivery_date=str(delivery_date)))
+
     return jsonify({"cooler_box_id": new_id, "status": "open",
                     "created": True}), 201
 
@@ -661,10 +671,10 @@ def box_assign_item(box_id):
             "error": f"Queue item {queue_item_id} is not a cooler row "
                      f"(pick_zone_type={qrow[5]})."
         }), 400
-    if qrow[4] not in ("pending",):
+    if qrow[4] not in ("pending", "picked"):
         return jsonify({
             "error": f"Queue item {queue_item_id} status={qrow[4]}; "
-                     f"only pending rows can be assigned."
+                     f"only pending or picked rows can be assigned to a box."
         }), 400
 
     # enforce that the queue item's invoice belongs to
@@ -897,6 +907,18 @@ def box_close(box_id):
         )
 
     db.session.commit()
+
+    if not request.is_json:
+        flash(f"Box #{box_id} closed.", "success")
+        box_data = _fetch_box(box_id)
+        route_id = box_data["route_id"] if box_data else None
+        delivery_date_val = str(box_data["delivery_date"]) if box_data else ""
+        if route_id and delivery_date_val:
+            return redirect(url_for("cooler.route_picking",
+                                    route_id=route_id,
+                                    delivery_date=delivery_date_val))
+        return redirect(url_for("cooler.route_list"))
+
     return jsonify({
         "cooler_box_id": box_id, "status": "closed",
         "first_stop_sequence": float(first_seq) if first_seq is not None else None,
@@ -989,6 +1011,231 @@ def box_cancel(box_id):
     )
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "status": "cancelled"}), 200
+
+
+# ---------------------------------------------------------------------------
+# Pick action — marks a queued item as physically picked from the cooler
+# ---------------------------------------------------------------------------
+@cooler_bp.route("/queue/<int:queue_item_id>/pick", methods=["POST"])
+@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag
+def queue_pick(queue_item_id):
+    """Mark a cooler queue row as picked (pending → picked).
+
+    Records picked_by, picked_at, qty_picked = qty_required.
+    After this the item appears as 'picked' and can be assigned to a box.
+    Redirects back to the route picking screen.
+    """
+    row = db.session.execute(
+        text(
+            "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
+            "       bpq.status, bpq.pick_zone_type, "
+            "       i.route_id, s.delivery_date "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if row is None:
+        abort(404)
+    if row[5] != "cooler":
+        flash("Not a cooler queue item.", "danger")
+    elif row[4] != "pending":
+        flash(f"Item is already {row[4]} — nothing to do.", "info")
+    else:
+        now = get_utc_now()
+        db.session.execute(
+            text(
+                "UPDATE batch_pick_queue "
+                "SET status = 'picked', picked_by = :who, picked_at = :now, "
+                "    qty_picked = qty_required, updated_at = :now "
+                "WHERE id = :qid AND status = 'pending'"
+            ),
+            {"who": _username(), "now": now, "qid": queue_item_id},
+        )
+        _audit(
+            "cooler.item_picked",
+            f"Cooler queue #{queue_item_id} invoice={row[1]} item={row[2]} "
+            f"picked by {_username()}",
+            invoice_no=row[1], item_code=row[2],
+        )
+        db.session.commit()
+        flash(f"Picked {row[2]} for {row[1]}.", "success")
+
+    # Redirect back to the picking screen
+    route_id = row[6] if row else 0
+    delivery_date = str(row[7]) if row and row[7] else ""
+    if not delivery_date:
+        date_row = db.session.execute(
+            text("SELECT delivery_date FROM shipments WHERE id = :rid"),
+            {"rid": route_id},
+        ).fetchone()
+        delivery_date = str(date_row[0]) if date_row and date_row[0] else ""
+    if delivery_date:
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id,
+                                delivery_date=delivery_date))
+    return redirect(url_for("cooler.route_list"))
+
+
+# ---------------------------------------------------------------------------
+# Assign picked item to a box — form-friendly wrapper (queue_item_id in URL)
+# ---------------------------------------------------------------------------
+@cooler_bp.route("/queue/<int:queue_item_id>/assign-box", methods=["POST"])
+@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag
+def queue_assign_box(queue_item_id):
+    """Assign a picked cooler queue row to a box; POST from the picking screen.
+
+    Expects form fields: box_id, picked_qty, delivery_date (for redirect).
+    Performs the same DB work as box_assign_item but redirects back to the
+    route picking page instead of returning JSON.
+    """
+    delivery_date_str = (request.form.get("delivery_date") or "").strip()
+
+    try:
+        box_id = int(request.form.get("box_id"))
+    except (TypeError, ValueError):
+        flash("No box selected.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+    try:
+        picked_qty = float(request.form.get("picked_qty", 0))
+    except (TypeError, ValueError):
+        picked_qty = 0.0
+
+    box = _fetch_box(box_id)
+    if box is None:
+        flash(f"Box #{box_id} not found.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+    if box["status"] != "open":
+        flash(f"Box #{box_id} is {box['status']}; only open boxes accept items.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+    qrow = db.session.execute(
+        text(
+            "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
+            "       bpq.status, bpq.pick_zone_type, "
+            "       i.customer_code, i.customer_name, "
+            "       i.route_id, s.delivery_date "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if qrow is None:
+        abort(404)
+    if qrow[5] != "cooler":
+        flash("Not a cooler queue item.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+    if qrow[4] not in ("pending", "picked"):
+        flash(f"Item status is '{qrow[4]}'; cannot assign to box.", "warning")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+    if int(qrow[8]) != int(box["route_id"]):
+        flash("Cannot assign an item from a different route to this box.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+    invoice_no = qrow[1]
+    item_code = qrow[2]
+    if picked_qty <= 0:
+        picked_qty = float(qrow[3]) if qrow[3] else 1.0
+
+    stop_row = db.session.execute(
+        text(
+            "SELECT rs.route_stop_id, rs.seq_no "
+            "FROM route_stop_invoice rsi "
+            "JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
+            "WHERE rsi.invoice_no = :inv AND rsi.is_active = :truthy "
+            "ORDER BY rs.seq_no LIMIT 1"
+        ),
+        {"inv": invoice_no, "truthy": True},
+    ).fetchone()
+    route_stop_id = stop_row[0] if stop_row else None
+    delivery_sequence = stop_row[1] if stop_row else None
+
+    item_name_row = db.session.execute(
+        text(
+            "SELECT item_name FROM invoice_items "
+            "WHERE invoice_no = :inv AND item_code = :ic LIMIT 1"
+        ),
+        {"inv": invoice_no, "ic": item_code},
+    ).fetchone()
+    item_name = item_name_row[0] if item_name_row else None
+
+    now = get_utc_now()
+    db.session.execute(
+        text(
+            "INSERT INTO cooler_box_items "
+            "(cooler_box_id, invoice_no, customer_code, customer_name, "
+            " route_stop_id, delivery_sequence, item_code, item_name, "
+            " expected_qty, picked_qty, picked_by, picked_at, "
+            " queue_item_id, status, created_at, updated_at) "
+            "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+            "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+        ),
+        {
+            "bid": box_id, "inv": invoice_no, "cc": qrow[6], "cn": qrow[7],
+            "rsid": route_stop_id, "seq": delivery_sequence,
+            "ic": item_code, "iname": item_name,
+            "exp": float(qrow[3]) if qrow[3] else 0.0,
+            "pq": picked_qty, "who": _username(), "now": now,
+            "qid": queue_item_id,
+        },
+    )
+    db.session.execute(
+        text(
+            "UPDATE batch_pick_queue "
+            "SET status = 'picked', picked_by = :who, picked_at = :now, "
+            "    qty_picked = :pq, updated_at = :now "
+            "WHERE id = :qid AND status IN ('pending', 'picked')"
+        ),
+        {"who": _username(), "now": now, "pq": picked_qty, "qid": queue_item_id},
+    )
+    _audit(
+        "cooler.item_assigned",
+        f"Cooler box #{box_id} <- queue #{queue_item_id} "
+        f"invoice={invoice_no} item={item_code} qty={picked_qty} by {_username()}",
+        invoice_no=invoice_no, item_code=item_code,
+    )
+    db.session.commit()
+    flash(f"Assigned {item_code} to Box #{box['box_no']}.", "success")
+    return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+
+def _redirect_to_picking_from_queue(queue_item_id, delivery_date_str=""):
+    """Helper: redirect back to the route picking page after a queue action."""
+    row = db.session.execute(
+        text(
+            "SELECT i.route_id, s.delivery_date "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    route_id = row[0] if row else None
+    delivery_date = delivery_date_str or (str(row[1]) if row and row[1] else "")
+    if not delivery_date and route_id:
+        date_row = db.session.execute(
+            text("SELECT delivery_date FROM shipments WHERE id = :rid"),
+            {"rid": route_id},
+        ).fetchone()
+        delivery_date = str(date_row[0]) if date_row and date_row[0] else ""
+    if route_id and delivery_date:
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id,
+                                delivery_date=delivery_date))
+    return redirect(url_for("cooler.route_list"))
 
 
 # ---------------------------------------------------------------------------

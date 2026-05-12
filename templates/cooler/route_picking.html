@@ -89,26 +89,78 @@
       No sequenced cooler items yet — click <strong>Lock cooler sequencing</strong> above.
     </div>
   {% else %}
-    <table class="table table-sm">
-      <thead>
+    <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
         <tr>
-          <th>Stop</th><th>Customer</th><th>Invoice</th><th>Item</th>
-          <th class="text-end">Qty</th><th>Status</th>
+          <th>Stop</th>
+          <th>Customer</th>
+          <th>Invoice</th>
+          <th>Item</th>
+          <th class="text-end">Qty</th>
+          <th>Status</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for q in sequenced %}
-          <tr>
-            <td>{{ q.delivery_sequence }}</td>
+          <tr class="{{ 'table-success' if q.status == 'picked' else '' }}">
+            <td>{{ q.delivery_sequence|int }}</td>
             <td>{{ q.customer_name or q.customer_code or '-' }}</td>
             <td>{{ q.invoice_no }}</td>
-            <td>{{ q.item_code }}</td>
-            <td class="text-end">{{ q.expected_qty }}</td>
-            <td>{{ q.status }}</td>
+            <td><strong>{{ q.item_code }}</strong></td>
+            <td class="text-end">{{ q.expected_qty|int }}</td>
+            <td>
+              {% if q.status == 'pending' %}
+                <span class="badge bg-secondary">Pending</span>
+              {% elif q.status == 'picked' %}
+                <span class="badge bg-success">Picked</span>
+              {% elif q.status == 'exception' %}
+                <span class="badge bg-danger">Exception</span>
+              {% else %}
+                <span class="badge bg-info text-dark">{{ q.status }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if q.status == 'pending' and has_permission('cooler.pick') %}
+                {# Pick button #}
+                <form method="post"
+                      action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}"
+                      class="d-inline">
+                  <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+                  <button type="submit" class="btn btn-sm btn-primary">
+                    <i class="fas fa-hand-rock me-1"></i>Pick
+                  </button>
+                </form>
+              {% elif q.status == 'picked' and has_permission('cooler.pick') %}
+                {# Assign to box — needs at least one open box #}
+                {% if open_boxes %}
+                  <form method="post"
+                        action="{{ url_for('cooler.queue_assign_box', queue_item_id=q.queue_item_id) }}"
+                        class="d-inline-flex gap-1 align-items-center">
+                    <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+                    <input type="hidden" name="picked_qty" value="{{ q.expected_qty }}">
+                    <select name="box_id" class="form-select form-select-sm" style="width:auto">
+                      {% for b in open_boxes %}
+                        <option value="{{ b.id }}">Box #{{ b.box_no }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-success text-nowrap">
+                      <i class="fas fa-box me-1"></i>Assign
+                    </button>
+                  </form>
+                {% else %}
+                  <span class="text-muted small">No open boxes — create one below</span>
+                {% endif %}
+              {% elif q.status not in ('pending', 'picked') %}
+                <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
   {% endif %}
 
   {# Unsequenced (blocked) queue #}
@@ -135,37 +187,93 @@
             <td>{{ q.customer_name or q.customer_code or '-' }}</td>
             <td>{{ q.invoice_no }}</td>
             <td>{{ q.item_code }}</td>
-            <td class="text-end">{{ q.expected_qty }}</td>
-            <td>{{ q.stop_seq_no if q.stop_seq_no is not none else '—' }}</td>
+            <td class="text-end">{{ q.expected_qty|int }}</td>
+            <td>{{ q.stop_seq_no|int if q.stop_seq_no is not none else '—' }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   {% endif %}
 
-  <h4 class="mt-4">Cooler boxes</h4>
+  {# Cooler Boxes #}
+  <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+    <h4 class="mb-0">Cooler Boxes</h4>
+    {% if has_permission('cooler.manage_boxes') %}
+      <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse"
+              data-bs-target="#createBoxForm">
+        <i class="fas fa-plus me-1"></i>New box
+      </button>
+    {% endif %}
+  </div>
+
+  {% if has_permission('cooler.manage_boxes') %}
+  <div class="collapse mb-3" id="createBoxForm">
+    <div class="card card-body">
+      <form method="post" action="{{ url_for('cooler.box_create') }}"
+            class="d-flex gap-2 align-items-end flex-wrap">
+        <input type="hidden" name="route_id" value="{{ route_id }}">
+        <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+        <div>
+          <label class="form-label form-label-sm mb-1">Box number</label>
+          <input type="number" name="box_no" class="form-control form-control-sm"
+                 value="{{ (boxes|length + 1) }}" min="1" style="width:90px">
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary">Create box</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   {% if not boxes %}
     <p class="text-muted">No cooler boxes opened yet for this delivery date.</p>
   {% else %}
-    <table class="table table-sm">
-      <thead>
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
         <tr>
-          <th>Box #</th><th>Status</th><th>First stop</th><th>Last stop</th><th></th>
+          <th>Box #</th><th>Status</th><th>First stop</th><th>Last stop</th>
+          <th>Items</th><th></th>
         </tr>
       </thead>
       <tbody>
         {% for b in boxes %}
           <tr>
-            <td>{{ b.box_no }}</td>
-            <td>{{ b.status }}</td>
+            <td><strong>Box #{{ b.box_no }}</strong></td>
+            <td>
+              {% if b.status == 'open' %}
+                <span class="badge bg-success">Open</span>
+              {% elif b.status == 'closed' %}
+                <span class="badge bg-secondary">Closed</span>
+              {% else %}
+                <span class="badge bg-warning text-dark">{{ b.status }}</span>
+              {% endif %}
+            </td>
             <td>{{ b.first_stop_sequence if b.first_stop_sequence is not none else '-' }}</td>
             <td>{{ b.last_stop_sequence if b.last_stop_sequence is not none else '-' }}</td>
             <td>
+              {% set item_count = namespace(n=0) %}
+              {% for q in sequenced %}
+                {# count items assigned — status picked means they may be in a box #}
+              {% endfor %}
+              —
+            </td>
+            <td class="text-end">
+              {% if has_permission('cooler.manage_boxes') and b.status == 'open' %}
+                <form method="post" action="{{ url_for('cooler.box_close', box_id=b.id) }}"
+                      class="d-inline">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-lock me-1"></i>Close
+                  </button>
+                </form>
+              {% endif %}
               {% if has_permission('cooler.print_labels') %}
                 <a class="btn btn-sm btn-outline-secondary"
-                   href="{{ url_for('cooler.box_label', box_id=b.id) }}" target="_blank">Label</a>
+                   href="{{ url_for('cooler.box_label', box_id=b.id) }}" target="_blank">
+                  <i class="fas fa-tag me-1"></i>Label
+                </a>
                 <a class="btn btn-sm btn-outline-secondary"
-                   href="{{ url_for('cooler.box_manifest', box_id=b.id) }}" target="_blank">Manifest</a>
+                   href="{{ url_for('cooler.box_manifest', box_id=b.id) }}" target="_blank">
+                  <i class="fas fa-list me-1"></i>Manifest
+                </a>
               {% endif %}
             </td>
           </tr>
