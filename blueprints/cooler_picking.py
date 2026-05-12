@@ -274,6 +274,13 @@ def route_list():
         for k, v in sorted(grouped.items())
         if v["pending"] > 0 or v["picked"] > 0 or v["exception"] > 0
     ]
+    if not routes:
+        from flask import flash
+        flash(
+            "No pending cooler items found. Make sure SENSITIVE items have been "
+            "attached to a route with summer_cooler_mode_enabled ON.",
+            "info",
+        )
     return render_template("cooler/route_list.html", routes=routes)
 
 

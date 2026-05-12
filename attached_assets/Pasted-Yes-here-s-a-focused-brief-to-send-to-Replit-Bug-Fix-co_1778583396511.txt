@@ -1,0 +1,65 @@
+Yes — here's a focused brief to send to Replit:
+
+Bug Fix: /cooler/route-list Returns 404
+What's happening
+Navigating to /cooler/route-list returns 404 in production. The route has four guards stacked on it:
+python@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag   # gates on cooler_picking_enabled
+One of these is blocking. Most likely cause is cooler_picking_enabled reading false from the database despite the Feature Flags UI showing it as ON — because the UI has the flag hardcoded as DISABLED (no toggle button), so it was never writable from the UI.
+What to investigate
+Check 1 — Actual DB value of the flag:
+sqlSELECT key, value FROM settings WHERE key = 'cooler_picking_enabled';
+Check 2 — Cooler permissions for admin user:
+sqlSELECT u.username, up.permission_key
+FROM user_permissions up
+JOIN users u ON u.id = up.user_id
+WHERE up.permission_key LIKE 'cooler%'
+ORDER BY u.username, up.permission_key;
+Check 3 — Are there any cooler queue rows to show:
+sqlSELECT COUNT(*), pick_zone_type, status
+FROM batch_pick_queue
+WHERE pick_zone_type = 'cooler'
+GROUP BY pick_zone_type, status;
+What to fix
+Fix 1 — Ensure cooler_picking_enabled is true in the database:
+pythonfrom app import app, db
+from models import Setting
+with app.app_context():
+    Setting.set(db.session, 'cooler_picking_enabled', 'true')
+    db.session.commit()
+Fix 2 — Ensure all cooler permissions exist for admin and warehouse_manager roles:
+Verify ROLE_PERMISSIONS in services/permissions.py includes for warehouse_manager:
+
+cooler.pick
+cooler.manage_boxes
+cooler.print_labels
+
+And for picker:
+
+cooler.pick
+
+If any are missing, add them and run the re-seed action at /admin/users/ → "Re-seed Permissions".
+Fix 3 — Update the Feature Flags UI so this can't happen again:
+In templates/admin_settings.html, the Cooler Picking section currently has cooler_picking_enabled hardcoded as DISABLED with "not yet available" label. This is stale since Phase 6 shipped. Make these changes:
+
+Change section header from "Cooler Picking (not yet built)" to "Cooler Picking"
+Remove the DISABLED treatment from cooler_picking_enabled — make it a normal toggleable flag with CAUTION risk level
+Remove the DISABLED treatment from cooler_labels_enabled and cooler_driver_view_enabled if they also have it — these are fully built
+Keep DISABLED only on batch_claim_required and enable_consolidated_batch_picking — those genuinely depend on unbuilt code
+
+Fix 4 — Add a diagnostic route for cooler setup (optional but useful):
+Add a simple check to the route_list view that surfaces a helpful error if there are no cooler queue rows yet, rather than showing an empty page silently:
+python# In route_list() after fetching rows:
+if not routes:
+    flash("No pending cooler items found. Ensure SENSITIVE items have been attached to a route with summer_cooler_mode_enabled ON.", "info")
+Verification after fix
+
+Navigate to /cooler/route-list — should return 200 and show Route 410
+Navigate to /cooler/route/410/<date> — should show the cooler picking screen with SENSITIVE items
+Confirm the Feature Flags page now shows cooler_picking_enabled as a toggleable flag
+Confirm all three cooler flags (cooler_picking_enabled, cooler_labels_enabled, cooler_driver_view_enabled) are toggleable from the UI
+
+No migrations needed
+This is a settings + permissions + UI template fix only. No schema changes, no new tables, no changes to the cooler picking logic itself.

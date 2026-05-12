@@ -2125,14 +2125,14 @@ FEATURE_FLAG_METADATA = [
         ],
     },
     {
-        'group': 'Cooler Picking (not yet built)',
+        'group': 'Cooler Picking',
         'flags': [
             {'key': 'summer_cooler_mode_enabled', 'label': 'Cooler Mode (SENSITIVE items)',
              'description': 'Splits SENSITIVE items into a separate cooler picking queue.',
              'risk': 'high', 'kind': 'bool'},
             {'key': 'cooler_picking_enabled', 'label': 'Cooler Picking UI',
-             'description': 'Enables the dedicated cooler picking screen. Depends on Phase 5 code (not yet built).',
-             'risk': 'disabled', 'kind': 'bool'},
+             'description': 'Enables the dedicated cooler picking screen (/cooler/route-list).',
+             'risk': 'yellow', 'kind': 'bool'},
             {'key': 'cooler_labels_enabled', 'label': 'Cooler Label Printing',
              'description': 'Enables printing of dedicated cooler labels at pack time.',
              'risk': 'green', 'kind': 'bool'},
