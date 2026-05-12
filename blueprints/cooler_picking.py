@@ -22,8 +22,8 @@ from datetime import datetime, date
 from io import BytesIO
 
 from flask import (
-    Blueprint, abort, current_app, jsonify, make_response, render_template,
-    request, send_file, url_for,
+    Blueprint, abort, current_app, flash, jsonify, make_response,
+    redirect, render_template, request, send_file, url_for,
 )
 from flask_login import current_user, login_required
 from sqlalchemy import text
@@ -483,16 +483,35 @@ def lock_sequencing(route_id):
     )
     db.session.commit()
 
-    return jsonify({
-        "ok": True,
-        "route_id": route_id_int,
-        "session_id": session_id,
-        "stamped": stamped,
-        "skipped_no_stop": skipped_no_stop,
-        "skipped_details": skipped_details,
-        "locked_at": now.isoformat(),
-        "locked_by": _username(),
-    })
+    # If called via API (Accept: application/json), return JSON
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify({
+            "ok": True,
+            "route_id": route_id_int,
+            "session_id": session_id,
+            "stamped": stamped,
+            "skipped_no_stop": skipped_no_stop,
+            "skipped_details": skipped_details,
+            "locked_at": now.isoformat(),
+            "locked_by": _username(),
+        })
+
+    # Normal form POST — flash and redirect back to the picking screen
+    if stamped:
+        flash(f"Sequencing locked — {stamped} item(s) stamped with delivery order.", "success")
+    else:
+        flash("Sequencing locked (all items already had a sequence).", "info")
+    if skipped_no_stop:
+        flash(
+            f"{skipped_no_stop} item(s) could not be sequenced (no active route stop): "
+            + ", ".join(d['invoice_no'] for d in skipped_details),
+            "warning",
+        )
+
+    delivery_date = request.form.get("delivery_date", "")
+    return redirect(url_for("cooler.route_picking",
+                            route_id=route_id_int,
+                            delivery_date=delivery_date))
 
 
 @cooler_bp.route("/box/create", methods=["POST"])

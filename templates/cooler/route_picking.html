@@ -61,6 +61,7 @@
           {% if has_permission('cooler.lock_sequencing') %}
             <form method="post"
                   action="{{ url_for('cooler.lock_sequencing', route_id=route_id) }}">
+              <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
               <button class="btn btn-{{ 'outline-success' if cooler_session and cooler_session.is_locked else 'success' }}"
                       type="submit"
                       {% if not unsequenced and cooler_session and cooler_session.is_locked %}disabled{% endif %}>
