@@ -446,15 +446,19 @@ def lock_sequencing(route_id):
         "       ON rs.route_stop_id = rsi.route_stop_id "
         "WHERE bpq.pick_zone_type = 'cooler' "
         "  AND bpq.batch_session_id = :sid "
-        "  AND bpq.status = 'pending' "
         "  AND bpq.delivery_sequence IS NULL"
     ), {"sid": session_id, "truthy": True}).fetchall()
 
     stamped = 0
     skipped_no_stop = 0
-    for queue_id, _inv, seq_no in rows:
+    skipped_details = []
+    for queue_id, inv_no, seq_no in rows:
         if seq_no is None:
             skipped_no_stop += 1
+            skipped_details.append({
+                "invoice_no": inv_no,
+                "reason": "no active route_stop_invoice row",
+            })
             continue
         db.session.execute(text(
             "UPDATE batch_pick_queue SET delivery_sequence = :seq, "
@@ -485,6 +489,7 @@ def lock_sequencing(route_id):
         "session_id": session_id,
         "stamped": stamped,
         "skipped_no_stop": skipped_no_stop,
+        "skipped_details": skipped_details,
         "locked_at": now.isoformat(),
         "locked_by": _username(),
     })

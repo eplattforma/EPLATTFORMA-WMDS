@@ -1,0 +1,125 @@
+Here's the brief to send to Replit:
+
+Bug Fix: Lock Cooler Sequencing Returns stamped: 0
+What's Happening
+Clicking "Lock cooler sequencing" on the cooler picking screen returns:
+json{
+  "locked_at": "2026-05-12T12:07:34.428102+00:00",
+  "locked_by": "Polis",
+  "ok": true,
+  "route_id": 409,
+  "session_id": 636,
+  "skipped_no_stop": 0,
+  "stamped": 0
+}
+stamped: 0 means the lock ran but found zero items to stamp with a delivery sequence. Items remain in "Unsequenced — awaiting lock" and cannot be picked.
+Root Cause To Investigate
+The lock query joins batch_pick_queue → route_stop_invoice → route_stop to get seq_no. stamped: 0 means this join returns nothing — the cooler queue rows exist but cannot resolve their stop sequence.
+Two likely causes:
+Cause A — The cooler session (COOLER-ROUTE-409, session 636) was created through the old batch picking path, not through the Phase 6 extract_sensitive_for_route_stop_invoices() hook. The queue rows have invoice_no populated but the route_stop_invoice table has no active row linking those invoices to their stops.
+Cause B — The invoices are correctly in route_stop_invoice but is_active = false on those rows, causing the join to miss them.
+Diagnostic Queries To Run First
+sql-- Q1: What cooler queue rows exist for session 636
+SELECT 
+    bpq.id,
+    bpq.invoice_no,
+    bpq.item_code,
+    bpq.pick_zone_type,
+    bpq.delivery_sequence,
+    bpq.status,
+    bpq.batch_session_id
+FROM batch_pick_queue bpq
+WHERE bpq.pick_zone_type = 'cooler'
+AND bpq.batch_session_id = 636
+ORDER BY bpq.invoice_no;
+
+-- Q2: Do those invoices have active route stop assignments
+SELECT 
+    rsi.invoice_no,
+    rsi.route_stop_id,
+    rsi.is_active,
+    rs.seq_no,
+    rs.shipment_id
+FROM route_stop_invoice rsi
+JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+WHERE rsi.invoice_no IN (
+    SELECT DISTINCT invoice_no 
+    FROM batch_pick_queue 
+    WHERE pick_zone_type = 'cooler'
+    AND batch_session_id = 636
+)
+ORDER BY rsi.invoice_no;
+
+-- Q3: Check the lock query directly - what does it actually find
+SELECT 
+    bpq.id,
+    bpq.invoice_no,
+    bpq.delivery_sequence,
+    rsi.is_active,
+    rs.seq_no
+FROM batch_pick_queue bpq
+LEFT JOIN route_stop_invoice rsi 
+    ON rsi.invoice_no = bpq.invoice_no 
+    AND rsi.is_active = true
+LEFT JOIN route_stop rs 
+    ON rs.route_stop_id = rsi.route_stop_id
+WHERE bpq.pick_zone_type = 'cooler'
+AND bpq.batch_session_id = 636;
+What To Fix
+Fix 1 — The lock endpoint must handle missing route_stop_invoice rows gracefully
+Find the lock cooler sequencing endpoint in blueprints/cooler_picking.py. Currently when seq_no cannot be resolved it silently skips (hence skipped_no_stop: 0 matching the count, and stamped: 0).
+Update the response to include a skipped_no_stop count AND a skipped_details list showing exactly which invoice_nos were skipped and why:
+python# In the lock endpoint response, add:
+"skipped_details": [
+    {"invoice_no": "INV-12345", "reason": "no active route_stop_invoice row"}
+]
+This makes debugging transparent rather than returning ok: true with no indication of what was missed.
+Fix 2 — The lock must also search by route_id not just batch_session_id
+The lock query likely filters cooler queue rows by batch_session_id. But cooler sessions created via the old batch picking path (COOLER-ROUTE-N naming) may have a different session structure than Phase 6 expects.
+Check whether the lock endpoint finds items by batch_session_id OR by route_id via the invoice join. It should use both as fallbacks:
+sql-- Primary: find by session
+WHERE bpq.batch_session_id = :session_id
+AND bpq.pick_zone_type = 'cooler'
+
+-- Fallback: also catch items on this route that may be in a different session
+OR (
+    bpq.pick_zone_type = 'cooler'
+    AND bpq.invoice_no IN (
+        SELECT rsi.invoice_no 
+        FROM route_stop_invoice rsi
+        JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+        WHERE rs.shipment_id = :route_id
+        AND rsi.is_active = true
+    )
+)
+Fix 3 — If route_stop_invoice rows are missing for these invoices
+If Q2 returns zero rows, the invoices in the cooler queue are not linked to route stops. The Phase 6 extract_sensitive_for_route_stop_invoices() hook needs to be triggered manually for these existing sessions.
+Add a "Re-extract cooler items" button on the cooler picking screen that re-runs the extraction for all invoices currently on the route. This is the idempotent re-run path that already exists in extract_sensitive_for_route_stop_invoices() — just expose it as a UI action for cases where extraction was missed.
+Alternatively, fix the specific data issue for Route 409 and 410 directly:
+python# Run in shell to re-trigger extraction for existing routes
+from app import app, db
+from models import RouteStop, RouteStopInvoice
+from services.cooler_route_extraction import extract_sensitive_for_route_stop_invoices
+
+with app.app_context():
+    # Get all active RSIs for routes 409 and 410
+    rsi_list = RouteStopInvoice.query.join(RouteStop).filter(
+        RouteStop.shipment_id.in_([409, 410]),
+        RouteStopInvoice.is_active == True
+    ).all()
+    
+    result = extract_sensitive_for_route_stop_invoices(rsi_list)
+    print(result)
+    db.session.commit()
+Fix 4 — Prevent this from happening on future sessions
+The COOLER-ROUTE-409 and COOLER-ROUTE-410 sessions appear to have been created through a path that bypassed attach_invoices_to_stop. Trace how these sessions were created and ensure all future cooler session creation goes through the Phase 6 extraction hook, not the old batch picking service.
+Check services/batch_picking.py — if it still creates cooler sessions directly (the old Phase 5 path), it should either be removed or updated to call extract_sensitive_for_route_stop_invoices() instead.
+Verification After Fix
+
+Run the lock endpoint for Route 409 — response should show stamped: 2 (the two items in the queue)
+Cooler picking screen should show items moved from "Unsequenced" to "Sequenced — pickable"
+Lock response should show skipped_no_stop: 0 (nothing skipped)
+Run the same test for Route 410
+
+No Schema Changes Needed
+This is a logic and data fix only. No migrations, no new tables.
