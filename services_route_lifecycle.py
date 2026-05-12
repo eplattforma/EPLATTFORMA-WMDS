@@ -424,7 +424,24 @@ def assign_invoice_to_stop(invoice_no: str, route_stop_id: int, actor: str,
     
     if commit:
         db.session.commit()
-    
+
+        # Phase 6 — auto-extract SENSITIVE items for the cooler queue.
+        # Failure must not roll back the assignment.
+        try:
+            from services.cooler_route_extraction import (
+                extract_sensitive_for_route_stop_invoices,
+            )
+            extract_sensitive_for_route_stop_invoices([rsi])
+        except Exception as _cooler_exc:
+            logging.getLogger(__name__).warning(
+                "cooler extraction post-assign_invoice_to_stop hook failed: %s",
+                _cooler_exc,
+            )
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
     logging.info(f"Invoice {invoice_no} assigned to stop {route_stop_id} by {actor}")
     return rsi
 
@@ -508,7 +525,26 @@ def reroute_invoice(invoice_no: str, new_route_stop_id: int, actor: str,
     
     if commit:
         db.session.commit()
-    
+
+        # Phase 6 — re-extract SENSITIVE items for the new route. The
+        # extractor reassigns cooler queue rows to the destination
+        # route's session and is idempotent if the item was already
+        # locked by the prior route. Failure must not roll back.
+        try:
+            from services.cooler_route_extraction import (
+                extract_sensitive_for_route_stop_invoices,
+            )
+            extract_sensitive_for_route_stop_invoices([new_rsi])
+        except Exception as _cooler_exc:
+            logging.getLogger(__name__).warning(
+                "cooler extraction post-reroute_invoice hook failed: %s",
+                _cooler_exc,
+            )
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
     logging.info(f"Invoice {invoice_no} rerouted from stop {old_stop_id} to stop {new_route_stop_id} by {actor}")
     return new_rsi
 

@@ -156,6 +156,7 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
     created_stops = []
     updated_stops = []
     potentially_empty_stops = set()  # Track stops that may have become empty
+    created_rsis = []  # Track new RSIs for cooler extraction hook (Phase 6)
     
     for customer_code, customer_invoices in customer_groups.items():
         # Check if stop already exists for this customer in this route
@@ -237,6 +238,7 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
                 expected_amount=inv.total_grand
             )
             db.session.add(link)
+            created_rsis.append(link)
             
             # Close any open warehouse intake cases for this invoice
             from models import InvoicePostDeliveryCase, RerouteRequest, InvoiceRouteHistory
@@ -275,6 +277,26 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
     
     db.session.commit()
     
+    # Phase 6 — auto-extract SENSITIVE items into the per-route cooler
+    # queue and lock them from regular picking. Honours the
+    # ``summer_cooler_mode_enabled`` flag (defaults OFF). Failure here
+    # MUST NOT roll back the route attachment — log and continue.
+    if created_rsis:
+        try:
+            from services.cooler_route_extraction import (
+                extract_sensitive_for_route_stop_invoices,
+            )
+            extract_sensitive_for_route_stop_invoices(created_rsis)
+        except Exception as _cooler_exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "cooler extraction post-auto-assign hook failed: %s", _cooler_exc,
+            )
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
     # Clean up any stops that became empty after moving invoices
     from services import delete_stop
     for stop_id in potentially_empty_stops:
