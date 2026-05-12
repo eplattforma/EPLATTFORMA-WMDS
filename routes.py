@@ -148,11 +148,15 @@ def inject_context():
     legacy_repl_raw = Setting.get(db.session, 'legacy_replenishment_enabled', 'false')
     legacy_replenishment_enabled = str(legacy_repl_raw).strip().lower() in ('true', '1', 'yes', 'on')
 
+    cooler_raw = Setting.get(db.session, 'cooler_picking_enabled', 'false')
+    cooler_picking_enabled = str(cooler_raw).strip().lower() in ('true', '1', 'yes', 'on')
+
     return {
         'now': get_local_time(),
         'csrf_token': csrf_token,
         'use_shipments': use_shipments,
         'legacy_replenishment_enabled': legacy_replenishment_enabled,
+        'cooler_picking_enabled': cooler_picking_enabled,
         'resolve_supplier_name': resolve_supplier_name,
     }
 

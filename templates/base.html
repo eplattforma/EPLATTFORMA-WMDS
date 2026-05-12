@@ -51,6 +51,14 @@
                                     <i class="fas fa-tasks me-2"></i>My Picking Queue
                                 </a>
                             </li>
+                            {% if cooler_picking_enabled %}
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint in ['cooler.route_list', 'cooler.route_picking'] %}active{% endif %}"
+                                   href="{{ url_for('cooler.route_list') }}">
+                                    <i class="fas fa-snowflake me-2"></i>Cooler Picking
+                                </a>
+                            </li>
+                            {% endif %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'warehouse.intake_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('warehouse.intake_dashboard') }}">
