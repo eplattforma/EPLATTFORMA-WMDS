@@ -1140,6 +1140,9 @@ def queue_assign_box(queue_item_id):
         flash(f"Item status is '{qrow[4]}'; cannot assign to box.", "warning")
         return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
 
+    if qrow[8] is None:
+        flash("This item has no route assigned and cannot be placed in a box.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
     if int(qrow[8]) != int(box["route_id"]):
         flash("Cannot assign an item from a different route to this box.", "danger")
         return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
