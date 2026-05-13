@@ -406,32 +406,27 @@ def stops_list(route_id):
         if is_driver_view_enabled():
             box_rows = db.session.execute(text("""
                 SELECT cb.box_no,
-                       cb.first_stop_sequence,
-                       cb.last_stop_sequence,
+                       cbi.delivery_sequence,
                        COUNT(cbi.id) AS item_count
                 FROM cooler_boxes cb
-                LEFT JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id
+                JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id
                 WHERE cb.route_id = :rid
                   AND cb.status NOT IN ('cancelled')
-                GROUP BY cb.id, cb.box_no, cb.first_stop_sequence, cb.last_stop_sequence
-                ORDER BY cb.box_no
+                GROUP BY cb.box_no, cbi.delivery_sequence
+                ORDER BY cb.box_no, cbi.delivery_sequence
             """), {"rid": route_id}).fetchall()
 
             for r in box_rows:
-                if r[1] is not None and r[2] is not None:
-                    first_s = float(r[1])
-                    last_s = float(r[2])
-                    box_no = r[0]
-                    item_count = int(r[3] or 0)
-                    for sd in stops_data:
-                        seq = float(sd['stop'].seq_no)
-                        if first_s <= seq <= last_s:
-                            if seq not in cooler_stop_info:
-                                cooler_stop_info[seq] = []
-                            cooler_stop_info[seq].append({
-                                'box_no': box_no,
-                                'item_count': item_count,
-                            })
+                box_no = r[0]
+                seq = float(r[1]) if r[1] is not None else None
+                item_count = int(r[2] or 0)
+                if seq is not None:
+                    if seq not in cooler_stop_info:
+                        cooler_stop_info[seq] = []
+                    cooler_stop_info[seq].append({
+                        'box_no': box_no,
+                        'item_count': item_count,
+                    })
     except Exception as _e:
         logging.warning(f"Cooler stop info skipped: {_e}")
 
