@@ -3521,11 +3521,14 @@ def pick_item(invoice_no):
     alert_info = check_order_time_alerts(invoice_no, current_user.username)
     
     # OPTIMIZED: Single query to get all items with lock status (no sorting - will apply sort_items_by_config)
+    # NOTE: bps.id IS NOT NULL (not ii.locked_by_batch_id IS NOT NULL) — the JOIN already
+    # filters to Active/Paused batches, so a Completed batch produces a NULL join and the
+    # item falls through to 'available', auto-clearing stale locks below.
     from sqlalchemy import text
     query = text("""
         SELECT ii.*, 
                CASE 
-                   WHEN ii.locked_by_batch_id IS NOT NULL THEN 'batch_locked'
+                   WHEN ii.locked_by_batch_id IS NOT NULL AND bps.id IS NOT NULL THEN 'batch_locked'
                    WHEN ii.is_picked = true THEN 'picked'
                    WHEN ii.pick_status = 'skipped_pending' THEN 'skipped_pending'
                    WHEN ii.pick_status = 'reset' THEN 'reset'
@@ -3572,6 +3575,16 @@ def pick_item(invoice_no):
             batch_name = r.get('lock_batch_name') or f'Batch #{item.locked_by_batch_id}'
             locked_batch_details.append((item_code, item.item_name or item_code, batch_name))
             continue
+
+        # Auto-clear stale lock: item still has locked_by_batch_id pointing at a
+        # Completed/Cancelled batch (the JOIN returned NULL so item_status is NOT
+        # 'batch_locked' above).  Clear the foreign-key so the item is freely pickable.
+        if item.locked_by_batch_id is not None:
+            current_app.logger.info(
+                f"Clearing stale batch lock on {invoice_no}/{item_code} "
+                f"(was locked to batch #{item.locked_by_batch_id} which is no longer Active/Paused)"
+            )
+            item.locked_by_batch_id = None
 
         # Add pickable items
         if item_status in ('available', 'reset', 'skipped_pending'):
