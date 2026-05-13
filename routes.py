@@ -3552,35 +3552,46 @@ def pick_item(invoice_no):
     all_items = []
     items_to_pick = []
     locked_by_batches = []
-    
+    locked_batch_details = []   # (item_code, item_name, batch_name)
+
     for r in raw_rows:
         item_code = r.get('item_code')
         if not item_code:
             continue
-        
+
         item = items_by_code.get(item_code)
         if not item:
             continue
-        
+
         all_items.append(item)
         item_status = r.get('item_status')
-        
+
         # Handle batch locked items separately
         if item_status == 'batch_locked':
             locked_by_batches.append(item)
+            batch_name = r.get('lock_batch_name') or f'Batch #{item.locked_by_batch_id}'
+            locked_batch_details.append((item_code, item.item_name or item_code, batch_name))
             continue
-        
+
         # Add pickable items
         if item_status in ('available', 'reset', 'skipped_pending'):
             items_to_pick.append(item)
-    
+
     # Log locked items warning if any
     if locked_by_batches:
-        current_app.logger.info(f"Blocked {len(locked_by_batches)} batch-locked items from regular picking in {invoice_no}")
-    
+        current_app.logger.info(f"Blocked {len(locked_by_batches)} batch-locked items from regular picking in {invoice_no}: {locked_batch_details}")
+
     # If all remaining items are locked by batches, redirect to dashboard
     if len(locked_by_batches) > 0 and not items_to_pick:
-        flash(f'All remaining items in this order are assigned to batch picking sessions and cannot be picked individually.', 'warning')
+        lines = '; '.join(
+            f"{ic} ({iname}) → {bname}"
+            for ic, iname, bname in locked_batch_details
+        )
+        flash(
+            f'The following item(s) are assigned to a batch picking session and '
+            f'must be picked there, not individually: {lines}',
+            'warning',
+        )
         return redirect(url_for('picker_dashboard'))
     
     # If all items are picked, check for skipped items that need resolution
