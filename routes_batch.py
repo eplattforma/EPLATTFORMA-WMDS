@@ -9,13 +9,55 @@ from sqlalchemy import and_, or_, func, desc, asc
 from timezone_utils import get_local_time, utc_now_for_db
 
 from app import db
-from models import User, Invoice, InvoiceItem, PickingException, BatchPickingSession, BatchSessionInvoice, BatchPickedItem, Setting, ActivityLog, OrderTimeBreakdown, ItemTimeTracking
+from models import User, Invoice, InvoiceItem, PickingException, BatchPickingSession, BatchSessionInvoice, BatchPickedItem, Setting, ActivityLog, OrderTimeBreakdown, ItemTimeTracking, RouteStop, RouteStopInvoice
 from sorting_utils import sort_batch_items, get_sorting_config
 from services.permissions import require_permission
 from services.picking_utils import get_picking_eligible_users
 
 # Create a blueprint for batch picking routes
 batch_bp = Blueprint('batch', __name__)
+
+
+def _build_stop_seq_lookup(batch_session):
+    """For cooler/route-based batches, return {invoice_no: float(seq_no)}.
+
+    For standard batches (no route_id), returns an empty dict so callers
+    fall back to Invoice.routing-based ordering.
+    """
+    route_id = getattr(batch_session, 'route_id', None)
+    if not route_id:
+        return {}
+    rows = db.session.query(
+        RouteStopInvoice.invoice_no, RouteStop.seq_no
+    ).join(
+        RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
+    ).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStopInvoice.is_active.is_(True),
+        RouteStop.deleted_at.is_(None),
+    ).all()
+    out = {}
+    for inv_no, seq in rows:
+        try:
+            out[inv_no] = float(seq) if seq is not None else None
+        except (TypeError, ValueError):
+            out[inv_no] = None
+    return out
+
+
+def _routing_label_for_invoice(invoice, stop_seq_lookup):
+    """Return the routing label printed in the batch report header.
+
+    Priority: stop sequence (if cooler/route batch) → invoice.routing → 'NO-ROUTING'.
+    """
+    seq = stop_seq_lookup.get(invoice.invoice_no) if stop_seq_lookup else None
+    if seq is not None:
+        # Numeric seq displayed without trailing .0 when integral
+        return f"STOP {int(seq)}" if float(seq).is_integer() else f"STOP {seq}"
+    routing = getattr(invoice, 'routing', None)
+    if routing not in (None, ''):
+        return str(routing)
+    return 'NO-ROUTING'
 
 
 # Helper functions for sequential batch picking
@@ -3306,8 +3348,16 @@ def batch_print_reports(batch_id):
         key = (batch_item.invoice_no, batch_item.item_code, location or '')
         batch_picked_lookup[key] = batch_item.picked_qty
     
-    # Sort batch invoices by routing number descending (for invoice-level organization)
+    # For cooler/route batches: order invoices by delivery stop sequence (ascending).
+    # For standard batches: keep legacy routing-number-descending order.
+    stop_seq_lookup = _build_stop_seq_lookup(batch_session)
+    use_stop_seq = bool(stop_seq_lookup)
+
     def get_routing_key(bi):
+        if use_stop_seq:
+            seq = stop_seq_lookup.get(bi.invoice_no)
+            # Unsequenced invoices go to the end (large sentinel)
+            return seq if seq is not None else float('inf')
         routing = bi.invoice.routing
         if routing is None or routing == '':
             return -1
@@ -3316,7 +3366,7 @@ def batch_print_reports(batch_id):
         except (ValueError, TypeError):
             return -1
     
-    sorted_batch_invoices = sorted(batch_invoices, key=get_routing_key, reverse=True)
+    sorted_batch_invoices = sorted(batch_invoices, key=get_routing_key, reverse=not use_stop_seq)
     
     # Build invoices data using the canonical order from actual picking
     invoices_data = []
@@ -3362,7 +3412,8 @@ def batch_print_reports(batch_id):
             'invoice': invoice,
             'batch_picked': batch_picked,
             'manually_picked': manually_picked,
-            'unpicked': unpicked
+            'unpicked': unpicked,
+            'routing_label': _routing_label_for_invoice(invoice, stop_seq_lookup),
         })
     
     # Get batch invoices with proper data structure for template
@@ -3434,9 +3485,15 @@ def batch_admin_print_report(batch_id):
     # Prepare invoice data for the report
     invoices = []
     
-    # Sort batch invoices by routing number descending for print report order
-    # Convert routing to float for proper numeric sorting
+    # For cooler/route batches: order by delivery stop sequence (ascending).
+    # For standard batches: keep legacy routing-number-descending order.
+    stop_seq_lookup = _build_stop_seq_lookup(batch_session)
+    use_stop_seq = bool(stop_seq_lookup)
+
     def get_routing_key(bi):
+        if use_stop_seq:
+            seq = stop_seq_lookup.get(bi.invoice_no)
+            return seq if seq is not None else float('inf')
         routing = bi.invoice.routing
         if routing is None or routing == '':
             return -1  # Put empty routing at the end
@@ -3447,7 +3504,7 @@ def batch_admin_print_report(batch_id):
     
     sorted_batch_invoices = sorted(batch_session.invoices, 
                                  key=get_routing_key, 
-                                 reverse=True)
+                                 reverse=not use_stop_seq)
     
 
     
@@ -3590,7 +3647,8 @@ def batch_admin_print_report(batch_id):
                 'total_lines': total_lines,
                 'total_units': total_units,
                 'total_weight': total_weight,
-                'completion_percentage': completion_percentage
+                'completion_percentage': completion_percentage,
+                'routing_label': _routing_label_for_invoice(invoice, stop_seq_lookup),
             })
     
     return render_template('batch_admin_print_report.html',

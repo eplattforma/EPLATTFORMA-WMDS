@@ -102,7 +102,7 @@
             <!-- Header with Routing Number -->
             <div class="row mb-3">
                 <div class="col-6">
-                    <div class="routing-large">{{ invoice_data.invoice.routing or 'NO-ROUTING' }}</div>
+                    <div class="routing-large">{{ invoice_data.routing_label or invoice_data.invoice.routing or 'NO-ROUTING' }}</div>
                 </div>
                 <div class="col-6 text-end">
                     <div class="print-header">
