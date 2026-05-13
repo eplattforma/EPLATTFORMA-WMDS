@@ -219,8 +219,13 @@
                   <i class="fas fa-boxes me-1"></i>via batch
                 </span>
               {% elif q.status == 'picked' and has_permission('cooler.pick') %}
-                {# Assign to box — needs at least one open box #}
-                {% if open_boxes %}
+                {% if assigned_to_box and assigned_to_box.get(q.queue_item_id) %}
+                  {# Already assigned — show destination box; no Assign form #}
+                  <span class="badge bg-success">
+                    <i class="fas fa-box me-1"></i>Box #{{ assigned_to_box[q.queue_item_id] }}
+                  </span>
+                {% elif open_boxes %}
+                  {# Assign to box — needs at least one open box #}
                   <form method="post"
                         action="{{ url_for('cooler.queue_assign_box', queue_item_id=q.queue_item_id) }}"
                         class="d-inline-flex gap-1 align-items-center">

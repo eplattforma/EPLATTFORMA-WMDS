@@ -351,6 +351,22 @@ def route_picking(route_id, delivery_date):
     sequenced = [q for q in queue if q["delivery_sequence"] is not None]
     unsequenced = [q for q in queue if q["delivery_sequence"] is None]
 
+    # Map queue_item_id -> box_no for items already assigned to a cooler
+    # box on this route+date. Lets the template show "→ Box #N" instead
+    # of the Assign form so users get immediate visual feedback (and
+    # cannot accidentally create duplicate cooler_box_items rows).
+    assigned_rows = db.session.execute(
+        text(
+            "SELECT cbi.queue_item_id, cb.box_no "
+            "FROM cooler_box_items cbi "
+            "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
+            "  AND cbi.queue_item_id IS NOT NULL"
+        ),
+        {"rid": _route_id_int, "dd": str(delivery_date)},
+    ).fetchall()
+    assigned_to_box = {int(r[0]): int(r[1]) for r in assigned_rows}
+
     # Phase 6 — fetch the LATEST per-route cooler session lock state.
     # We look up by route_id (preferred) and fall back to the legacy
     # name pattern, ordered by created_at DESC so late-addition sibling
@@ -445,6 +461,7 @@ def route_picking(route_id, delivery_date):
         boxes=boxes, open_boxes=open_boxes,
         picking_phase=picking_phase,
         batch_in_progress=batch_in_progress,
+        assigned_to_box=assigned_to_box,
     )
 
 
@@ -1221,6 +1238,26 @@ def queue_assign_box(queue_item_id):
         return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
     if int(qrow[8]) != int(box["route_id"]):
         flash("Cannot assign an item from a different route to this box.", "danger")
+        return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+    # Duplicate-assignment guard: if this queue row is already linked to a
+    # cooler_box_items row, refuse the second click and tell the user where
+    # the item lives. Without this, repeated clicks (e.g. when the picker
+    # missed the item-count update) silently pile up duplicate rows.
+    existing = db.session.execute(
+        text(
+            "SELECT cb.box_no FROM cooler_box_items cbi "
+            "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "WHERE cbi.queue_item_id = :qid LIMIT 1"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if existing is not None:
+        flash(
+            f"Item is already assigned to Box #{existing[0]}. "
+            "Remove it from that box first if you want to move it.",
+            "warning",
+        )
         return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
 
     invoice_no = qrow[1]
