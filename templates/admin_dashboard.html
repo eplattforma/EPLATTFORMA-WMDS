@@ -87,6 +87,92 @@
         max-height: 120px;
     }
 </style>
+<!-- Order Summary & Active Pickers -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Order Summary</h5>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="text-align: center;">
+                        <div id="refresh-countdown" style="font-size: 0.8rem; font-family: 'Courier New', monospace; color: #e0e0e0;">Refresh in 0:30</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div id="clock-time" style="font-size: 0.9rem; font-weight: bold; font-family: 'Courier New', monospace; color: #fff;">--:--</div>
+                        <div id="clock-date" style="font-size: 0.65rem; color: #e0e0e0;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 mb-3 mb-md-0">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Total Items</h5>
+                            <h3 class="mb-1">{{ (invoices|map(attribute='total_items')|select|sum)|round|int }}</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3 mb-md-0">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Total Weight</h5>
+                            <h3 class="mb-1">{{ (invoices|map(attribute='total_weight')|select|sum)|round|int }} kg</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3 mb-md-0">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Total Time</h5>
+                            <h3 class="mb-0">{{ (invoices|map(attribute='total_exp_time')|select|sum)|round|int }} min</h3>
+                            <small class="text-muted" style="font-size: 0.7rem;">({{ (invoices|map(attribute='total_exp_time')|select|sum/60)|round|int }} hrs)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Remaining</h5>
+                            <h3 class="mb-0 text-warning">{{ total_remaining_time|round|int }} min</h3>
+                            <small class="text-muted" style="font-size: 0.7rem;">({{ (total_remaining_time/60)|round|int }} hrs)</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-success active-pickers-card" style="height: 165px;">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="fas fa-user-check me-2"></i>Active Pickers ({{ active_pickers_data|length }})</h5>
+            </div>
+            <div class="card-body p-0 active-pickers-table-container">
+                {% if active_pickers_data %}
+                <div class="table-responsive active-pickers-table-body">
+                    <table class="table table-sm table-hover mb-0 active-pickers-table">
+                        <tbody>
+                            {% for picker in active_pickers_data %}
+                            <tr>
+                                <td><strong>{{ picker.username }}</strong></td>
+                                <td>{{ picker.check_in_time }}</td>
+                                <td>{{ picker.elapsed_minutes }}m</td>
+                                <td style="color: #ff9800;"><strong>{{ picker.idle_time|round|int }}m</strong></td>
+                                <td>
+                                    {% if picker.on_break %}
+                                    <span class="badge bg-warning text-dark" title="On Break"><i class="fas fa-pause-circle"></i></span>
+                                    {% else %}
+                                    <span class="badge bg-success" title="Working"><i class="fas fa-play-circle"></i></span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-3 text-center text-muted d-flex align-items-center justify-content-center" style="flex-grow: 1;">
+                    <small>No active pickers</small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row mb-4">
     <div class="col-md-8">
         <h1 class="display-5">
@@ -437,29 +523,6 @@
                 </tbody>
 
             </table>
-            
-            <!-- Total Summary Card -->
-            <div class="card mt-4 border-primary">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="fas fa-calculator me-2"></i>Order Summary</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row text-center">
-                        <div class="col-md-4">
-                            <h4>Total Items</h4>
-                            <h2 class="display-6">{{ invoices|map(attribute='total_items')|select|sum|int }}</h2>
-                        </div>
-                        <div class="col-md-4">
-                            <h4>Total Weight</h4>
-                            <h2 class="display-6">{{ invoices|map(attribute='total_weight')|select|sum|round(1) }} kg</h2>
-                        </div>
-                        <div class="col-md-4">
-                            <h4>Total Time</h4>
-                            <h2 class="display-6">{{ invoices|map(attribute='total_exp_time')|select|sum|round(1) }} min</h2>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
         {% else %}
         <div class="alert alert-info">
