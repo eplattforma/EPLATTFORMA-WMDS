@@ -158,6 +158,24 @@
                             {% endif %}
                         </div>
 
+                        {% if cooler_driver_view_enabled() %}
+                          {% set seq_key = item.stop.seq_no|float %}
+                          {% set cooler_boxes_for_stop = cooler_stop_info.get(seq_key, []) %}
+                          {% if cooler_boxes_for_stop %}
+                          <div class="d-flex flex-wrap gap-2 mt-1 mb-2">
+                            {% for cb in cooler_boxes_for_stop %}
+                            <span class="d-inline-flex align-items-center gap-1 px-2 py-1 rounded fw-semibold"
+                                  style="background:#cff4fc;color:#055160;border:1px solid #9eeaf9;font-size:0.82rem;">
+                              <i class="fas fa-snowflake"></i>
+                              Box #{{ cb.box_no }}
+                              &middot;
+                              {{ cb.item_count }} item{% if cb.item_count != 1 %}s{% endif %}
+                            </span>
+                            {% endfor %}
+                          </div>
+                          {% endif %}
+                        {% endif %}
+
                         {% if item.status == 'pending' %}
                         <div class="mb-2">
                             <span class="d-inline-block text-primary {% if item.payment_method|lower != 'credit' %}badge bg-danger text-white p-2 animate-pulse w-100 text-center{% endif %}">

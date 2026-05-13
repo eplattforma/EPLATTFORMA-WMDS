@@ -12,6 +12,7 @@ import json
 import logging
 
 from app import db
+from sqlalchemy import text
 from models import (
     Shipment, RouteStop, RouteStopInvoice, Invoice, InvoiceItem,
     DeliveryEvent, DeliveryLine, CODReceipt, PODRecord,
@@ -256,7 +257,24 @@ def start_route(route_id):
         )
         
         db.session.commit()
-        
+
+        # Pre-warm image cache for cooler items so photos load instantly in the field
+        try:
+            from blueprints.cooler_picking import is_driver_view_enabled
+            if is_driver_view_enabled():
+                from image_handler import prefetch_images_for_invoice
+                cooler_codes = [r[0] for r in db.session.execute(text("""
+                    SELECT DISTINCT cbi.item_code
+                    FROM cooler_box_items cbi
+                    JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id
+                    WHERE cb.route_id = :rid
+                      AND cb.status NOT IN ('cancelled')
+                """), {"rid": route_id}).fetchall()]
+                if cooler_codes:
+                    prefetch_images_for_invoice(cooler_codes)
+        except Exception as _e:
+            logging.warning(f"Cooler image prefetch skipped: {_e}")
+
         return jsonify({'success': True, 'status': 'IN_TRANSIT'})
     
     except Exception as e:
@@ -381,7 +399,44 @@ def stops_list(route_id):
             'lng': cust_lng,
         })
     
-    return render_template('driver/stops_list.html', route=route, stops_data=stops_data)
+    # Cooler box data per stop (gated by flag)
+    cooler_stop_info = {}  # {seq_no (float): [{'box_no': int, 'item_count': int}, ...]}
+    try:
+        from blueprints.cooler_picking import is_driver_view_enabled
+        if is_driver_view_enabled():
+            box_rows = db.session.execute(text("""
+                SELECT cb.box_no,
+                       cb.first_stop_sequence,
+                       cb.last_stop_sequence,
+                       COUNT(cbi.id) AS item_count
+                FROM cooler_boxes cb
+                LEFT JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id
+                WHERE cb.route_id = :rid
+                  AND cb.status NOT IN ('cancelled')
+                GROUP BY cb.id, cb.box_no, cb.first_stop_sequence, cb.last_stop_sequence
+                ORDER BY cb.box_no
+            """), {"rid": route_id}).fetchall()
+
+            for r in box_rows:
+                if r[1] is not None and r[2] is not None:
+                    first_s = float(r[1])
+                    last_s = float(r[2])
+                    box_no = r[0]
+                    item_count = int(r[3] or 0)
+                    for sd in stops_data:
+                        seq = float(sd['stop'].seq_no)
+                        if first_s <= seq <= last_s:
+                            if seq not in cooler_stop_info:
+                                cooler_stop_info[seq] = []
+                            cooler_stop_info[seq].append({
+                                'box_no': box_no,
+                                'item_count': item_count,
+                            })
+    except Exception as _e:
+        logging.warning(f"Cooler stop info skipped: {_e}")
+
+    return render_template('driver/stops_list.html', route=route, stops_data=stops_data,
+                           cooler_stop_info=cooler_stop_info)
 
 # --- Stop Detail ---
 
@@ -521,6 +576,39 @@ def deliver_wizard(stop_id):
         }
         existing_exceptions_payload.append(ex_payload)
 
+    # Cooler items for this stop (gated by flag)
+    cooler_items_for_stop = []
+    try:
+        from blueprints.cooler_picking import is_driver_view_enabled
+        if is_driver_view_enabled() and invoice_nos:
+            placeholders = ','.join(f"'{n}'" for n in invoice_nos)
+            cooler_rows = db.session.execute(text(f"""
+                SELECT cbi.invoice_no,
+                       cbi.item_code,
+                       COALESCE(cbi.expected_qty, 0) AS qty,
+                       cb.box_no,
+                       COALESCE(cbi.item_name, cbi.item_code) AS item_name
+                FROM cooler_box_items cbi
+                JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id
+                WHERE cbi.invoice_no IN ({placeholders})
+                  AND cb.route_id = :rid
+                  AND cb.status NOT IN ('cancelled')
+                ORDER BY cb.box_no, cbi.item_code
+            """), {"rid": route.id}).fetchall()
+
+            for r in cooler_rows:
+                cooler_items_for_stop.append({
+                    'invoice_no':   r[0],
+                    'item_code':    r[1],
+                    'qty':          int(r[2] or 0),
+                    'box_no':       r[3],
+                    'item_name':    r[4],
+                    'image_path':   f"images/{r[1]}.webp",
+                    'image_fallback': "images/image-not-found.png",
+                })
+    except Exception as _e:
+        logging.warning(f"Cooler items for stop skipped: {_e}")
+
     return render_template('driver/deliver_wizard.html',
                          route=route,
                          stop=stop,
@@ -529,7 +617,8 @@ def deliver_wizard(stop_id):
                          invoices=invoices_data,
                          total_invoices_amount=float(total_invoices_amount),
                          terms=terms,
-                         existing_exceptions=existing_exceptions_payload)
+                         existing_exceptions=existing_exceptions_payload,
+                         cooler_items_for_stop=cooler_items_for_stop)
 
 # --- Save Exceptions (called before printing exceptions proof) ---
 

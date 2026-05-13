@@ -1,0 +1,195 @@
+Good — now I have everything. Images are served from Azure blob storage at https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/{item_code}.jpg and cached locally at static/images/{item_code}.webp. The picking screen already uses url_for('static', filename='images/' + item.item_code + '.webp') so the pattern is established.
+Here is the complete brief:
+
+Instructions For Replit
+Feature: Cooler box information in driver app — stops list badge + deliver wizard with photos
+
+Change 1 — Stops List: cooler badge with box number and item count
+In routes_driver.py:stops_list(), enrich stops_data with cooler box information per stop. Add this block after building stops_data and before render_template:
+python# Cooler box data per stop (gated by flag)
+cooler_stop_info = {}   # {seq_no (float): {'box_no': int, 'item_count': int}}
+if is_driver_view_enabled():
+    from sqlalchemy import text
+    box_rows = db.session.execute(text("""
+        SELECT cb.box_no,
+               cb.first_stop_sequence,
+               cb.last_stop_sequence,
+               COUNT(cbi.id) AS item_count
+        FROM cooler_boxes cb
+        LEFT JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id
+        WHERE cb.route_id = :rid
+          AND cb.status NOT IN ('cancelled')
+        GROUP BY cb.id, cb.box_no, cb.first_stop_sequence, cb.last_stop_sequence
+        ORDER BY cb.box_no
+    """), {"rid": route_id}).fetchall()
+
+    for r in box_rows:
+        if r[1] is not None and r[2] is not None:
+            first_s = float(r[1])
+            last_s  = float(r[2])
+            box_no  = r[0]
+            item_count = int(r[3] or 0)
+            for sd in stops_data:
+                seq = float(sd['stop'].seq_no)
+                if first_s <= seq <= last_s:
+                    # A stop may span multiple boxes — accumulate
+                    if seq not in cooler_stop_info:
+                        cooler_stop_info[seq] = []
+                    cooler_stop_info[seq].append({
+                        'box_no': box_no,
+                        'item_count': item_count,
+                    })
+Pass cooler_stop_info to the template.
+In templates/driver/stops_list.html, inside each stop card, add the cooler badge after the existing items/weight/invoices row:
+html{% if cooler_driver_view_enabled() %}
+  {% set seq_key = item.stop.seq_no|float %}
+  {% set cooler_boxes_for_stop = cooler_stop_info.get(seq_key, []) %}
+  {% if cooler_boxes_for_stop %}
+  <div class="d-flex flex-wrap gap-2 mt-2">
+    {% for cb in cooler_boxes_for_stop %}
+    <span class="d-inline-flex align-items-center gap-1 px-2 py-1 rounded fw-semibold"
+          style="background:#cff4fc;color:#055160;border:1px solid #9eeaf9;font-size:0.82rem;">
+      <i class="fas fa-snowflake"></i>
+      Box #{{ cb.box_no }}
+      &middot;
+      {{ cb.item_count }} item{% if cb.item_count != 1 %}s{% endif %}
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endif %}
+Result: the driver sees 🧊 Box #1 · 3 items on any stop that has cooler items. Compact, unobtrusive, immediately actionable.
+
+Change 2 — Deliver Wizard: cooler panel with item photos
+In routes_driver.py:deliver_wizard(), add a cooler items query before render_template:
+python# Cooler items for this stop (gated by flag)
+cooler_items_for_stop = []
+if is_driver_view_enabled() and invoice_nos:
+    from sqlalchemy import text
+    placeholders = ','.join(f"'{n}'" for n in invoice_nos)
+    cooler_rows = db.session.execute(text(f"""
+        SELECT cbi.invoice_no,
+               cbi.item_code,
+               COALESCE(cbi.qty_assigned, bpq.qty_required, 0) AS qty,
+               cb.box_no,
+               COALESCE(psi.item_name, cbi.item_code) AS item_name,
+               COALESCE(psi.item_description, '') AS item_description
+        FROM cooler_box_items cbi
+        JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id
+        LEFT JOIN batch_pick_queue bpq
+               ON bpq.invoice_no = cbi.invoice_no
+              AND bpq.item_code  = cbi.item_code
+              AND bpq.pick_zone_type = 'cooler'
+        LEFT JOIN ps_items_dw psi ON psi.item_code_365 = cbi.item_code
+        WHERE cbi.invoice_no IN ({placeholders})
+          AND cb.route_id = :rid
+          AND cb.status NOT IN ('cancelled')
+        ORDER BY cb.box_no, cbi.item_code
+    """), {"rid": route.id}).fetchall()
+
+    for r in cooler_rows:
+        cooler_items_for_stop.append({
+            'invoice_no':      r[0],
+            'item_code':       r[1],
+            'qty':             int(r[2] or 0),
+            'box_no':          r[3],
+            'item_name':       r[4],
+            'item_description': r[5],
+            # Image served from static cache — same pattern as picking screen
+            'image_path':      f"images/{r[1]}.webp",
+            'image_fallback':  "images/image-not-found.png",
+        })
+In templates/driver/deliver_wizard.html, add the cooler panel at the very top of the page content, before the items list. This is the first thing the driver sees when they open the stop — ensuring they pull the right cooler items immediately before dealing with the rest of the delivery:
+html{% if cooler_driver_view_enabled() and cooler_items_for_stop %}
+<div class="card mb-4" style="border:2px solid #0dcaf0;border-radius:12px;overflow:hidden;">
+
+  <!-- Header -->
+  <div class="card-header d-flex align-items-center gap-2 py-2"
+       style="background:linear-gradient(135deg,#0dcaf0,#0aa8cc);color:#000;">
+    <i class="fas fa-snowflake fa-lg"></i>
+    <strong style="font-size:1.05rem;">
+      Cooler Items — Pull From Truck
+    </strong>
+    <span class="ms-auto badge bg-dark">
+      {{ cooler_items_for_stop|length }} item{% if cooler_items_for_stop|length != 1 %}s{% endif %}
+    </span>
+  </div>
+
+  <!-- Item cards -->
+  <div class="card-body p-2">
+    <div class="row g-2">
+      {% for ci in cooler_items_for_stop %}
+      <div class="col-6 col-sm-4">
+        <div class="card h-100 border-0 shadow-sm text-center p-2">
+
+          <!-- Product photo -->
+          <img src="{{ url_for('static', filename=ci.image_path) }}"
+               onerror="this.src='{{ url_for('static', filename=ci.image_fallback) }}'"
+               alt="{{ ci.item_name }}"
+               class="rounded mb-2 mx-auto d-block"
+               style="width:100%;max-width:120px;height:100px;object-fit:contain;">
+
+          <!-- Item name -->
+          <div class="fw-semibold small lh-sm mb-1">{{ ci.item_name }}</div>
+
+          <!-- Item code -->
+          <div class="text-muted" style="font-size:0.72rem;">{{ ci.item_code }}</div>
+
+          <!-- Quantity badge -->
+          <div class="mt-1">
+            <span class="badge bg-dark px-3 py-1" style="font-size:0.95rem;">
+              × {{ ci.qty }}
+            </span>
+          </div>
+
+          <!-- Box indicator -->
+          <div class="mt-1">
+            <span class="badge px-2 py-1"
+                  style="background:#cff4fc;color:#055160;border:1px solid #9eeaf9;
+                         font-size:0.75rem;">
+              <i class="fas fa-snowflake me-1"></i>Box #{{ ci.box_no }}
+            </span>
+          </div>
+
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Instruction -->
+    <div class="alert alert-info d-flex align-items-center gap-2 mt-3 mb-0 py-2"
+         style="border-radius:8px;font-size:0.85rem;">
+      <i class="fas fa-info-circle fa-lg flex-shrink-0"></i>
+      <span>
+        Open the indicated cooler box on the truck and hand these items
+        to the customer together with the rest of the delivery.
+      </span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+Image availability note
+Images are fetched from Azure blob storage on demand and cached locally at static/images/{item_code}.webp by image_handler.py. The onerror fallback handles missing images gracefully. No new image fetching logic is needed — the existing cache already works.
+If you want to pre-warm the image cache for cooler items when the route starts (so images load instantly in the field), optionally call prefetch_images_for_invoice() from image_handler.py in start_route():
+python# In start_route(), after marking route IN_TRANSIT:
+from image_handler import prefetch_images_for_invoice
+cooler_codes = [r[0] for r in db.session.execute(text("""
+    SELECT DISTINCT cbi.item_code
+    FROM cooler_box_items cbi
+    JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id
+    WHERE cb.route_id = :rid
+"""), {"rid": route_id}).fetchall()]
+if cooler_codes:
+    prefetch_images_for_invoice(cooler_codes)  # runs in background thread
+
+Everything remains gated by cooler_driver_view_enabled
+When the flag is OFF: zero queries, zero UI changes, driver app identical to today.
+No schema changes. No migrations. Read-only queries only.
+Verification
+
+Flag OFF → stops list and deliver wizard unchanged
+Flag ON, stop with cooler items → stops list shows 🧊 Box #1 · 3 items badge on that stop
+Flag ON, open deliver wizard for that stop → cooler panel appears at top showing product photos, item names, quantities and box numbers in a 2–3 column grid
+Item with no cached image → falls back to image-not-found.png gracefully
+Stop with no cooler items → no cooler panel, no badge, no change
