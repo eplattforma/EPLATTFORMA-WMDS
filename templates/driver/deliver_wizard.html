@@ -210,9 +210,9 @@ input[type=number]::-webkit-inner-spin-button {
                               &times; {{ ci.qty }}
                             </span>
                             {% if ci.unit_type %}
-                            <span class="badge px-2 py-1"
-                                  style="background:#334155;color:#94a3b8;font-size:0.78rem;font-weight:600;">
-                              {{ ci.unit_type }}{% if ci.pack %}({{ ci.pack }}){% endif %}
+                            <span class="px-2 py-1 rounded"
+                                  style="background:#334155;color:#94a3b8;font-size:0.82rem;font-weight:600;">
+                              {{ ci.unit_type }}{% if ci.pack and ci.pack|string|trim not in ('', '0', '0.0') %}&nbsp;<span style="font-size:0.75em;">({{ ci.pack|float|int }})</span>{% endif %}
                             </span>
                             {% endif %}
                           </div>
