@@ -116,6 +116,10 @@
                             <a href="{{ url_for('batch.batch_picking_unassign', batch_id=batch.id) }}" class="btn btn-warning">
                                 <i class="fas fa-user-minus me-2"></i>Unassign Picker
                             </a>
+                        {% elif batch.session_type == 'cooler_route' and not batch.sequence_locked_at %}
+                            <button type="button" class="btn btn-secondary" disabled title="Lock cooler sequencing first">
+                                <i class="fas fa-lock me-2"></i>Locked — sequence cooler first
+                            </button>
                         {% else %}
                             <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#assignPickerModal">
                                 <i class="fas fa-user-plus me-2"></i>Assign Picker

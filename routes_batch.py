@@ -282,6 +282,13 @@ def add_invoices_to_batch(batch_id):
     if batch.status == 'Completed':
         flash('Cannot add invoices to completed batches.', 'warning')
         return redirect(url_for('batch.batch_picking_manage'))
+
+    # Cooler batches: invoice membership is controlled by the cooler-route
+    # extraction service, not by manual add. Block manual adds until
+    # sequencing is locked (matches the picker-assignment gate).
+    if batch.session_type == 'cooler_route' and not batch.sequence_locked_at:
+        flash('Cannot add invoices to a cooler batch until cooler sequencing is locked.', 'warning')
+        return redirect(url_for('batch.batch_picking_manage'))
     
     if request.method == 'POST':
         # Get selected invoices to add
@@ -1345,7 +1352,14 @@ def batch_picking_assign(batch_id):
     
     # Get the batch session
     batch_session = BatchPickingSession.query.get_or_404(batch_id)
-    
+
+    # Cooler batches cannot be assigned to a picker until cooler sequencing
+    # has been locked. The cooler queue rows have no delivery_sequence
+    # before that point, so picking would be unordered.
+    if batch_session.session_type == 'cooler_route' and not batch_session.sequence_locked_at:
+        flash('Cannot assign a picker: cooler sequencing must be locked first.', 'warning')
+        return redirect(url_for('batch.batch_picking_manage'))
+
     # Assign the picker and activate the batch
     batch_session.assigned_to = picker_username
     batch_session.status = 'Active'  # Automatically activate when assigned
