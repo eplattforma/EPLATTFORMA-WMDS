@@ -21,6 +21,17 @@ input[type=number]::-webkit-inner-spin-button {
     .accordion-button::after {
         filter: brightness(0) invert(1);
     }
+    /* Cooler panel overrides — keep cyan regardless of open/closed state */
+    #hCooler .accordion-button,
+    #hCooler .accordion-button:not(.collapsed),
+    #hCooler .accordion-button.collapsed {
+        background: linear-gradient(135deg, #0dcaf0, #0aa8cc) !important;
+        color: #000 !important;
+        box-shadow: none !important;
+    }
+    #hCooler .accordion-button::after {
+        filter: none !important;
+    }
     .method-tile.active {
     background-color: #198754 !important;
     color: #fff !important;
@@ -140,73 +151,62 @@ input[type=number]::-webkit-inner-spin-button {
     </div>
     {% endif %}
 
-    {% if cooler_driver_view_enabled() and cooler_items_for_stop %}
-    <div class="card mb-4" style="border:2px solid #0dcaf0;border-radius:12px;overflow:hidden;">
-
-      <!-- Header -->
-      <div class="card-header d-flex align-items-center gap-2 py-2"
-           style="background:linear-gradient(135deg,#0dcaf0,#0aa8cc);color:#000;">
-        <i class="fas fa-snowflake fa-lg"></i>
-        <strong style="font-size:1.05rem;">Cooler Items — Pull From Truck</strong>
-        <span class="ms-auto badge bg-dark">
-          {{ cooler_items_for_stop|length }} item{% if cooler_items_for_stop|length != 1 %}s{% endif %}
-        </span>
-      </div>
-
-      <!-- Item cards -->
-      <div class="card-body p-2">
-        <div class="row g-2">
-          {% for ci in cooler_items_for_stop %}
-          <div class="col-6 col-sm-4">
-            <div class="card h-100 border-0 shadow-sm text-center p-2">
-
-              <!-- Product photo -->
-              <img src="{{ url_for('static', filename=ci.image_path) }}"
-                   onerror="this.src='{{ url_for('static', filename=ci.image_fallback) }}'"
-                   alt="{{ ci.item_name }}"
-                   class="rounded mb-2 mx-auto d-block"
-                   style="width:100%;max-width:120px;height:100px;object-fit:contain;">
-
-              <!-- Item name -->
-              <div class="fw-semibold small lh-sm mb-1">{{ ci.item_name }}</div>
-
-              <!-- Item code -->
-              <div class="text-muted" style="font-size:0.72rem;">{{ ci.item_code }}</div>
-
-              <!-- Quantity badge -->
-              <div class="mt-1">
-                <span class="badge bg-dark px-3 py-1" style="font-size:0.95rem;">
-                  &times; {{ ci.qty }}
-                </span>
-              </div>
-
-              <!-- Box indicator -->
-              <div class="mt-1">
-                <span class="badge px-2 py-1"
-                      style="background:#cff4fc;color:#055160;border:1px solid #9eeaf9;font-size:0.75rem;">
-                  <i class="fas fa-snowflake me-1"></i>Box #{{ ci.box_no }}
-                </span>
-              </div>
-
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-
-        <!-- Instruction -->
-        <div class="alert alert-info d-flex align-items-center gap-2 mt-3 mb-0 py-2"
-             style="border-radius:8px;font-size:0.85rem;">
-          <i class="fas fa-info-circle fa-lg flex-shrink-0"></i>
-          <span>
-            Open the indicated cooler box on the truck and hand these items
-            to the customer together with the rest of the delivery.
-          </span>
-        </div>
-      </div>
-    </div>
-    {% endif %}
-
     <div class="accordion" id="closeoutAcc">
+
+        {% if cooler_driver_view_enabled() and cooler_items_for_stop %}
+        <div class="accordion-item" style="border:2px solid #0dcaf0;">
+            <h2 class="accordion-header" id="hCooler">
+                <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#cCooler" aria-expanded="true" aria-controls="cCooler"
+                        style="background:linear-gradient(135deg,#0dcaf0,#0aa8cc);color:#000;">
+                    <strong><i class="fas fa-snowflake me-2"></i>Cooler Items — Pull From Truck</strong>
+                    <span class="ms-auto badge bg-dark me-2">
+                        {{ cooler_items_for_stop|length }} item{% if cooler_items_for_stop|length != 1 %}s{% endif %}
+                    </span>
+                </button>
+            </h2>
+            <div id="cCooler" class="accordion-collapse collapse show" aria-labelledby="hCooler">
+                <div class="accordion-body p-2">
+                    <div class="row g-2">
+                        {% for ci in cooler_items_for_stop %}
+                        <div class="col-6 col-sm-4">
+                            <div class="card h-100 border-0 shadow-sm text-center p-2">
+
+                                <img src="{{ url_for('static', filename=ci.image_path) }}"
+                                     onerror="this.src='{{ url_for('static', filename=ci.image_fallback) }}'"
+                                     alt="{{ ci.item_name }}"
+                                     class="rounded mb-2 mx-auto d-block"
+                                     style="width:100%;max-width:120px;height:100px;object-fit:contain;">
+
+                                <div class="fw-semibold small lh-sm mb-1">{{ ci.item_name }}</div>
+                                <div class="text-muted" style="font-size:0.72rem;">{{ ci.item_code }}</div>
+
+                                <div class="mt-1">
+                                    <span class="badge bg-dark px-3 py-1" style="font-size:0.95rem;">
+                                        &times; {{ ci.qty }}
+                                    </span>
+                                </div>
+                                <div class="mt-1">
+                                    <span class="badge px-2 py-1"
+                                          style="background:#cff4fc;color:#055160;border:1px solid #9eeaf9;font-size:0.75rem;">
+                                        <i class="fas fa-snowflake me-1"></i>Box #{{ ci.box_no }}
+                                    </span>
+                                </div>
+
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="alert alert-info d-flex align-items-center gap-2 mt-3 mb-0 py-2"
+                         style="border-radius:8px;font-size:0.85rem;">
+                        <i class="fas fa-info-circle fa-lg flex-shrink-0"></i>
+                        <span>Open the indicated cooler box on the truck and hand these items to the customer together with the rest of the delivery.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="accordion-item">
             <h2 class="accordion-header" id="hExceptions">
