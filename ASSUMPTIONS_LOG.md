@@ -765,3 +765,57 @@ registration block (after the URL map is finalized by the first request),
 `tests/conftest.py` registers the blueprint inside the `app` fixture before any
 test makes its first request. This keeps the per-test fixture conditional
 (`if "cooler_admin" not in app.blueprints`) safe across cross-file test runs.
+
+### ASSUMPTION-T30-012: Test isolation — summer_cooler_mode_enabled flag bleeds across test files
+
+`test_phase5_cooler_picking.py::test_p5_01_summer_cooler_mode_defaults_off` asserts
+the flag defaults to False (no DB row). The Phase 6 extraction tests run first in a
+combined pytest session and leave a `summer_cooler_mode_enabled = "true"` row in the
+shared in-memory SQLite DB, causing the assertion to fail. Fix: the test now explicitly
+deletes the row before asserting, modelling the clean-boot state (absent row →
+`Setting.get` default of `"false"`). Run-order independence is the goal.
+
+### ASSUMPTION-T30-013: Override pipeline test skips (not fails) when DATABASE_URL is SQLite
+
+`test_override_ordering_pipeline.py` requires real PostgreSQL forecast data. The Phase 6
+cooler tests set `os.environ["DATABASE_URL"] = "sqlite:///:memory:"` at module import
+time, which bleeds into the combined pytest run. The override pipeline guard only checked
+that DATABASE_URL was *truthy* — `"sqlite:///:memory:"` passes that check but has no
+forecast rows, so the test crashed with `AssertionError: missing forecast result for
+SNA-0105`. Fix: the test now adds an explicit `if "sqlite" in db_url` guard that calls
+`pytest.skip()` with a clear message directing users to the `override-pipeline` workflow.
+The test still passes (not skips) when run in isolation via its own workflow.
+
+### ASSUMPTION-T30-014: fill_efficiency default per box size
+
+Default fill efficiencies seeded in `cooler_box_types`:
+  - Small (30×20×15 cm, 9 000 cm³ gross): 0.70 — single-stop or small orders pack
+    more loosely; irregular shapes leave more dead space.
+  - Medium (40×30×25 cm, 30 000 cm³ gross): 0.75 — standard operational box.
+  - Large (50×40×30 cm, 60 000 cm³ gross): 0.78 — longer routes, more stops, pickers
+    can layer items more efficiently.
+Rationale: first-fit-decreasing (FFD) allocates items to the largest available capacity
+first; a slightly higher efficiency for large boxes models the better packing fraction
+achieved when items are nested across multiple stops.
+Admins can override via the `/admin/cooler-box-types/` CRUD page without code changes.
+
+### ASSUMPTION-T30-015: Item dimension units are centimetres; weight is kilograms
+
+`DwItem.item_length / item_width / item_height` are assumed to be in centimetres.
+`DwItem.item_weight` is assumed to be in kilograms. The estimator (`services/
+cooler_estimator.py`) multiplies `length × width × height` to derive cm³ and compares
+against `cooler_box_types.internal_volume_cm3`. An "unrealistically large" caveat fires
+when any single dimension exceeds 200 cm; a "fits no active box" caveat fires when the
+item volume exceeds every box's effective capacity. Both caveats are surfaced on the
+route-picking screen estimate panel and tested in P5.10.
+
+### ASSUMPTION-T30-016: FFD heuristic chosen over bin-packing solver
+
+The estimator uses First-Fit Decreasing (FFD): items sorted by volume descending, each
+placed in the first existing bin that fits; a new bin is opened when none can accommodate
+the item. FFD is O(n log n) and produces allocations within 11/9 OPT + 6/9 of optimal
+(de la Vega & Lueker). For typical route sizes (10–80 SENSITIVE items) FFD runs in
+< 1 ms and the near-optimal bound is operationally sufficient. A full ILP solver was
+considered but rejected: the added complexity (external solver dependency, longer
+solve time for edge routes > 100 items) outweighs the marginal accuracy gain for the
+box-suggestion use case (managers adjust the final count anyway based on physical dims).

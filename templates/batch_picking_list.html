@@ -59,6 +59,10 @@
                             <td>
                                 {% if batch.picking_mode == 'Consolidated' %}
                                     <span class="badge bg-info">Consolidated</span>
+                                {% elif batch.picking_mode == 'Cooler' %}
+                                    <span class="badge bg-primary">
+                                      <i class="fas fa-snowflake me-1"></i>Cooler
+                                    </span>
                                 {% else %}
                                     <span class="badge bg-primary">Sequential</span>
                                 {% endif %}

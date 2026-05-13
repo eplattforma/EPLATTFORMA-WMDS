@@ -101,24 +101,63 @@
         </div>
       </div>
     {% else %}
-      <div class="alert alert-info d-flex align-items-center mt-4 mb-2">
-        <i class="fas fa-hourglass-half fa-lg me-2"></i>
-        <div>
-          <strong>Picking in progress</strong>
-          {% if picking_phase.batch_name %}
-            — batch <code>{{ picking_phase.batch_name }}</code> not yet complete
+      <div class="alert alert-info mt-4 mb-2">
+        <div class="d-flex align-items-start gap-3">
+          <i class="fas fa-hourglass-half fa-lg mt-1 flex-shrink-0"></i>
+          <div class="flex-grow-1">
+            <strong>Picking in progress</strong>
+            {% if picking_phase.batch_name %}
+              — batch <code>{{ picking_phase.batch_name }}</code>
+            {% endif %}
+            <br>
+            <small>
+              {{ picking_phase.picked_count }} picked,
+              {{ picking_phase.pending_count }} pending
+              (out of {{ picking_phase.total_count }}).
+              Use the button below to physically pick items in the warehouse
+              (sorted by location). Items appear as <em>Picked</em> here once done.
+            </small>
+          </div>
+          {% if cooler_session %}
+            {% if picking_phase.batch_status == 'Created' %}
+              <a href="{{ url_for('batch.start_batch_picking', batch_id=cooler_session.id) }}"
+                 class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
+                <i class="fas fa-warehouse me-1"></i>Start picking
+              </a>
+            {% else %}
+              <a href="{{ url_for('batch.batch_picking_item', batch_id=cooler_session.id) }}"
+                 class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
+                <i class="fas fa-warehouse me-1"></i>Continue picking
+              </a>
+            {% endif %}
           {% endif %}
-          <br>
-          <small>
-            {{ picking_phase.picked_count }} picked,
-            {{ picking_phase.pending_count }} pending
-            (out of {{ picking_phase.total_count }}).
-            Items appear here as <em>Picked</em> once the picker finishes them
-            in the standard batch picking interface (sorted by warehouse location).
-          </small>
         </div>
       </div>
     {% endif %}
+  {% endif %}
+
+  {# When there is a batch in progress but the picking_phase block is empty
+     (e.g. no queue rows yet because lock-sequencing hasn't run), still surface
+     the link so the picker can reach the standard picking interface. #}
+  {% if batch_in_progress and cooler_session and (not picking_phase or picking_phase.empty) %}
+    <div class="alert alert-secondary mt-4 mb-2 d-flex align-items-center gap-3">
+      <i class="fas fa-boxes fa-lg flex-shrink-0"></i>
+      <div class="flex-grow-1">
+        <strong>Batch {{ cooler_session.name }} is active.</strong>
+        Use the standard picking interface to pick items by warehouse location.
+      </div>
+      {% if cooler_session.status == 'Created' %}
+        <a href="{{ url_for('batch.start_batch_picking', batch_id=cooler_session.id) }}"
+           class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
+          <i class="fas fa-warehouse me-1"></i>Start picking
+        </a>
+      {% else %}
+        <a href="{{ url_for('batch.batch_picking_item', batch_id=cooler_session.id) }}"
+           class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
+          <i class="fas fa-warehouse me-1"></i>Continue picking
+        </a>
+      {% endif %}
+    </div>
   {% endif %}
 
   {# Sequenced (pickable) queue #}

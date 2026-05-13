@@ -315,7 +315,19 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
     def get_filtered_item_count(self):
         """Get the actual count of items that will be processed based on corridor filtering"""
         from sqlalchemy import and_
-        
+
+        # Cooler batches: items are identified by locked_by_batch_id, not by zone.
+        # InvoiceItem.zone stores the warehouse aisle zone (A1, A2, …), not the DW
+        # classification ("SENSITIVE"), so the standard zone filter always returns 0.
+        if self.picking_mode == 'Cooler':
+            return db.session.query(InvoiceItem).filter(
+                and_(
+                    InvoiceItem.locked_by_batch_id == self.id,
+                    InvoiceItem.is_picked.is_(False),
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']),
+                )
+            ).count()
+
         batch_invoices = db.session.query(BatchSessionInvoice).filter_by(batch_session_id=self.id).all()
         invoice_nos = [bi.invoice_no for bi in batch_invoices]
         zones_list = [z.strip() for z in self.zones.split(',') if z.strip()]

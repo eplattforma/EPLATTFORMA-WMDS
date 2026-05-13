@@ -231,6 +231,17 @@ def _login(client, role="admin"):
 class TestSchemaAndRouting:
     def test_p5_01_summer_cooler_mode_defaults_off(self, setup):
         app, db = setup
+        # Reset the flag to its production default ("false") before asserting.
+        # When the Phase 6 extraction tests run first in the same pytest
+        # process they leave summer_cooler_mode_enabled = "true" in the
+        # shared in-memory SQLite DB. Explicitly deleting the row makes this
+        # test robust against run-order (an absent row → Setting.get default
+        # of "false", which is what this test verifies).
+        from models import Setting
+        row = Setting.query.filter_by(key="summer_cooler_mode_enabled").first()
+        if row is not None:
+            db.session.delete(row)
+            db.session.commit()
         from services.batch_picking import is_summer_cooler_mode_enabled
         assert is_summer_cooler_mode_enabled() is False
 

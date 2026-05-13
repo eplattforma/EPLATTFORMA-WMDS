@@ -1754,26 +1754,71 @@ def batch_picking_item(batch_id):
     
     # Safety check if we're at the end of the batch
     if not items or batch_session.current_item_index >= len(items):
-        # Check for skipped items that need to be collected later
-        zones_list = batch_session.zones.split(',')
+        # For cooler batches: if the session cache was empty (stale from before the
+        # Cooler picking_mode fix) but items are actually locked to this batch,
+        # clear the stale cache and regenerate rather than falling through to the
+        # "no items found" error path or treating the batch as complete prematurely.
+        if (not items
+                and batch_session.current_item_index == 0
+                and getattr(batch_session, 'picking_mode', None) == 'Cooler'):
+            regenerated = batch_session.get_grouped_items()
+            if regenerated:
+                # Serialize and cache the regenerated list, then show the first item.
+                serialized_regen = []
+                for _ri in regenerated:
+                    _first_inv = _ri['source_items'][0]['invoice_no'] if _ri['source_items'] else None
+                    _inv = Invoice.query.filter_by(invoice_no=_first_inv).first() if _first_inv else None
+                    serialized_regen.append({
+                        'item_code': _ri['item_code'],
+                        'item_name': _ri.get('item_name', _ri['item_code']),
+                        'location': _ri['location'],
+                        'zone': _ri['zone'],
+                        'barcode': _ri.get('barcode', ''),
+                        'unit_type': _ri.get('unit_type', ''),
+                        'pack': _ri.get('pack', ''),
+                        'total_qty': _ri['total_qty'],
+                        'current_invoice': _first_inv,
+                        'customer_name': _inv.customer_name if _inv else None,
+                        'routing': _inv.routing if _inv else None,
+                        'source_items': [
+                            {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']}
+                            for s in _ri['source_items']
+                        ],
+                        'order_total_items': _inv.total_items if _inv else None,
+                        'order_total_weight': _inv.total_weight if _inv else None,
+                    })
+                session[fixed_batch_key] = serialized_regen
+                items = serialized_regen
+                batch_session.current_item_index = 0
+                db.session.commit()
+                # Fall through to normal rendering below (items is now non-empty).
+
+        # Check for skipped items that need to be collected later.
+        # Cooler batches use locked_by_batch_id — InvoiceItem.zone stores the
+        # warehouse aisle zone, not the DW classification "SENSITIVE".
         batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).all()
         invoice_nos = [bi.invoice_no for bi in batch_invoices]
-        
-        # Find skipped items that need to be resolved - only in scope for this batch
-        skipped_filter_conditions = [
-            InvoiceItem.invoice_no.in_(invoice_nos),
-            InvoiceItem.zone.in_(zones_list),
-            InvoiceItem.pick_status == 'skipped_pending'
-        ]
-        
-        # Add corridor filter if corridors are specified for this batch
-        if batch_session.corridors:
-            corridors_list = [c.strip() for c in batch_session.corridors.split(',')]
-            skipped_filter_conditions.append(InvoiceItem.corridor.in_(corridors_list))
-        
-        skipped_items = InvoiceItem.query.filter(
-            and_(*skipped_filter_conditions)
-        ).all()
+
+        if getattr(batch_session, 'picking_mode', None) == 'Cooler':
+            skipped_items = InvoiceItem.query.filter(
+                InvoiceItem.locked_by_batch_id == batch_id,
+                InvoiceItem.pick_status == 'skipped_pending',
+            ).all()
+        else:
+            zones_list = batch_session.zones.split(',')
+            # Find skipped items that need to be resolved - only in scope for this batch
+            skipped_filter_conditions = [
+                InvoiceItem.invoice_no.in_(invoice_nos),
+                InvoiceItem.zone.in_(zones_list),
+                InvoiceItem.pick_status == 'skipped_pending'
+            ]
+            # Add corridor filter if corridors are specified for this batch
+            if batch_session.corridors:
+                corridors_list = [c.strip() for c in batch_session.corridors.split(',')]
+                skipped_filter_conditions.append(InvoiceItem.corridor.in_(corridors_list))
+            skipped_items = InvoiceItem.query.filter(
+                and_(*skipped_filter_conditions)
+            ).all()
         
         if skipped_items:
             # There are skipped items - add them back to the batch for resolution
