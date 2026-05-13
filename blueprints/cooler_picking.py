@@ -184,12 +184,16 @@ def _fetch_box(box_id):
 def _fetch_box_items(box_id):
     rows = db.session.execute(
         text(
-            "SELECT invoice_no, customer_code, customer_name, "
-            "       route_stop_id, delivery_sequence, item_code, item_name, "
-            "       expected_qty, picked_qty, status "
-            "FROM cooler_box_items "
-            "WHERE cooler_box_id = :id "
-            "ORDER BY delivery_sequence, invoice_no, item_code"
+            "SELECT cbi.invoice_no, cbi.customer_code, cbi.customer_name, "
+            "       cbi.route_stop_id, cbi.delivery_sequence, cbi.item_code, "
+            "       cbi.item_name, cbi.expected_qty, cbi.picked_qty, cbi.status, "
+            "       ii.unit_type, ii.pack "
+            "FROM cooler_box_items cbi "
+            "LEFT JOIN invoice_items ii "
+            "       ON ii.invoice_no = cbi.invoice_no "
+            "      AND ii.item_code = cbi.item_code "
+            "WHERE cbi.cooler_box_id = :id "
+            "ORDER BY cbi.delivery_sequence, cbi.invoice_no, cbi.item_code"
         ),
         {"id": box_id},
     ).fetchall()
@@ -205,6 +209,8 @@ def _fetch_box_items(box_id):
             "expected_qty": float(r[7]) if r[7] is not None else 0.0,
             "picked_qty": float(r[8]) if r[8] is not None else 0.0,
             "status": r[9],
+            "unit_type": r[10],
+            "pack": r[11],
         }
         for r in rows
     ]

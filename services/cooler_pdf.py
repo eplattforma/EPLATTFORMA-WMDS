@@ -18,6 +18,7 @@ Each function returns ``bytes`` so the route handler can wrap it in a
 ``send_file(BytesIO(...))`` response.
 """
 from io import BytesIO
+from itertools import groupby
 
 from reportlab.graphics.barcode import qr
 from reportlab.graphics.shapes import Drawing
@@ -25,7 +26,36 @@ from reportlab.graphics import renderPDF
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.lib.utils import simpleSplit
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
+
+
+def _wrap_desc(text, font, size, max_w):
+    """Wrap ``text`` to ``max_w``, hard-breaking single tokens that are
+    themselves wider than the column (``simpleSplit`` is word-based and
+    leaves long unbroken tokens overflowing).
+    """
+    text = str(text or "").strip()
+    if not text:
+        return [""]
+    lines = []
+    for raw in simpleSplit(text, font, size, max_w) or [""]:
+        if stringWidth(raw, font, size) <= max_w:
+            lines.append(raw)
+            continue
+        # Hard-break a too-long line character-by-character.
+        cur = ""
+        for ch in raw:
+            if stringWidth(cur + ch, font, size) <= max_w:
+                cur += ch
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = ch
+        if cur:
+            lines.append(cur)
+    return lines or [""]
 
 
 THERMAL_W = 100 * mm
@@ -158,58 +188,6 @@ def _draw_manifest_header(c, page_w, page_h, box, generated_at):
     return y
 
 
-def _draw_manifest_table(c, page_w, page_h, items, y_start):
-    margin = 15 * mm
-    y = y_start
-    headers = ("Stop", "Customer", "Invoice", "Item code", "Item name", "Qty")
-    col_x = (
-        margin,
-        margin + 18 * mm,
-        margin + 70 * mm,
-        margin + 110 * mm,
-        margin + 138 * mm,
-        page_w - margin - 12 * mm,
-    )
-    c.setFont("Helvetica-Bold", 9)
-    for h, x in zip(headers, col_x):
-        c.drawString(x, y, h)
-    y -= 10
-    c.line(margin, y, page_w - margin, y)
-    y -= 12
-
-    c.setFont("Helvetica", 9)
-    for it in items:
-        if y < margin + 30:
-            c.showPage()
-            y = page_h - margin
-            c.setFont("Helvetica-Bold", 9)
-            for h, x in zip(headers, col_x):
-                c.drawString(x, y, h)
-            y -= 10
-            c.line(margin, y, page_w - margin, y)
-            y -= 12
-            c.setFont("Helvetica", 9)
-        cells = (
-            _fmt_seq(it.get("delivery_sequence")),
-            _truncate(it.get("customer_name") or it.get("customer_code") or "", 32),
-            it.get("invoice_no") or "",
-            it.get("item_code") or "",
-            _truncate(it.get("item_name") or "", 18),
-            _fmt_qty(it.get("expected_qty")),
-        )
-        for txt, x in zip(cells, col_x):
-            c.drawString(x, y, str(txt))
-        y -= 11
-    return y
-
-
-def _truncate(s, n):
-    s = str(s or "")
-    if len(s) <= n:
-        return s
-    return s[: max(0, n - 1)] + "…"
-
-
 def _fmt_qty(v):
     if v is None:
         return "0"
@@ -218,6 +196,191 @@ def _fmt_qty(v):
         return str(int(f)) if f == int(f) else f"{f:.3f}"
     except (TypeError, ValueError):
         return str(v)
+
+
+def _fmt_unit(it):
+    """Compose a short unit/pack descriptor — e.g. 'Box (1X30)' or 'Pcs'."""
+    unit = (it.get("unit_type") or "").strip()
+    pack = (it.get("pack") or "").strip()
+    if unit and pack:
+        return f"{unit} ({pack})"
+    return unit or pack or "-"
+
+
+def _stop_key(it):
+    """Sort/group key: (delivery_sequence, customer_code, invoice_no)."""
+    seq = it.get("delivery_sequence")
+    seq_n = float(seq) if seq is not None else 9_999_999.0
+    return (seq_n, it.get("customer_code") or "", it.get("invoice_no") or "")
+
+
+# Column geometry for the per-customer item table (A4 portrait, 15mm margin).
+# Total usable width ~565pt - 2*42pt = ~481pt.
+#   Item code    : 70pt
+#   Description  : 280pt (wrapped)
+#   Unit         : 70pt
+#   Qty          : 35pt  (right-aligned)
+#   Status       : 26pt  (✓ when picked)
+_COLW = (70.0, 280.0, 70.0, 35.0, 26.0)
+_HEADERS = ("Item code", "Description", "Unit", "Qty", "✓")
+
+
+def _draw_table_header(c, x0, y, total_w):
+    """Draw the column headers + an underline."""
+    c.setFillColor(colors.HexColor("#0b5ed7"))
+    c.rect(x0, y - 4, total_w, 14, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 9)
+    cx = x0 + 4
+    for h, w in zip(_HEADERS, _COLW):
+        if h in ("Qty",):
+            c.drawRightString(cx + w - 4, y + 2, h)
+        elif h == "✓":
+            c.drawCentredString(cx + w / 2, y + 2, h)
+        else:
+            c.drawString(cx, y + 2, h)
+        cx += w
+    c.setFillColor(colors.black)
+    return y - 14
+
+
+def _row_height(it):
+    """Compute the rendered height of one item row, including wrap."""
+    desc = str(it.get("item_name") or "").strip() or "(no description)"
+    desc_lines = _wrap_desc(desc, "Helvetica", 9, _COLW[1] - 8)
+    line_h = 11
+    return max(line_h, line_h * len(desc_lines) + 2), desc_lines
+
+
+def _draw_item_row(c, x0, y, it):
+    """Draw one item row; description wraps to multiple lines if needed.
+
+    Returns the new ``y`` after the row, accounting for wrapped lines.
+    """
+    row_h, desc_lines = _row_height(it)
+    line_h = 11
+
+    # Column x positions
+    cx = [x0]
+    for w in _COLW[:-1]:
+        cx.append(cx[-1] + w)
+
+    c.setFont("Helvetica", 9)
+    # Item code
+    c.drawString(cx[0] + 4, y - line_h + 2, str(it.get("item_code") or "-"))
+    # Description (wrapped, top-aligned)
+    dy = y - line_h + 2
+    for ln in desc_lines:
+        c.drawString(cx[1] + 4, dy, ln)
+        dy -= line_h
+    # Unit
+    c.drawString(cx[2] + 4, y - line_h + 2, _fmt_unit(it))
+    # Qty (right-aligned, bold)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(cx[3] + _COLW[3] - 4, y - line_h + 2, _fmt_qty(it.get("expected_qty")))
+    # Status checkmark
+    c.setFont("Helvetica-Bold", 11)
+    if (it.get("status") or "").lower() == "picked":
+        c.setFillColor(colors.HexColor("#198754"))
+        c.drawCentredString(cx[4] + _COLW[4] / 2, y - line_h + 2, "✓")
+        c.setFillColor(colors.black)
+    else:
+        c.setFillColor(colors.HexColor("#aaaaaa"))
+        c.drawCentredString(cx[4] + _COLW[4] / 2, y - line_h + 2, "·")
+        c.setFillColor(colors.black)
+
+    # Light divider between rows
+    c.setStrokeColor(colors.HexColor("#dddddd"))
+    c.line(x0, y - row_h, x0 + sum(_COLW), y - row_h)
+    c.setStrokeColor(colors.black)
+    return y - row_h
+
+
+def _draw_stop_header(c, x0, y, total_w, stop_seq, customer, invoice_nos):
+    """Draw the per-stop / per-customer banner."""
+    c.setFillColor(colors.HexColor("#e7f1ff"))
+    c.rect(x0, y - 18, total_w, 22, fill=1, stroke=0)
+    c.setFillColor(colors.HexColor("#0b5ed7"))
+    c.setFont("Helvetica-Bold", 12)
+    label = f"Stop {_fmt_seq(stop_seq)} — {customer or '(no customer)'}"
+    c.drawString(x0 + 6, y - 12, label)
+    c.setFillColor(colors.HexColor("#444444"))
+    c.setFont("Helvetica", 9)
+    inv_text = "Invoice: " + ", ".join(invoice_nos)
+    c.drawRightString(x0 + total_w - 6, y - 12, inv_text)
+    c.setFillColor(colors.black)
+    return y - 22
+
+
+def _draw_manifest_table(c, page_w, page_h, items, y_start):
+    """Driver-friendly cooler manifest body.
+
+    Items are grouped by ``(delivery_sequence, customer)``. Each group gets
+    a coloured stop banner, then a table with full-width wrapped item
+    descriptions and unit/pack info. Picked status is shown as a green
+    check so the driver can confirm the box contents at a glance.
+    """
+    margin = 15 * mm
+    x0 = margin
+    total_w = page_w - 2 * margin
+    y = y_start
+
+    # Empty box → friendly note
+    if not items:
+        c.setFont("Helvetica-Oblique", 10)
+        c.setFillColor(colors.HexColor("#666666"))
+        c.drawString(x0, y - 12, "(this box is empty — no items assigned)")
+        c.setFillColor(colors.black)
+        return y - 14
+
+    # Group by (delivery_sequence, customer_code) so each customer at a
+    # given stop gets its own banner. Pre-sort to satisfy ``groupby``.
+    items_sorted = sorted(items, key=_stop_key)
+
+    def _group_key(it):
+        return (it.get("delivery_sequence"), it.get("customer_code"),
+                it.get("customer_name"))
+
+    bottom_limit = margin + 30
+    for (seq, _ccode, cname), grp in groupby(items_sorted, key=_group_key):
+        grp = list(grp)
+        invoice_nos = []
+        seen = set()
+        for it in grp:
+            inv = it.get("invoice_no") or ""
+            if inv and inv not in seen:
+                seen.add(inv)
+                invoice_nos.append(inv)
+
+        # Pre-compute row heights so we never overflow the page.
+        row_heights = [_row_height(it)[0] for it in grp]
+
+        # Try to keep the stop banner with at least its first item; otherwise
+        # break the page first so the banner doesn't get orphaned at the
+        # bottom.
+        first_block = 22 + 14 + (row_heights[0] if row_heights else 0)
+        if y - first_block < bottom_limit:
+            c.showPage()
+            y = page_h - margin
+
+        y = _draw_stop_header(c, x0, y, total_w, seq, cname, invoice_nos)
+        y = _draw_table_header(c, x0, y, total_w)
+        for it, rh in zip(grp, row_heights):
+            if y - rh < bottom_limit:
+                c.showPage()
+                y = page_h - margin
+                # Re-stamp the stop banner so the driver knows which
+                # customer the continued rows belong to.
+                y = _draw_stop_header(
+                    c, x0, y, total_w, seq,
+                    f"{cname} (cont.)" if cname else "(cont.)",
+                    invoice_nos,
+                )
+                y = _draw_table_header(c, x0, y, total_w)
+            y = _draw_item_row(c, x0, y, it)
+        y -= 8  # spacing between groups
+
+    return y
 
 
 def render_cooler_manifest(box, items, generated_at=""):
