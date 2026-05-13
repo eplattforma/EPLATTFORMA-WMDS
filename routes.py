@@ -3176,12 +3176,32 @@ def picker_dashboard():
                                     if item.is_picked:
                                         completed_items += 1
         
+        # Resolve the correct picking URL per batch type.
+        # Cooler-route batches must go to the cooler picking flow, not the
+        # standard batch_picking_item view (which would report 'No items
+        # found in this batch' because cooler items are excluded from the
+        # regular zone-based pick list).
+        if getattr(batch, 'session_type', None) == 'cooler_route' and batch.route_id:
+            from models import Shipment as _Ship
+            ship = _Ship.query.get(batch.route_id)
+            if ship and ship.delivery_date:
+                pick_url = url_for(
+                    'cooler.route_picking',
+                    route_id=batch.route_id,
+                    delivery_date=ship.delivery_date.isoformat(),
+                )
+            else:
+                pick_url = url_for('cooler.route_list')
+        else:
+            pick_url = url_for('batch.batch_picking_item', batch_id=batch.id)
+
         batch_data.append({
             'session': batch,
             'invoice_count': invoice_count,
             'total_items': total_items,
             'completed_items': completed_items,
-            'progress_percent': (completed_items / total_items * 100) if total_items > 0 else 0
+            'progress_percent': (completed_items / total_items * 100) if total_items > 0 else 0,
+            'pick_url': pick_url,
         })
     
     # Sort batch data: completed batches last, then by creation date (newest first within each status)

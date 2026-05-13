@@ -259,11 +259,11 @@
                     <!-- Action Button -->
                     <div>
                         {% if batch.status == 'Active' %}
-                        <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-primary">
+                        <a href="{{ batch_data.pick_url }}" class="btn btn-primary">
                             <i class="fas fa-play me-1"></i>Continue
                         </a>
                         {% elif batch.status == 'Paused' %}
-                        <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-warning">
+                        <a href="{{ batch_data.pick_url }}" class="btn btn-warning">
                             <i class="fas fa-play me-1"></i>Resume
                         </a>
                         {% elif batch.status == 'Completed' %}
