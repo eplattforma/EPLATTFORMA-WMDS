@@ -3124,8 +3124,21 @@ def picker_dashboard():
         batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch.id).all()
         invoice_count = len(batch_invoices)
         
+        # Deferred-route batches use a sentinel zone ('DEFERRED') and
+        # contain whole invoices rather than zone/corridor-filtered items.
+        # Count every item locked to this batch across its invoices.
+        if getattr(batch, 'session_type', None) == 'deferred_route':
+            total_items = 0
+            completed_items = 0
+            for bi in batch_invoices:
+                items = InvoiceItem.query.filter_by(
+                    invoice_no=bi.invoice_no,
+                    locked_by_batch_id=batch.id,
+                ).all()
+                total_items += len(items)
+                completed_items += sum(1 for it in items if it.is_picked)
         # Handle both active and completed batches
-        if batch.status == 'Completed':
+        elif batch.status == 'Completed':
             # For completed batches, count items that were actually in the batch
             batch_zones = [zone.strip() for zone in batch.zones.split(',') if zone.strip()]
             batch_corridors = []
