@@ -1,0 +1,68 @@
+Bug: Cooler box assignment fails silently after batch picking
+Symptom
+All 11 items show status "Picked" on the cooler screen after completing the COOLER-ROUTE-412 batch. Both boxes are open. Clicking "Assign" on any item appears to do nothing — boxes remain empty (no items count, no first/last stop).
+Step 1 — Add error visibility immediately
+In blueprints/cooler_picking.py, find the queue_assign_box endpoint. Check what it returns on failure. It likely calls abort(400) or returns JSON error silently. Add a flash message so the operator sees the failure:
+python# In queue_assign_box, wherever it returns an error:
+flash(f"Assignment failed: {reason}", "danger")
+return redirect(...)
+Then try clicking Assign again and read the error message.
+Step 2 — Diagnose the root cause in shell
+pythonfrom app import app, db
+from sqlalchemy import text
+
+with app.app_context():
+    # Check what the cooler queue rows look like for this route
+    rows = db.session.execute(text("""
+        SELECT bpq.id, bpq.invoice_no, bpq.item_code, 
+               bpq.status, bpq.pick_zone_type,
+               i.route_id, s.delivery_date,
+               cb.route_id as box_route_id,
+               cb.delivery_date as box_delivery_date
+        FROM batch_pick_queue bpq
+        JOIN invoices i ON i.invoice_no = bpq.invoice_no
+        LEFT JOIN shipments s ON s.id = i.route_id
+        LEFT JOIN cooler_boxes cb ON cb.route_id = i.route_id
+        WHERE bpq.pick_zone_type = 'cooler'
+        AND bpq.status = 'picked'
+        LIMIT 5
+    """)).fetchall()
+    
+    for r in rows:
+        print(dict(r))
+This shows whether the invoice route_id, shipment delivery_date, and box route_id/delivery_date all match. If any mismatch exists, the cross-route check in queue_assign_box rejects the assignment.
+Step 3 — Fix the validation
+In blueprints/cooler_picking.py, find queue_assign_box. It contains validation like:
+pythonif invoice_route_id != box.route_id:
+    abort(400, "Cross-route assignment rejected")
+if invoice_delivery_date != box.delivery_date:
+    abort(400, "Cross-date assignment rejected")
+Two possible issues:
+Issue A — Type mismatch: invoice_route_id may be an integer while box.route_id is a string (or vice versa). Fix with explicit cast:
+pythonif int(invoice_route_id) != int(box.route_id):
+Issue B — NULL delivery_date on box: Boxes were created without a delivery_date linked to the shipment. The comparison None != "2026-05-14" always fails. Fix the box creation endpoint to populate delivery_date from the shipment when a box is created:
+python# In the box creation endpoint, when creating a CoolerBox:
+from models import Shipment
+shipment = Shipment.query.get(route_id)
+box.delivery_date = shipment.delivery_date if shipment else delivery_date
+Issue C — picked_qty mismatch: The form sends picked_qty = q.expected_qty. The endpoint may validate that picked_qty == bpq.qty_picked. When items were picked via the batch interface, batch_pick_queue.qty_picked may be 0 or NULL (batch picking updates InvoiceItem.picked_qty but may not update batch_pick_queue.qty_picked). Fix:
+python# In queue_assign_box, accept any qty > 0 rather than strictly comparing:
+if picked_qty <= 0:
+    abort(400, "Invalid quantity")
+# Don't compare against bpq.qty_picked — use bpq.qty_required instead
+Step 4 — Also fix box first/last stop stamping
+Currently first_stop_sequence and last_stop_sequence on a box are only stamped at close time (MIN/MAX of items assigned). That's why the boxes show "-" even after assignment. This is by design — the stops appear once the box is closed.
+However, the Items count ("—") should update immediately when items are assigned. Check whether cooler_box_items rows are being created. After a successful Assign click, verify:
+sqlSELECT * FROM cooler_box_items 
+WHERE cooler_box_id IN (
+    SELECT id FROM cooler_boxes WHERE route_id = 412
+);
+If this returns rows but the screen still shows "—", it's a display query issue. If it returns no rows, the assignment endpoint is definitely failing silently.
+Step 5 — Verification
+After fixing:
+
+Click Assign for Stop 2 items → Box #1 items count changes from "—" to "3"
+Click Assign for Stop 3 items → Box #1 or #2 shows count update
+Click Close on Box #1 → First stop and Last stop populate
+Label prints correctly
+All invoices show Ready for Dispatch once all boxes closed

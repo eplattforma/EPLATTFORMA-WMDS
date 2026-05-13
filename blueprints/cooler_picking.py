@@ -404,7 +404,9 @@ def route_picking(route_id, delivery_date):
     boxes = db.session.execute(
         text(
             "SELECT id, route_id, delivery_date, box_no, status, "
-            "       first_stop_sequence, last_stop_sequence "
+            "       first_stop_sequence, last_stop_sequence, "
+            "       (SELECT COUNT(*) FROM cooler_box_items cbi "
+            "        WHERE cbi.cooler_box_id = cooler_boxes.id) AS item_count "
             "FROM cooler_boxes "
             "WHERE delivery_date = :delivery_date "
             "  AND route_id = :route_id "
@@ -412,7 +414,10 @@ def route_picking(route_id, delivery_date):
         ),
         {"delivery_date": str(delivery_date), "route_id": _route_id_int},
     ).fetchall()
-    boxes = [_box_dict(b) for b in boxes]
+    boxes = [
+        dict(_box_dict(b), item_count=int(b[7] or 0))
+        for b in boxes
+    ]
 
     # Phase 6 — surface estimator on the picking screen so the
     # warehouse manager sees the suggested box mix before locking.
