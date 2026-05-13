@@ -676,6 +676,38 @@ def admin_dashboard():
             import logging as _log
             _log.warning(f"admin_dashboard: cooler indicator query failed: {_e}")
 
+    # BATCH QUERY 5: Get open batch picking sessions for Batch Management section
+    open_batch_statuses = ['Created', 'In Progress']
+    open_batch_sessions = BatchPickingSession.query.filter(
+        BatchPickingSession.status.in_(open_batch_statuses),
+        BatchPickingSession.archived_at.is_(None),
+        BatchPickingSession.cancelled_at.is_(None),
+    ).order_by(BatchPickingSession.created_at.desc()).all()
+
+    batch_session_item_counts = {}
+    if open_batch_sessions:
+        open_session_ids = [s.id for s in open_batch_sessions]
+        try:
+            queue_rows = db.session.execute(
+                db.text(
+                    "SELECT batch_session_id, "
+                    "COUNT(*) AS total, "
+                    "SUM(CASE WHEN is_picked THEN 1 ELSE 0 END) AS picked "
+                    "FROM batch_pick_queue "
+                    "WHERE batch_session_id = ANY(:sids) "
+                    "GROUP BY batch_session_id"
+                ),
+                {"sids": open_session_ids}
+            ).fetchall()
+            for row in queue_rows:
+                batch_session_item_counts[row[0]] = {
+                    'total': row[1],
+                    'picked': int(row[2] or 0)
+                }
+        except Exception as _be:
+            import logging as _blog
+            _blog.warning(f"admin_dashboard: batch queue count query failed: {_be}")
+
     # Calculate total remaining time for all warehouse orders
     total_remaining_time = 0
     for invoice in invoices:
@@ -763,7 +795,9 @@ def admin_dashboard():
                           unresolved_issues_count=unresolved_issues_count,
                           review_issues_count=review_issues_count,
                           active_pickers_data=active_pickers_data,
-                          cooler_invoice_nos=cooler_invoice_nos)
+                          cooler_invoice_nos=cooler_invoice_nos,
+                          open_batch_sessions=open_batch_sessions,
+                          batch_session_item_counts=batch_session_item_counts)
 
 
 @app.route('/ready-to-ship')
