@@ -133,20 +133,109 @@
             <i class="fas fa-arrow-right me-2"></i> Proceed to Pick
         </button>
 
-        <div class="row">
-            <div class="col-6">
+        <div class="row g-2">
+            <div class="col-4">
                 <a href="{{ url_for('picker_dashboard') }}" class="btn btn-outline-secondary w-100">
-                    <i class="fas fa-times-circle me-1"></i> Exit Picking
+                    <i class="fas fa-times-circle me-1"></i> Exit
                 </a>
             </div>
-            <div class="col-6">
+            <div class="col-4">
                 <button id="skipBtn" class="btn btn-outline-warning w-100">
                     <i class="fas fa-forward me-1"></i> Skip
+                </button>
+            </div>
+            <div class="col-4">
+                <button id="sendToBatchBtn" class="btn btn-outline-info w-100"
+                        data-invoice-no="{{ invoice.invoice_no }}"
+                        data-item-code="{{ item.item_code }}">
+                    <i class="fas fa-folder-plus me-1"></i> Send to Batch
                 </button>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Modal for confirming Send to Batch -->
+<div class="modal fade" id="sendToBatchModal" tabindex="-1"
+     aria-labelledby="sendToBatchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="sendToBatchModalLabel">
+                    <i class="fas fa-folder-plus me-2"></i>Send to Batch
+                </h5>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">
+                    This item will be locked from regular picking and added to
+                    a deferred batch for this route. A warehouse manager or
+                    other picker will pick it later via the batch flow.
+                </p>
+                <p class="mb-0 fw-bold">
+                    Item: <code>{{ item.item_code }}</code>
+                    <span class="text-muted">— {{ item.item_name }}</span>
+                </p>
+                <div id="sendToBatchError" class="alert alert-danger mt-3 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                        data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="confirmSendToBatchBtn" class="btn btn-info">
+                    <i class="fas fa-paper-plane me-1"></i>Send to Batch
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var btn = document.getElementById('sendToBatchBtn');
+    if (!btn) return;
+    var modalEl = document.getElementById('sendToBatchModal');
+    var modal = new bootstrap.Modal(modalEl);
+    var errBox = document.getElementById('sendToBatchError');
+    var confirmBtn = document.getElementById('confirmSendToBatchBtn');
+
+    btn.addEventListener('click', function() {
+        errBox.classList.add('d-none');
+        errBox.textContent = '';
+        modal.show();
+    });
+
+    confirmBtn.addEventListener('click', function() {
+        var invoiceNo = btn.dataset.invoiceNo;
+        var itemCode = btn.dataset.itemCode;
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending...';
+        var fd = new FormData();
+        fd.append('item_code', itemCode);
+        var csrf = document.querySelector('meta[name="csrf-token"]');
+        if (csrf) fd.append('csrf_token', csrf.content);
+        fetch('/api/picker/invoice/' + encodeURIComponent(invoiceNo) + '/send-to-batch', {
+            method: 'POST',
+            body: fd,
+            credentials: 'same-origin',
+        }).then(function(r) {
+            return r.json().then(function(j) { return {status: r.status, body: j}; });
+        }).then(function(res) {
+            if (res.status === 200 && res.body.ok) {
+                window.location.href = '{{ url_for("pick_item", invoice_no=invoice.invoice_no) }}';
+            } else {
+                errBox.textContent = (res.body && res.body.message) || 'Failed to send item to batch.';
+                errBox.classList.remove('d-none');
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send to Batch';
+            }
+        }).catch(function(err) {
+            errBox.textContent = 'Network error: ' + err;
+            errBox.classList.remove('d-none');
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send to Batch';
+        });
+    });
+})();
+</script>
 
 <!-- Modal for confirming the picked item and quantity -->
 <div class="modal fade" id="confirmPickModal" tabindex="-1" aria-labelledby="confirmPickModalLabel" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">

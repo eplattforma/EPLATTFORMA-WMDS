@@ -3189,9 +3189,24 @@ def picker_dashboard():
     if on_break:
         on_break_start_time_formatted = format_time(on_break.start_time, '%H:%M') if on_break.start_time else None
     
+    # Deferred batches (Send-to-Batch) — only the warehouse_manager
+    # role sees this section on the dashboard. Pickers see their claimed
+    # batches via /picker/batch/list as usual.
+    deferred_batches = []
+    if current_user.role in ('warehouse_manager', 'admin'):
+        try:
+            from services.deferred_batch_service import list_open_deferred_batches
+            deferred_batches = list_open_deferred_batches()
+        except Exception as exc:
+            current_app.logger.warning(
+                "Could not load deferred batches for dashboard: %s", exc
+            )
+            deferred_batches = []
+
     return render_template('picker_dashboard.html', 
                           invoices=invoices,
                           batch_sessions=batch_data,
+                          deferred_batches=deferred_batches,
                           active_shift=active_shift,
                           on_break=on_break,
                           check_in_time_formatted=check_in_time_formatted,
@@ -3845,6 +3860,64 @@ def pick_item(invoice_no):
                           tracking_id=tracking_id,
                           show_multi_qty_warning=show_multi_qty_warning,
                           stop_sequence=stop_seq)
+
+@app.route('/api/picker/invoice/<invoice_no>/send-to-batch', methods=['POST'])
+@login_required
+def api_send_item_to_batch(invoice_no):
+    """Move an item from regular picking to the per-route deferred batch.
+
+    Body (form or JSON): ``item_code`` (required).
+
+    Returns JSON with the deferred session details on success, or HTTP
+    400 with an error code on validation failure.
+    """
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
+        return jsonify({'ok': False, 'error': 'forbidden',
+                        'message': 'Picker privileges required.'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    item_code = (request.form.get('item_code')
+                 or payload.get('item_code') or '').strip()
+    if not item_code:
+        return jsonify({'ok': False, 'error': 'missing_item_code',
+                        'message': 'item_code is required.'}), 400
+
+    invoice = Invoice.query.get(invoice_no)
+    if not invoice:
+        return jsonify({'ok': False, 'error': 'invoice_not_found',
+                        'message': f'Invoice {invoice_no} not found.'}), 404
+
+    # Pickers can only defer items on invoices they're assigned to.
+    # Warehouse managers + admins can defer for any picker.
+    if (current_user.role == 'picker'
+            and invoice.assigned_to != current_user.username):
+        return jsonify({'ok': False, 'error': 'not_assigned',
+                        'message': 'You are not assigned to this invoice.'}), 403
+
+    from services.deferred_batch_service import (
+        send_item_to_batch, DeferredBatchError,
+    )
+    try:
+        session = send_item_to_batch(invoice_no, item_code, current_user.username)
+    except DeferredBatchError as exc:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': exc.code,
+                        'message': exc.message}), 400
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Send-to-Batch failed for %s/%s: %s", invoice_no, item_code, exc,
+        )
+        return jsonify({'ok': False, 'error': 'server_error',
+                        'message': 'Failed to send item to batch.'}), 500
+
+    return jsonify({
+        'ok': True,
+        'session_id': session.id,
+        'session_name': session.name,
+        'route_id': session.route_id,
+    })
+
 
 @app.route('/picker/invoice/<invoice_no>/completed')
 @login_required

@@ -279,4 +279,76 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Deferred Batches (Send-to-Batch) — warehouse_manager only -->
+{% if deferred_batches %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header text-white d-flex align-items-center"
+         style="background: linear-gradient(135deg, #6f42c1 0%, #4b2992 100%);">
+        <h5 class="mb-0">
+            <i class="fas fa-folder-open me-2"></i>Batches
+            <span class="badge bg-light text-dark ms-2">{{ deferred_batches|length }}</span>
+        </h5>
+        <small class="ms-auto">Deferred items awaiting batch picking</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Batch</th>
+                        <th>Route</th>
+                        <th class="text-center">Items</th>
+                        <th class="text-center">Invoices</th>
+                        <th>Status</th>
+                        <th>Claimed by</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in deferred_batches %}
+                    <tr>
+                        <td><code>{{ batch.batch_number }}</code></td>
+                        <td>
+                            <span class="badge bg-light text-dark border">
+                                Route {{ batch.route_id }}
+                            </span>
+                            <small class="text-muted d-block">{{ batch.name }}</small>
+                        </td>
+                        <td class="text-center">
+                            {{ batch.picked_count }} / {{ batch.total_count }}
+                        </td>
+                        <td class="text-center">{{ batch.invoice_count }}</td>
+                        <td>
+                            {% if batch.status == 'Created' %}
+                                <span class="badge bg-warning text-dark">Created</span>
+                            {% elif batch.status == 'Active' %}
+                                <span class="badge bg-success">Active</span>
+                            {% elif batch.status == 'Paused' %}
+                                <span class="badge bg-secondary">Paused</span>
+                            {% else %}
+                                <span class="badge bg-light text-dark">{{ batch.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if batch.assigned_to %}
+                                {{ batch.assigned_to }}
+                            {% else %}
+                                <span class="text-muted">— unclaimed</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}"
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-eye me-1"></i>View
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

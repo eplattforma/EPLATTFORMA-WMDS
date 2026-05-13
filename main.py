@@ -463,6 +463,12 @@ if _db_available:
         logging.error(f"Phase 6 cooler integration schema updater failed: {e}")
 
     try:
+        from update_phase7_deferred_batch_schema import update_phase7_deferred_batch_schema
+        update_phase7_deferred_batch_schema()
+    except Exception as e:
+        logging.error(f"Phase 7 deferred batch schema updater failed: {e}")
+
+    try:
         from update_batch_number_schema import update_database_schema as update_batch_number_schema
         update_batch_number_schema()
     except Exception as e:

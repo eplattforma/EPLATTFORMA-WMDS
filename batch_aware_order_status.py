@@ -82,7 +82,11 @@ def update_order_status_batch_aware(invoice_no):
             invoice.status = 'awaiting_packing'
         
     elif unpicked_items > 0 and batch_locked_items == unpicked_items:
-        # All remaining unpicked items are locked by batches
+        # All remaining unpicked items are locked by batches (cooler,
+        # standard, or deferred-route via Send-to-Batch). The order
+        # parks at ``awaiting_batch_items`` until the batch flow picks
+        # them, at which point ``update_all_orders_after_batch_completion``
+        # promotes it to ``awaiting_packing`` / ``ready_for_dispatch``.
         invoice.status = 'awaiting_batch_items'
         
     elif picked_items > 0:
