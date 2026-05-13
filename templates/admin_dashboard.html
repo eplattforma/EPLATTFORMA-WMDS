@@ -591,6 +591,12 @@
                             <span class="badge bg-secondary">Created</span>
                             {% elif session.status == 'In Progress' %}
                             <span class="badge bg-warning text-dark">In Progress</span>
+                            {% elif session.status == 'Active' %}
+                            <span class="badge bg-success">Active</span>
+                            {% elif session.status == 'Paused' %}
+                            <span class="badge bg-warning text-dark">Paused</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ session.status }}</span>
                             {% endif %}
                         </td>
                         <td>

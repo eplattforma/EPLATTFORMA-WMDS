@@ -677,7 +677,9 @@ def admin_dashboard():
             _log.warning(f"admin_dashboard: cooler indicator query failed: {_e}")
 
     # BATCH QUERY 5: Get open batch picking sessions for Batch Management section
-    open_batch_statuses = ['Created', 'In Progress']
+    # Include all non-terminal statuses so deferred/cooler batches (which use
+    # 'Active'/'Paused') also appear, not just standard zone batches.
+    open_batch_statuses = ['Created', 'In Progress', 'Active', 'Paused']
     open_batch_sessions = BatchPickingSession.query.filter(
         BatchPickingSession.status.in_(open_batch_statuses),
         BatchPickingSession.archived_at.is_(None),
