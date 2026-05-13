@@ -3102,21 +3102,12 @@ def picker_dashboard():
                 elapsed = (now_utc - breakdown.picking_started).total_seconds() / 60
                 picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
     
-    # Get batch picking sessions assigned to this picker (include today's completed ones)
-    from datetime import date
-    today = date.today()
-    
-    from sqlalchemy import or_, and_, func
+    # Get batch picking sessions assigned to this picker.
+    # Completed batches must NOT appear here — once finished they leave the queue.
     batch_sessions = BatchPickingSession.query.filter_by(
         assigned_to=current_user.username
     ).filter(
-        or_(
-            BatchPickingSession.status.in_(['Active', 'Paused']),
-            and_(
-                BatchPickingSession.status == 'Completed',
-                func.date(BatchPickingSession.created_at) == today
-            )
-        )
+        BatchPickingSession.status.in_(['Active', 'Paused'])
     ).all()
     
     # Process batch sessions to include summary information
