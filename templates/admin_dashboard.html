@@ -611,7 +611,8 @@
                             <div class="btn-group">
                                 {% if not session.assigned_to %}
                                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#dashAssignModal"
-                                        data-batch-id="{{ session.id }}" data-batch-name="{{ session.name }}">
+                                        data-batch-id="{{ session.id }}" data-batch-name="{{ session.name }}"
+                                        data-assign-url="{{ url_for('batch.batch_picking_assign', batch_id=session.id) }}">
                                     <i class="fas fa-user-plus"></i>
                                 </button>
                                 {% else %}
@@ -767,15 +768,12 @@
 document.addEventListener('DOMContentLoaded', function() {
     var dashAssignModal = document.getElementById('dashAssignModal');
     if (!dashAssignModal) return;
-    var dashAssignBaseAction = document.getElementById('dashAssignForm').getAttribute('action').replace(/\/\d+$/, '');
     dashAssignModal.addEventListener('show.bs.modal', function(event) {
         var button = event.relatedTarget;
         if (!button) return;
-        var batchId = button.getAttribute('data-batch-id');
-        var batchName = button.getAttribute('data-batch-name');
         var form = document.getElementById('dashAssignForm');
-        form.action = dashAssignBaseAction + '/' + batchId;
-        document.getElementById('dash-batch-name-display').textContent = batchName || '';
+        form.action = button.getAttribute('data-assign-url');
+        document.getElementById('dash-batch-name-display').textContent = button.getAttribute('data-batch-name') || '';
     });
 });
 </script>
