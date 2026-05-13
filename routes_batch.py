@@ -152,7 +152,12 @@ def batch_edit(batch_id):
         return redirect(url_for('index'))
     
     batch = BatchPickingSession.query.get_or_404(batch_id)
-    
+
+    # Cooler batches are managed through the cooler route page, not batch edit.
+    if batch.session_type == 'cooler_route':
+        flash('Cooler batches cannot be edited here. Use the cooler route page instead.', 'warning')
+        return redirect(url_for('batch.batch_picking_manage'))
+
     # Don't allow editing completed batches
     if batch.status == 'Completed':
         flash('Cannot edit completed batches.', 'warning')
