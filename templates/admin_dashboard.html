@@ -627,11 +627,6 @@
                                     <i class="fas fa-print"></i>
                                 </a>
 
-                                {% if is_cooler and session.route_id and session.route_id in route_date_map %}
-                                <a href="{{ url_for('cooler.route_picking', route_id=session.route_id, delivery_date=route_date_map[session.route_id]) }}" class="btn btn-sm btn-warning" title="Open Cooler Route">
-                                    <i class="fas fa-snowflake"></i>
-                                </a>
-                                {% endif %}
                             </div>
                         </td>
                     </tr>
