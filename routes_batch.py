@@ -124,10 +124,23 @@ def batch_picking_manage():
     # Get pickers for the assign dropdown
     pickers = get_picking_eligible_users()
 
+    # Build route_id → delivery_date string map for cooler sessions so the
+    # template can construct the cooler route URL without a lazy FK load.
+    all_sessions = list(active_sessions) + list(completed_sessions)
+    cooler_route_ids = [s.route_id for s in all_sessions
+                        if s.session_type == 'cooler_route' and s.route_id]
+    route_date_map = {}
+    if cooler_route_ids:
+        from models import Shipment
+        rows = Shipment.query.filter(Shipment.id.in_(cooler_route_ids)).with_entities(
+            Shipment.id, Shipment.delivery_date).all()
+        route_date_map = {r.id: r.delivery_date.strftime('%Y-%m-%d') for r in rows}
+
     return render_template('batch_picking_manage.html',
                           active_sessions=active_sessions,
                           completed_sessions=completed_sessions,
-                          pickers=pickers)
+                          pickers=pickers,
+                          route_date_map=route_date_map)
 
 @batch_bp.route('/admin/batch/edit/<int:batch_id>', methods=['GET', 'POST'])
 @login_required
