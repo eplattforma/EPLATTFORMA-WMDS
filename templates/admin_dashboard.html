@@ -767,13 +767,14 @@
 document.addEventListener('DOMContentLoaded', function() {
     var dashAssignModal = document.getElementById('dashAssignModal');
     if (!dashAssignModal) return;
+    var dashAssignBaseAction = document.getElementById('dashAssignForm').getAttribute('action').replace(/\/\d+$/, '');
     dashAssignModal.addEventListener('show.bs.modal', function(event) {
         var button = event.relatedTarget;
         if (!button) return;
         var batchId = button.getAttribute('data-batch-id');
         var batchName = button.getAttribute('data-batch-name');
         var form = document.getElementById('dashAssignForm');
-        form.action = form.action.replace(/\/0$/, '/' + batchId);
+        form.action = dashAssignBaseAction + '/' + batchId;
         document.getElementById('dash-batch-name-display').textContent = batchName || '';
     });
 });
