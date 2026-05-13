@@ -164,8 +164,8 @@
               {% endif %}
             </td>
             <td>
-              {% if q.status == 'pending' and has_permission('cooler.pick') %}
-                {# Pick button #}
+              {% if q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
+                {# Pick button — only shown when there is no active batch in progress #}
                 <form method="post"
                       action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}"
                       class="d-inline">
@@ -174,6 +174,11 @@
                     <i class="fas fa-hand-rock me-1"></i>Pick
                   </button>
                 </form>
+              {% elif q.status == 'pending' and batch_in_progress %}
+                {# Batch in progress — picker uses the standard batch picking interface #}
+                <span class="text-muted small">
+                  <i class="fas fa-boxes me-1"></i>via batch
+                </span>
               {% elif q.status == 'picked' and has_permission('cooler.pick') %}
                 {# Assign to box — needs at least one open box #}
                 {% if open_boxes %}

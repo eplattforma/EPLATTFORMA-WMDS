@@ -36,6 +36,7 @@ def _ensure_queue_table(db):
                 item_code VARCHAR(50) NOT NULL,
                 pick_zone_type VARCHAR(20) NOT NULL DEFAULT 'normal',
                 sequence_no INTEGER,
+                delivery_sequence NUMERIC(10, 2),
                 status VARCHAR(20) NOT NULL DEFAULT 'pending',
                 qty_required NUMERIC(12,3),
                 qty_picked NUMERIC(12,3) DEFAULT 0,

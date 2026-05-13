@@ -1,0 +1,42 @@
+Bug Fix + Enhancement: Cooler picking screen — picker should use batch interface, not cooler screen Pick buttons
+Issue 1 — Pick buttons should be hidden when a batch is in progress
+When the "Picking in progress" banner is showing (i.e. COOLER-ROUTE-<id> batch exists and status is not Completed), the Action column Pick buttons should be removed from the Sequenced table.
+Instead of a Pick button, each row should show a greyed-out indicator:
+Status column: [⏳ Awaiting batch pick]
+Action column: — (no button)
+This forces the picker to use the correct batch interface. The cooler screen Pick buttons are only useful as an emergency fallback when there is no batch — they should not be the primary interface.
+In templates/cooler/route_picking.html, add a condition:
+html{% if not batch_in_progress %}
+  <td><button class="btn btn-sm btn-primary pick-btn">Pick</button></td>
+{% else %}
+  <td><span class="text-muted small">via batch</span></td>
+{% endif %}
+Pass batch_in_progress as a template variable from the route_picking view in blueprints/cooler_picking.py. Set it to True when a non-completed cooler session exists for this route.
+Issue 2 — The COOLER-ROUTE batch must show locations
+The batch picking interface for COOLER-ROUTE-412 currently shows items without location information because the cooler queue rows are not being populated with location data from ps_items_dw.
+In services/cooler_route_extraction.py, when creating batch_pick_queue rows, ensure these fields are populated from ps_items_dw:
+python# These fields must be copied from ps_items_dw when creating cooler queue rows
+queue_row.location = item_dw.wms_location          # warehouse location string
+queue_row.aisle = item_dw.wms_aisle
+queue_row.bay = item_dw.wms_bay
+queue_row.level = item_dw.wms_level
+queue_row.position = item_dw.wms_position
+Check which location fields the standard batch picking interface reads from batch_pick_queue — use the exact same field names. The sort order for the picker's batch must be identical to a regular batch (wms_aisle → wms_bay → wms_level → wms_position).
+Verify by checking how services/batch_picking.py populates location fields when creating regular batch queue rows — copy the same pattern exactly for cooler rows.
+Issue 3 — The batch must follow standard picking flow
+When the picker opens COOLER-ROUTE-412 in My Batch Picking Sessions and starts picking, they should get the full standard picking experience:
+
+Item shown one at a time
+Warehouse location displayed prominently
+Confirmation screen with product image (if enabled)
+Same skip/exception options as regular picking
+
+Confirm this is already working by having the picker actually open the batch and checking whether the standard picking.html template is used. If the batch is using a different template or flow, fix it to use the identical experience as a regular batch.
+Verification
+
+Create a new cooler route test scenario
+Lock cooler sequencing
+Open cooler screen as picker — confirm no Pick buttons visible, only "via batch" indicators
+Open COOLER-ROUTE-<id> batch as picker — confirm items sorted by warehouse location with full picking guidance
+Pick one item via the batch — confirm it appears as "Picked" on the cooler screen immediately
+Confirm warehouse manager can then assign the picked item to a box

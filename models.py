@@ -418,7 +418,48 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
             include_picked=include_picked, allow_unlocked=False
         )
         
-        if self.picking_mode == 'Consolidated' or not self.picking_mode:
+        if self.picking_mode == 'Cooler':
+            # Cooler-route batches: all items are locked by locked_by_batch_id == self.id
+            # and have pick_zone_type='cooler' in the queue. The normal zone filter
+            # (InvoiceItem.zone vs "SENSITIVE") does not apply — InvoiceItem.zone stores
+            # the warehouse aisle zone, not the DW classification. We must NOT exclude
+            # cooler_keys here because every item in this batch IS a cooler item.
+            cooler_filter_conds = [InvoiceItem.locked_by_batch_id == self.id]
+            if not include_picked:
+                cooler_filter_conds.extend([
+                    InvoiceItem.is_picked.is_(False),
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']),
+                ])
+            cooler_items = db.session.query(InvoiceItem).filter(
+                and_(*cooler_filter_conds)
+            ).all()
+            cooler_items = sort_items_for_picking(cooler_items)
+            grouped = {}
+            for item in cooler_items:
+                key = (item.item_code, item.location or "")
+                if key not in grouped:
+                    grouped[key] = {
+                        'item_code': item.item_code,
+                        'location': item.location,
+                        'barcode': item.barcode,
+                        'zone': item.zone,
+                        'item_name': item.item_name,
+                        'unit_type': item.unit_type,
+                        'pack': item.pack,
+                        'total_qty': 0,
+                        'source_items': [],
+                    }
+                qty = item.qty or 0
+                grouped[key]['total_qty'] += qty
+                grouped[key]['source_items'].append({
+                    'invoice_no': item.invoice_no,
+                    'item_code': item.item_code,
+                    'qty': qty,
+                    'id': f"{item.invoice_no}-{item.item_code}",
+                })
+            return sort_batch_items(list(grouped.values()))
+
+        elif self.picking_mode == 'Consolidated' or not self.picking_mode:
             all_batch_items = db.session.query(InvoiceItem).filter(and_(*filter_conditions)).all()
             if cooler_keys:
                 all_batch_items = [

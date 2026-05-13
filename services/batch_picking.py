@@ -131,17 +131,36 @@ def rebuild_items_from_queue(batch_id):
     """
     if not is_db_backed_batch(batch_id):
         return []
-    # exclude cooler-zone rows from the normal picker
-    # work-list. Treat NULL ``pick_zone_type`` as normal so legacy rows
-    # written before the Phase 5 column existed continue to surface.
-    # Without this filter, switching ``summer_cooler_mode_enabled`` ON
-    # would make cooler items leak back into the normal resume path.
+    # Determine whether this batch is a cooler-route session. Cooler-route
+    # batches have ALL queue rows with pick_zone_type='cooler', so the
+    # normal picker filter (type IS NULL OR type='normal') would return
+    # nothing. For cooler batches we invert the filter so the resume path
+    # shows the cooler items (sorted by location via InvoiceItem below).
+    session_type_row = db.session.execute(
+        text("SELECT session_type FROM batch_picking_sessions WHERE id = :bid"),
+        {"bid": batch_id},
+    ).fetchone()
+    is_cooler_batch = (
+        session_type_row is not None
+        and (session_type_row[0] or "") == "cooler_route"
+    )
+    if is_cooler_batch:
+        zone_clause = "AND pick_zone_type = 'cooler'"
+    else:
+        # exclude cooler-zone rows from the normal picker
+        # work-list. Treat NULL ``pick_zone_type`` as normal so legacy rows
+        # written before the Phase 5 column existed continue to surface.
+        # Without this filter, switching ``summer_cooler_mode_enabled`` ON
+        # would make cooler items leak back into the normal resume path.
+        zone_clause = "AND (pick_zone_type IS NULL OR pick_zone_type = 'normal')"
     rows = db.session.execute(
-        text("SELECT invoice_no, item_code, qty_required, sequence_no "
-             "FROM batch_pick_queue "
-             "WHERE batch_session_id = :bid AND status = 'pending' "
-             "  AND (pick_zone_type IS NULL OR pick_zone_type = 'normal') "
-             "ORDER BY sequence_no, id"),
+        text(
+            "SELECT invoice_no, item_code, qty_required, sequence_no "
+            "FROM batch_pick_queue "
+            "WHERE batch_session_id = :bid AND status = 'pending' "
+            f"  {zone_clause} "
+            "ORDER BY sequence_no, id"
+        ),
         {"bid": batch_id},
     ).fetchall()
     rebuilt, seen = [], {}

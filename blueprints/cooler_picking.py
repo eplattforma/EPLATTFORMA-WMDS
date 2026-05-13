@@ -426,6 +426,12 @@ def route_picking(route_id, delivery_date):
 
     open_boxes = [b for b in boxes if b["status"] == "open"]
 
+    _TERMINAL_COOLER = ("Completed", "Cancelled", "Archived")
+    batch_in_progress = (
+        cooler_session is not None
+        and (cooler_session.get("status") or "") not in _TERMINAL_COOLER
+    )
+
     return render_template(
         "cooler/route_picking.html",
         route_id=route_id, delivery_date=delivery_date,
@@ -433,6 +439,7 @@ def route_picking(route_id, delivery_date):
         cooler_session=cooler_session, estimate=estimate,
         boxes=boxes, open_boxes=open_boxes,
         picking_phase=picking_phase,
+        batch_in_progress=batch_in_progress,
     )
 
 
