@@ -189,7 +189,7 @@
 </div>
 
 <script>
-(function() {
+document.addEventListener('DOMContentLoaded', function() {
     var btn = document.getElementById('sendToBatchBtn');
     if (!btn) return;
     var modalEl = document.getElementById('sendToBatchModal');
@@ -234,7 +234,7 @@
             confirmBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send to Batch';
         });
     });
-})();
+});
 </script>
 
 <!-- Modal for confirming the picked item and quantity -->
