@@ -178,6 +178,7 @@
 
         function toggleAll() {
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            if (!selectAllCheckbox) return;
             const checkboxes = document.querySelectorAll('.invoice-checkbox');
             checkboxes.forEach(checkbox => checkbox.checked = selectAllCheckbox.checked);
         }
@@ -185,8 +186,9 @@
         function updateSelectAllCheckbox() {
             const checkboxes = document.querySelectorAll('.invoice-checkbox');
             const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            if (!selectAllCheckbox) return;
             const checkedCount = document.querySelectorAll('.invoice-checkbox:checked').length;
-            
+
             if (checkedCount === 0) {
                 selectAllCheckbox.indeterminate = false;
                 selectAllCheckbox.checked = false;
