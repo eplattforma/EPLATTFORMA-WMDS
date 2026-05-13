@@ -40,12 +40,6 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'batch.picker_batch_list' %}active{% endif %}"
-                                   href="{{ url_for('batch.picker_batch_list') }}">
-                                    <i class="fas fa-layer-group me-2"></i>Batch Picking
-                                </a>
-                            </li>
-                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'picker_dashboard' %}active{% endif %}"
                                    href="{{ url_for('picker_dashboard') }}">
                                     <i class="fas fa-tasks me-2"></i>My Picking Queue
