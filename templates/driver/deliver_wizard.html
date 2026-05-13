@@ -205,9 +205,17 @@ input[type=number]::-webkit-inner-spin-button {
                           <div class="fw-semibold text-white lh-sm mb-1"
                                style="font-size:0.9rem;">{{ ci.item_name }}</div>
                           <div class="text-muted mb-2" style="font-size:0.75rem;">{{ ci.item_code }}</div>
-                          <span class="badge bg-warning text-dark px-3 py-1" style="font-size:1rem;">
-                            &times; {{ ci.qty }}
-                          </span>
+                          <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="badge bg-warning text-dark px-3 py-1" style="font-size:1rem;">
+                              &times; {{ ci.qty }}
+                            </span>
+                            {% if ci.unit_type %}
+                            <span class="badge px-2 py-1"
+                                  style="background:#334155;color:#94a3b8;font-size:0.78rem;font-weight:600;">
+                              {{ ci.unit_type }}{% if ci.pack %}({{ ci.pack }}){% endif %}
+                            </span>
+                            {% endif %}
+                          </div>
                         </div>
 
                       </div>

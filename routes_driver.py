@@ -582,9 +582,14 @@ def deliver_wizard(stop_id):
                        cbi.item_code,
                        COALESCE(cbi.expected_qty, 0) AS qty,
                        cb.box_no,
-                       COALESCE(cbi.item_name, cbi.item_code) AS item_name
+                       COALESCE(cbi.item_name, cbi.item_code) AS item_name,
+                       ii.unit_type,
+                       ii.pack
                 FROM cooler_box_items cbi
                 JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id
+                LEFT JOIN invoice_items ii
+                       ON ii.invoice_no = cbi.invoice_no
+                      AND ii.item_code  = cbi.item_code
                 WHERE cbi.invoice_no IN ({placeholders})
                   AND cb.route_id = :rid
                   AND cb.status NOT IN ('cancelled')
@@ -593,12 +598,14 @@ def deliver_wizard(stop_id):
 
             for r in cooler_rows:
                 cooler_items_for_stop.append({
-                    'invoice_no':   r[0],
-                    'item_code':    r[1],
-                    'qty':          int(r[2] or 0),
-                    'box_no':       r[3],
-                    'item_name':    r[4],
-                    'image_path':   f"images/{r[1]}.webp",
+                    'invoice_no':     r[0],
+                    'item_code':      r[1],
+                    'qty':            int(r[2] or 0),
+                    'box_no':         r[3],
+                    'item_name':      r[4],
+                    'unit_type':      r[5] or '',
+                    'pack':           r[6] or '',
+                    'image_path':     f"images/{r[1]}.webp",
                     'image_fallback': "images/image-not-found.png",
                 })
     except Exception as _e:
