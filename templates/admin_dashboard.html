@@ -607,12 +607,16 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% set is_cooler = session.session_type == 'cooler_route' %}
+                            {% set seq_locked = session.sequence_locked_at is not none %}
                             <div class="btn-group">
                                 {% if not session.assigned_to %}
+                                  {% if not is_cooler or seq_locked %}
                                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#dashAssignModal"
                                         data-batch-id="{{ session.id }}" data-batch-name="{{ session.name }}">
                                     <i class="fas fa-user-plus"></i>
                                 </button>
+                                  {% endif %}
                                 {% else %}
                                 <form method="post" action="{{ url_for('batch.batch_picking_unassign', batch_id=session.id) }}" class="d-inline">
                                     <button type="submit" class="btn btn-sm btn-danger"
@@ -626,20 +630,32 @@
                                     <i class="fas fa-print"></i>
                                 </a>
 
+                                {% if not is_cooler or seq_locked %}
                                 <a href="{{ url_for('batch.add_invoices_to_batch', batch_id=session.id) }}" class="btn btn-sm btn-info" title="Add Invoices">
                                     <i class="fas fa-plus"></i>
                                 </a>
+                                {% endif %}
 
+                                {% if is_cooler %}
+                                  {% if session.route_id and session.route_id in route_date_map %}
+                                <a href="{{ url_for('cooler.route_picking', route_id=session.route_id, delivery_date=route_date_map[session.route_id]) }}" class="btn btn-sm btn-warning" title="Open Cooler Route">
+                                    <i class="fas fa-snowflake"></i>
+                                </a>
+                                  {% endif %}
+                                {% else %}
                                 <a href="{{ url_for('batch.batch_edit', batch_id=session.id) }}" class="btn btn-sm btn-warning">
                                     <i class="fas fa-edit"></i>
                                 </a>
+                                {% endif %}
 
+                                {% if not is_cooler %}
                                 <form method="post" action="{{ url_for('batch.batch_delete', batch_id=session.id) }}" class="d-inline">
                                     <button type="submit" class="btn btn-sm btn-danger"
                                             onclick="return confirm('Are you sure you want to delete this batch? This action cannot be undone.');">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </form>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>

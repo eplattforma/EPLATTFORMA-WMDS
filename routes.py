@@ -686,6 +686,16 @@ def admin_dashboard():
         BatchPickingSession.cancelled_at.is_(None),
     ).order_by(BatchPickingSession.created_at.desc()).all()
 
+    # Build route_date_map for cooler batches (route_id → delivery_date string)
+    cooler_route_ids = [s.route_id for s in open_batch_sessions
+                        if s.session_type == 'cooler_route' and s.route_id]
+    route_date_map = {}
+    if cooler_route_ids:
+        from models import Shipment
+        _rows = Shipment.query.filter(Shipment.id.in_(cooler_route_ids)).with_entities(
+            Shipment.id, Shipment.delivery_date).all()
+        route_date_map = {r.id: r.delivery_date.strftime('%Y-%m-%d') for r in _rows}
+
     batch_session_item_counts = {}
     if open_batch_sessions:
         open_session_ids = [s.id for s in open_batch_sessions]
@@ -800,7 +810,8 @@ def admin_dashboard():
                           active_pickers_data=active_pickers_data,
                           cooler_invoice_nos=cooler_invoice_nos,
                           open_batch_sessions=open_batch_sessions,
-                          batch_session_item_counts=batch_session_item_counts)
+                          batch_session_item_counts=batch_session_item_counts,
+                          route_date_map=route_date_map)
 
 
 @app.route('/ready-to-ship')
