@@ -952,6 +952,24 @@ def box_close(box_id):
             box_id, exc,
         )
 
+    remaining_open_boxes = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM cooler_boxes "
+            "WHERE route_id = :rid AND delivery_date = :dd AND status = 'open'"
+        ),
+        {"rid": box["route_id"], "dd": box["delivery_date"]},
+    ).scalar() or 0
+    if remaining_open_boxes == 0:
+        db.session.execute(
+            text(
+                "UPDATE batch_picking_sessions "
+                "SET status = 'Completed', last_activity_at = :now "
+                "WHERE session_type = 'cooler_route' "
+                "  AND route_id = :rid"
+            ),
+            {"rid": box["route_id"], "now": now},
+        )
+
     db.session.commit()
 
     if request.form.get("_html_form"):
