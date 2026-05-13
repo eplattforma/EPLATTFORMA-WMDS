@@ -1351,7 +1351,7 @@ def batch_picking_assign(batch_id):
     current_app.logger.warning(f"🔍 BATCH ASSIGN DEBUG: Form data = {dict(request.form)}")
     current_app.logger.warning(f"🔍 BATCH ASSIGN DEBUG: Picker value = '{picker_username}'")
     
-    _back = request.referrer or url_for('batch.batch_picking_manage')
+    _back = request.form.get('next') or request.referrer or url_for('batch.batch_picking_manage')
 
     if not picker_username:
         flash('Please select a picker to assign.', 'warning')

@@ -737,6 +737,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="post" action="{{ url_for('batch.batch_picking_assign', batch_id=0) }}" id="dashAssignForm">
+                <input type="hidden" name="next" value="{{ request.url }}">
                 <div class="modal-body">
                     <p>Select a picker to assign to this batch:</p>
                     <p><strong>Batch:</strong> <span id="dash-batch-name-display"></span></p>
