@@ -692,7 +692,7 @@ def admin_dashboard():
                 db.text(
                     "SELECT batch_session_id, "
                     "COUNT(*) AS total, "
-                    "SUM(CASE WHEN is_picked THEN 1 ELSE 0 END) AS picked "
+                    "SUM(CASE WHEN qty_picked > 0 THEN 1 ELSE 0 END) AS picked "
                     "FROM batch_pick_queue "
                     "WHERE batch_session_id = ANY(:sids) "
                     "GROUP BY batch_session_id"
@@ -707,6 +707,7 @@ def admin_dashboard():
         except Exception as _be:
             import logging as _blog
             _blog.warning(f"admin_dashboard: batch queue count query failed: {_be}")
+            db.session.rollback()
 
     # Calculate total remaining time for all warehouse orders
     total_remaining_time = 0
