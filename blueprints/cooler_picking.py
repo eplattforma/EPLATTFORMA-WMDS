@@ -923,6 +923,38 @@ def box_close(box_id):
             "error": f"Box #{box_id} is {box['status']}; only open boxes can be closed."
         }), 400
 
+    # Guard 1: box must have at least one item assigned
+    item_count = db.session.execute(
+        text("SELECT COUNT(*) FROM cooler_box_items WHERE cooler_box_id = :bid"),
+        {"bid": box_id},
+    ).scalar() or 0
+    if item_count == 0:
+        msg = f"Box #{box_id} has no items assigned — assign items before closing."
+        if request.form.get("_html_form"):
+            flash(msg, "warning")
+            return redirect(url_for("cooler.route_picking",
+                                    route_id=box["route_id"],
+                                    delivery_date=str(box["delivery_date"])))
+        return jsonify({"error": msg}), 400
+
+    # Guard 2: all assigned items must be picked
+    unpicked = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM cooler_box_items cbi "
+            "JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id "
+            "WHERE cbi.cooler_box_id = :bid AND bpq.qty_picked = 0"
+        ),
+        {"bid": box_id},
+    ).scalar() or 0
+    if unpicked > 0:
+        msg = f"Box #{box_id} still has {unpicked} unpicked item(s) — pick everything before closing."
+        if request.form.get("_html_form"):
+            flash(msg, "warning")
+            return redirect(url_for("cooler.route_picking",
+                                    route_id=box["route_id"],
+                                    delivery_date=str(box["delivery_date"])))
+        return jsonify({"error": msg}), 400
+
     seq_row = db.session.execute(
         text(
             "SELECT MIN(delivery_sequence), MAX(delivery_sequence) "
@@ -1109,6 +1141,15 @@ def box_cancel(box_id):
         f"reverted {len(rows)} queue row(s)",
     )
     db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Box #{box_id} deleted.", "success")
+        if box["route_id"] and box["delivery_date"]:
+            return redirect(url_for("cooler.route_picking",
+                                    route_id=box["route_id"],
+                                    delivery_date=str(box["delivery_date"])))
+        return redirect(url_for("cooler.route_list"))
+
     return jsonify({"cooler_box_id": box_id, "status": "cancelled"}), 200
 
 

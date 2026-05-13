@@ -357,6 +357,14 @@
                     <i class="fas fa-lock me-1"></i>Close
                   </button>
                 </form>
+                <form method="post" action="{{ url_for('cooler.box_cancel', box_id=b.id) }}"
+                      class="d-inline"
+                      onsubmit="return confirm('Delete Box #{{ b.box_no }}? All assigned items will be reverted to pending.');">
+                  <input type="hidden" name="_html_form" value="1">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="fas fa-trash me-1"></i>Delete
+                  </button>
+                </form>
               {% endif %}
               {% if has_permission('cooler.print_labels') %}
                 <a class="btn btn-sm btn-outline-secondary"
