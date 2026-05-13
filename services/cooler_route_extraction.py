@@ -455,5 +455,27 @@ def extract_sensitive_for_route_stop_invoices(rsi_list):
     except Exception as e:
         logger.error("cooler extraction commit failed: %s", e)
         db.session.rollback()
+        return summary
+
+    # After locking cooler items, re-evaluate the invoice status for every
+    # affected invoice. Without this, an invoice that was already
+    # ``ready_for_dispatch`` (all regular items picked) stays incorrectly in
+    # that state even though it now has unpicked cooler items locked to the
+    # cooler batch. The status should be demoted to ``awaiting_batch_items``
+    # so it doesn't appear ready for shipment prematurely.
+    affected_invoices = {rsi.invoice_no for rsi in rsi_list if rsi.invoice_no}
+
+    if affected_invoices:
+        try:
+            from batch_aware_order_status import update_order_status_batch_aware
+            for inv_no in affected_invoices:
+                update_order_status_batch_aware(inv_no)
+            logger.info(
+                "cooler extraction: re-evaluated status for %d invoice(s): %s",
+                len(affected_invoices),
+                ", ".join(sorted(affected_invoices)),
+            )
+        except Exception as e:
+            logger.warning("cooler extraction: status re-evaluation failed: %s", e)
 
     return summary
