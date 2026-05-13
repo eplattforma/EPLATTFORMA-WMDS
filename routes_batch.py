@@ -1351,9 +1351,11 @@ def batch_picking_assign(batch_id):
     current_app.logger.warning(f"🔍 BATCH ASSIGN DEBUG: Form data = {dict(request.form)}")
     current_app.logger.warning(f"🔍 BATCH ASSIGN DEBUG: Picker value = '{picker_username}'")
     
+    _back = request.referrer or url_for('batch.batch_picking_manage')
+
     if not picker_username:
         flash('Please select a picker to assign.', 'warning')
-        return redirect(url_for('batch.batch_picking_manage'))
+        return redirect(_back)
     
     # Get the batch session
     batch_session = BatchPickingSession.query.get_or_404(batch_id)
@@ -1363,7 +1365,7 @@ def batch_picking_assign(batch_id):
     # before that point, so picking would be unordered.
     if batch_session.session_type == 'cooler_route' and not batch_session.sequence_locked_at:
         flash('Cannot assign a picker: cooler sequencing must be locked first.', 'warning')
-        return redirect(url_for('batch.batch_picking_manage'))
+        return redirect(_back)
 
     # Assign the picker and activate the batch
     batch_session.assigned_to = picker_username
@@ -1373,7 +1375,7 @@ def batch_picking_assign(batch_id):
     db.session.commit()
     
     flash(f'Picker {picker_username} assigned to batch picking session and activated.', 'success')
-    return redirect(url_for('batch.batch_picking_manage'))
+    return redirect(_back)
 
 @batch_bp.route('/admin/batch/unassign/<int:batch_id>', methods=['POST'])
 @login_required
@@ -1395,7 +1397,7 @@ def batch_picking_unassign(batch_id):
     db.session.commit()
     
     flash('Picker unassigned from batch picking session.', 'success')
-    return redirect(url_for('batch.batch_picking_manage'))
+    return redirect(request.referrer or url_for('batch.batch_picking_manage'))
 
 @batch_bp.route('/picker/batch/list')
 @login_required
