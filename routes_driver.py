@@ -606,7 +606,7 @@ def deliver_wizard(stop_id):
                     'unit_type':      r[5] or '',
                     'pack':           r[6] or '',
                     'image_path':     f"images/{r[1]}.webp",
-                    'image_fallback': "images/image-not-found.png",
+                    'image_fallback': "images/image-not-found.svg",
                 })
     except Exception as _e:
         logging.warning(f"Cooler items for stop skipped: {_e}")

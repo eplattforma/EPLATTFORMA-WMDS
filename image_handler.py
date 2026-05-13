@@ -79,4 +79,4 @@ def get_product_image(item_code):
     
     # If we get here, no image was found
     logging.warning(f"No image found for {item_code}, using placeholder")
-    return "images/image-not-found.png"
+    return "images/image-not-found.svg"
