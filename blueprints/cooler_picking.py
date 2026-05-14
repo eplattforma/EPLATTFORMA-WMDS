@@ -454,8 +454,13 @@ def route_picking(route_id, delivery_date):
     open_boxes = [b for b in boxes if b["status"] == "open"]
 
     _TERMINAL_COOLER = ("Completed", "Cancelled", "Archived")
+    # batch_in_progress is True only when sequencing has been locked AND the
+    # batch is not yet finished. Before locking, pickers can use direct Pick
+    # buttons (items are not yet in the queue). After locking, the batch
+    # interface is the only safe picking path so Pick buttons must be hidden.
     batch_in_progress = (
         cooler_session is not None
+        and cooler_session.get("sequence_locked_at") is not None
         and (cooler_session.get("status") or "") not in _TERMINAL_COOLER
     )
 

@@ -445,14 +445,51 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
             cooler_items = db.session.query(InvoiceItem).filter(
                 and_(*cooler_filter_conds)
             ).all()
-            cooler_items = sort_items_for_picking(cooler_items)
+
+            # Bug 3 fix: enrich NULL locations from ps_items_dw so the
+            # batch picking screen shows warehouse location and items sort
+            # in walking order rather than stop-sequence order.
+            # We build a side-dict rather than mutating ORM objects to
+            # avoid triggering SQLAlchemy autoflush writes to invoice_items.
+            _missing_loc_codes = [
+                it.item_code for it in cooler_items if not it.location
+            ]
+            _dw_loc = {}
+            if _missing_loc_codes:
+                _dw_rows = db.session.execute(
+                    _sql_text(
+                        "SELECT item_code_365, wms_location "
+                        "FROM ps_items_dw "
+                        "WHERE item_code_365 = ANY(:codes)"
+                    ),
+                    {"codes": _missing_loc_codes},
+                ).fetchall()
+                _dw_loc = {r[0]: r[1] for r in _dw_rows if r[1]}
+
+            # Temporarily enrich locations within a no-autoflush block so
+            # the sort function sees the correct data without persisting changes.
+            with db.session.no_autoflush:
+                for _it in cooler_items:
+                    if not _it.location and _it.item_code in _dw_loc:
+                        _it.location = _dw_loc[_it.item_code]
+
+                cooler_items = sort_items_for_picking(cooler_items)
+
+            # Expire enriched items so SQLAlchemy discards the in-memory change
+            # and does not write the transient location back to the DB.
+            for _it in cooler_items:
+                if _it.item_code in _dw_loc:
+                    db.session.expire(_it, ["location"])
+
             grouped = {}
             for item in cooler_items:
-                key = (item.item_code, item.location or "")
+                # Use the dw fallback directly for items that had no location
+                _resolved_loc = item.location or _dw_loc.get(item.item_code) or ""
+                key = (item.item_code, _resolved_loc)
                 if key not in grouped:
                     grouped[key] = {
                         'item_code': item.item_code,
-                        'location': item.location,
+                        'location': _resolved_loc or None,
                         'barcode': item.barcode,
                         'zone': item.zone,
                         'item_name': item.item_name,

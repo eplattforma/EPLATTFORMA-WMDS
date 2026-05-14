@@ -2308,7 +2308,31 @@ def complete_batch_confirm(batch_id):
                 invoice_item.picked_qty = picked_qty
                 invoice_item.is_picked = True
                 invoice_item.pick_status = 'picked'
-                
+
+                # For cooler-route batches: mirror the pick into batch_pick_queue
+                # so the cooler screen can show "Picked" status and enable Assign.
+                # record_pick_to_queue() handles standard DB-backed batches, but
+                # cooler queue rows need an explicit update here as a safety net.
+                if batch_session.session_type == 'cooler_route':
+                    db.session.execute(
+                        text(
+                            "UPDATE batch_pick_queue "
+                            "SET status = 'picked', qty_picked = qty_required, "
+                            "    picked_by = :picker, picked_at = :now "
+                            "WHERE invoice_no = :inv "
+                            "  AND item_code = :ic "
+                            "  AND batch_session_id = :sid "
+                            "  AND pick_zone_type = 'cooler'"
+                        ),
+                        {
+                            "inv": invoice_no,
+                            "ic": item_code,
+                            "sid": batch_session.id,
+                            "picker": current_user.username,
+                            "now": datetime.utcnow(),
+                        },
+                    )
+
                 # Record the batch picked item (prevent duplicates)
                 existing_batch_picked = BatchPickedItem.query.filter_by(
                     batch_session_id=batch_id,
