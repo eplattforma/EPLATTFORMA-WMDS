@@ -286,29 +286,14 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
         
         filters = [
             InvoiceItem.invoice_no.in_(invoice_nos),
-            InvoiceItem.zone.in_(zones_list),
+            InvoiceItem.locked_by_batch_id == self.id,
         ]
-
-        if allow_unlocked:
-            # Only count items that are either unlocked OR locked by THIS batch
-            filters.append(or_(
-                InvoiceItem.locked_by_batch_id.is_(None),
-                InvoiceItem.locked_by_batch_id == self.id
-            ))
-        else:
-            filters.append(InvoiceItem.locked_by_batch_id == self.id)
 
         if not include_picked:
             filters.extend([
                 InvoiceItem.is_picked.is_(False),
                 InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
             ])
-
-        if corridors_list:
-            filters.append(InvoiceItem.corridor.in_(corridors_list))
-
-        if unit_types_list:
-            filters.append(InvoiceItem.unit_type.in_(unit_types_list))
 
         return filters
 

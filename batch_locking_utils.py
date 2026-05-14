@@ -243,7 +243,7 @@ def check_batch_conflicts(zones_list, corridors_list=None, invoice_nos=None, uni
             InvoiceItem.zone.in_(zones_list),
             InvoiceItem.is_picked == False,
             InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']),
-            InvoiceItem.locked_by_batch_id != None  # Only check locked items
+            InvoiceItem.locked_by_batch_id.isnot(None)
         ]
         
         # Add corridor filter if specified
