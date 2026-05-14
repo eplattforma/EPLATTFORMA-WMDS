@@ -84,6 +84,18 @@ def _format_location_code(raw_loc):
     
     return clean_loc
 
+
+def _extract_corridor(raw_loc):
+    """Extract the corridor code from a raw shelf location code.
+    e.g. '1006A01' -> '10', '3106A01' -> '31'.
+    Returns None if location is missing or doesn't match the expected format."""
+    if not raw_loc:
+        return None
+    clean_loc = str(raw_loc).strip().upper().replace("-", "")
+    if len(clean_loc) == 7 and clean_loc[:2].isdigit():
+        return clean_loc[:2]
+    return None
+
 def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None) -> Dict[str, Any]:
     """
     Sync invoices from PS365 API using list_loyalty_invoices endpoint.
@@ -272,6 +284,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
 
                     # BATCH fetch shelf locations for ALL items in this invoice
                     shelf_map = {}
+                    corridor_map = {}
                     try:
                         from shelves_service import fetch_item_shelves
                         store_code = header.get("store_code_365")
@@ -284,6 +297,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                                 raw_loc = shelves_list[0].get("shelf_code_365") or shelves_list[0].get("shelf_name")
                                 if raw_loc:
                                     shelf_map[nic] = _format_location_code(raw_loc)
+                                    corridor_map[nic] = _extract_corridor(raw_loc)
                     except Exception as e:
                         logging.warning(f"Failed to batch fetch shelf locations: {e}")
                     
@@ -298,6 +312,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                         barcode = dw.barcode if dw else barcode_map.get(item_code)
 
                         shelf_location = shelf_map.get(item_code)
+                        corridor = corridor_map.get(item_code)
 
                         item_name = dw.item_name if dw else None
                         item_weight = float(dw.item_weight) if (dw and dw.item_weight) else 0.0
@@ -360,12 +375,12 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                             if not is_locked:
                                 if shelf_location:
                                     existing_item.location = shelf_location
+                                if corridor:
+                                    existing_item.corridor = corridor
                                 if zone:
                                     existing_item.zone = zone
                                 if unit_type:
                                     existing_item.unit_type = unit_type
-                            # Preserve: picked_qty, is_picked, pick_status, locked_by_batch_id,
-                            # reset_by, reset_timestamp, reset_note, skip_reason, skip_timestamp, skip_count, corridor
                         else:
                             new_item = InvoiceItem(
                                 invoice_no=invoice_no_ps365,
@@ -377,6 +392,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                                 unit_type=unit_type,
                                 barcode=barcode,
                                 location=shelf_location,
+                                corridor=corridor,
                                 pack=str(selling_qty) if selling_qty else None,
                                 line_weight=item_weight * qty_int,
                                 exp_time=exp_time_minutes,
