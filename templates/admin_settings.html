@@ -130,7 +130,16 @@
                                 </div>
                             </div>
                             
-                            <!-- Batch picking settings removed - will be rebuilt -->
+                            <div class="mb-4">
+                                <label for="route_batch_mode_enabled" class="form-label">Route Batch Mode</label>
+                                <select class="form-select" id="route_batch_mode_enabled" name="route_batch_mode_enabled">
+                                    <option value="true" {% if route_batch_mode_enabled == 'true' %}selected{% endif %}>Enabled</option>
+                                    <option value="false" {% if route_batch_mode_enabled == 'false' %}selected{% endif %}>Disabled</option>
+                                </select>
+                                <div class="form-text text-body-secondary">
+                                    When enabled, normal items auto-accumulate into ROUTE-BATCH sessions when invoices join a route.
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

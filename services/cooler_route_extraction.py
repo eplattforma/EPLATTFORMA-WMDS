@@ -34,6 +34,7 @@ COOLER_SESSION_TYPE = "cooler_route"
 # spawns a NEW sibling session (COOLER-ROUTE-<id>-2, -3, ...) instead of
 # being silently ignored on a closed batch.
 TERMINAL_COOLER_STATUSES = ("Completed", "Cancelled", "Archived")
+ROUTE_BATCH_SESSION_TYPE = "route_batch"
 
 
 def _is_summer_cooler_mode_enabled():
@@ -478,4 +479,105 @@ def extract_sensitive_for_route_stop_invoices(rsi_list):
         except Exception as e:
             logger.warning("cooler extraction: status re-evaluation failed: %s", e)
 
+    return summary
+
+
+def _next_route_batch_name(route_id):
+    base = f"ROUTE-BATCH-{route_id}"
+    existing = {
+        n for (n,) in db.session.query(BatchPickingSession.name).filter(
+            db.or_(
+                BatchPickingSession.name == base,
+                BatchPickingSession.name.like(f"{base}-%"),
+            ),
+        ).all()
+    }
+    if base not in existing:
+        return base
+    n = 2
+    while f"{base}-{n}" in existing:
+        n += 1
+    return f"{base}-{n}"
+
+
+def _session_locked(session_id):
+    try:
+        row = db.session.execute(
+            text(
+                "SELECT sequence_locked_at FROM batch_picking_sessions WHERE id = :sid"
+            ),
+            {"sid": session_id},
+        ).fetchone()
+        return bool(row and row[0])
+    except Exception:
+        return False
+
+
+def _get_route_id_for_stop(route_stop_id):
+    try:
+        row = db.session.execute(
+            text("SELECT shipment_id FROM route_stops WHERE route_stop_id = :rid"),
+            {"rid": route_stop_id},
+        ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _get_or_create_route_batch_session(route_id, creator):
+    session = BatchPickingSession.query.filter_by(
+        route_id=route_id,
+        session_type=ROUTE_BATCH_SESSION_TYPE,
+    ).order_by(BatchPickingSession.created_at.desc()).first()
+    if session and not _session_locked(session.id):
+        return {"id": session.id, "name": session.name, "created": False}
+    name = _next_route_batch_name(route_id)
+    session = BatchPickingSession(
+        name=name,
+        batch_number=name,
+        zones="MAIN",
+        picking_mode="Consolidated",
+        created_by=creator or _current_username(),
+        status="Created",
+    )
+    try:
+        session.session_type = ROUTE_BATCH_SESSION_TYPE
+    except Exception:
+        pass
+    try:
+        session.route_id = route_id
+    except Exception:
+        pass
+    db.session.add(session)
+    db.session.flush()
+    return {"id": session.id, "name": session.name, "created": True}
+
+
+def extract_normal_items_for_route_stop_invoices(rsi_list, creator=None):
+    summary = {"extracted": 0, "already_present": 0, "skipped_picked": 0}
+    if Setting.get(db.session, "route_batch_mode_enabled", "false").lower() != "true":
+        return summary
+    if not rsi_list:
+        return summary
+    for rsi in rsi_list:
+        route_id = _get_route_id_for_stop(rsi.route_stop_id)
+        if not route_id:
+            continue
+        session = _get_or_create_route_batch_session(route_id, creator or _current_username())
+        items = db.session.query(InvoiceItem).filter(
+            InvoiceItem.invoice_no == rsi.invoice_no,
+            InvoiceItem.is_picked.is_(False),
+        ).all()
+        for item in items:
+            if (item.item_code, item.invoice_no) in set():
+                pass
+            if item.locked_by_batch_id and item.locked_by_batch_id != session["id"]:
+                continue
+            if item.locked_by_batch_id == session["id"]:
+                summary["already_present"] += 1
+                continue
+            item.locked_by_batch_id = session["id"]
+            summary["extracted"] += 1
+        db.session.add(BatchSessionInvoice(batch_session_id=session["id"], invoice_no=rsi.invoice_no))
+    db.session.commit()
     return summary

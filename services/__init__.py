@@ -136,6 +136,20 @@ def attach_invoices_to_stop(route_stop_id: int, invoice_nos: list):
         except Exception:
             pass
 
+    try:
+        from services.cooler_route_extraction import (
+            extract_normal_items_for_route_stop_invoices,
+        )
+        extract_normal_items_for_route_stop_invoices(
+            rsi_list=attached,
+            creator=getattr(current_user, "username", None) or "system",
+        )
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "Route batch extraction failed (non-fatal): %s", e,
+        )
+
     return attached
 
 

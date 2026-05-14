@@ -129,10 +129,12 @@ def batch_picking_manage():
     all_sessions = list(active_sessions) + list(completed_sessions)
     cooler_route_ids = [s.route_id for s in all_sessions
                         if s.session_type == 'cooler_route' and s.route_id]
+    route_batch_route_ids = [s.route_id for s in all_sessions
+                             if s.session_type == 'route_batch' and s.route_id]
     route_date_map = {}
-    if cooler_route_ids:
+    if cooler_route_ids or route_batch_route_ids:
         from models import Shipment
-        rows = Shipment.query.filter(Shipment.id.in_(cooler_route_ids)).with_entities(
+        rows = Shipment.query.filter(Shipment.id.in_(list(set(cooler_route_ids + route_batch_route_ids)))).with_entities(
             Shipment.id, Shipment.delivery_date).all()
         route_date_map = {r.id: r.delivery_date.strftime('%Y-%m-%d') for r in rows}
 

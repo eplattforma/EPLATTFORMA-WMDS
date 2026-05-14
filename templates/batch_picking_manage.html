@@ -66,7 +66,9 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if session.picking_mode == 'Consolidated' %}
+                            {% if session.session_type == 'route_batch' %}
+                            <span class="badge bg-success">Route</span>
+                            {% elif session.picking_mode == 'Consolidated' %}
                             <span class="badge bg-info">Consolidated</span>
                             {% else %}
                             <span class="badge bg-primary">Sequential</span>
@@ -194,7 +196,9 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if session.picking_mode == 'Consolidated' %}
+                            {% if session.session_type == 'route_batch' %}
+                            <span class="badge bg-success">Route</span>
+                            {% elif session.picking_mode == 'Consolidated' %}
                             <span class="badge bg-info">Consolidated</span>
                             {% else %}
                             <span class="badge bg-primary">Sequential</span>

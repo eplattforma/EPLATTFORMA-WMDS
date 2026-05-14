@@ -58,6 +58,7 @@ PHASE1_DEFAULTS = {
     "allow_legacy_session_picking_fallback": "true",
     "enable_consolidated_batch_picking": "false",
     "batch_claim_required": "false",
+    "route_batch_mode_enabled": "false",
 
     # Cooler Picking (all OFF by default; turned on in Phase 5)
     "summer_cooler_mode_enabled": "false",

@@ -324,6 +324,27 @@ def detail(shipment_id):
     # Get progress
     from services import route_progress
     progress = route_progress(shipment_id)
+
+    route_batch_session = None
+    route_batch_item_count = 0
+    route_batch_invoice_count = 0
+    try:
+        if str(Setting.get(db.session, 'route_batch_mode_enabled', 'false')).lower() == 'true':
+            route_batch_session = BatchPickingSession.query.filter_by(
+                route_id=shipment_id,
+                session_type='route_batch'
+            ).order_by(BatchPickingSession.created_at.desc()).first()
+            if route_batch_session:
+                route_batch_invoice_count = BatchSessionInvoice.query.filter_by(
+                    batch_session_id=route_batch_session.id
+                ).count()
+                route_batch_item_count = InvoiceItem.query.filter_by(
+                    locked_by_batch_id=route_batch_session.id
+                ).count()
+    except Exception:
+        route_batch_session = None
+        route_batch_item_count = 0
+        route_batch_invoice_count = 0
     
     # Get stops with their invoices and payment terms for this route
     stops_query = db.session.query(
@@ -637,7 +658,10 @@ def detail(shipment_id):
                                dispatch_blockers=dispatch_blockers,
                                show_filter=show_filter,
                                blocked_stop_ids=blocked_stop_ids,
-                               delivery_progress=delivery_progress)
+                               delivery_progress=delivery_progress,
+                               route_batch_session=route_batch_session,
+                               route_batch_item_count=route_batch_item_count,
+                               route_batch_invoice_count=route_batch_invoice_count)
 
 
 @bp.route("/<int:shipment_id>/stops/new", methods=["GET", "POST"])
