@@ -1,0 +1,62 @@
+Before You Test — One Thing To Verify First
+Before running the full end-to-end test, confirm the Assign button is now actually sending queue_item_id and picked_qty correctly from the template. The endpoint fix (using qty_required as fallback when picked_qty=0) handles it server-side, but it's worth checking what the template is actually sending.
+In the cooler picking screen, open browser DevTools → Network tab → click Assign on one item → look at the POST body. Confirm:
+
+queue_item_id is a non-null integer (the batch_pick_queue row ID)
+picked_qty is the correct quantity (or 0 if the fallback is needed)
+
+If queue_item_id is coming through as null or undefined, the template has a separate issue that the server-side fix won't cover.
+
+Now Run The Full End-to-End Test
+With all three fixes deployed, run the complete flow:
+Step 1 — Verify queue rows are correct after picking
+sqlSELECT bpq.id, bpq.invoice_no, bpq.item_code,
+       bpq.status, bpq.qty_required, bpq.qty_picked
+FROM batch_pick_queue bpq
+WHERE bpq.pick_zone_type = 'cooler'
+  AND bpq.status = 'picked'
+ORDER BY bpq.updated_at DESC
+LIMIT 10;
+Expected: status='picked', qty_picked = qty_required for all rows.
+Step 2 — Verify location data in the batch
+Open the COOLER-ROUTE batch as a picker. Items should show warehouse location. If any show blank, check the wms_location field on ps_items_dw for those item codes:
+sqlSELECT item_code_365, wms_location, wms_aisle, wms_bay
+FROM ps_items_dw
+WHERE item_code_365 IN ('CHO-0067', 'CHO-0080', 'CHO-0188')
+LIMIT 10;
+If wms_location is NULL in ps_items_dw, the fallback has nothing to fall back to — that's a data population issue, not a code bug.
+Step 3 — Full flow
+1. Route with SENSITIVE items → lock sequencing → assign batch to picker
+2. Picker opens batch → items shown with location in warehouse order
+3. No Pick buttons on cooler screen while batch in progress ✓
+4. Picker confirms all items
+5. Auto-redirect to cooler screen ✓ (if Task #34 redirect is deployed)
+   OR manually navigate to cooler screen
+6. All items show "Picked" status ✓
+7. Click Assign → box item count updates from "—" to correct number ✓
+8. Close box → first_stop_sequence and last_stop_sequence populated ✓
+9. Print label ✓
+10. All route invoices → Ready for Dispatch ✓
+
+If Step 7 Still Fails
+If the Assign button still does nothing after these fixes, the issue has moved from qty_picked=0 to something else. The most likely remaining cause is the str(invoice_delivery_date) != str(box["delivery_date"]) comparison in box_assign_item().
+Date formatting can differ between how Python stores it (datetime.date(2026, 5, 14) → str() gives '2026-05-14') and how it comes from the database ('2026-05-14 00:00:00' or '14/05/2026' depending on the query). A one-character format mismatch silently rejects every assignment.
+If that's the case, add explicit formatting to both sides:
+pythonfrom datetime import datetime
+
+def _normalise_date(d):
+    if d is None:
+        return None
+    if isinstance(d, str):
+        # Try parsing common formats
+        for fmt in ('%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(d.split('T')[0], fmt).date()
+            except ValueError:
+                continue
+    if hasattr(d, 'date'):
+        return d.date()
+    return str(d)
+
+if _normalise_date(invoice_delivery_date) != _normalise_date(box["delivery_date"]):
+    return jsonify({"error": "Cross-date assignment refused: ..."}), 400
