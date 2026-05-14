@@ -277,7 +277,7 @@ def route_list():
             "exception": v["exception"],
             "total": v["total"],
         }
-        for k, v in sorted(grouped.items())
+        for k, v in sorted(grouped.items(), key=lambda x: (str(x[0][0]), str(x[0][1])))
         if v["pending"] > 0 or v["picked"] > 0 or v["exception"] > 0
     ]
     if not routes:
