@@ -377,6 +377,9 @@ def admin_dashboard():
         })
     
     routes_data = []
+    not_started_total = 0
+    in_progress_total = 0
+    ready_total = 0
     for route_id in sorted_route_ids:
         route = shipment_cache.get(route_id)
         if not route:
@@ -387,6 +390,12 @@ def admin_dashboard():
         route_batch = next((s for s in open_batch_sessions if getattr(s, 'session_type', None) == 'route_batch' and s.route_id == route_id), None)
         inv_data = []
         for inv in route_invoices:
+            if inv.status == 'not_started':
+                not_started_total += 1
+            if inv.status in ['picking', 'awaiting_batch_items', 'awaiting_packing']:
+                in_progress_total += 1
+            if inv.status == 'ready_for_dispatch':
+                ready_total += 1
             inv_data.append({
                 'invoice': inv,
                 'picked_lines': picked_lines_count.get(inv.invoice_no, 0),
@@ -411,6 +420,7 @@ def admin_dashboard():
         })
 
     unassigned_route_batch = next((s for s in open_batch_sessions if getattr(s, 'session_type', None) == 'route_batch' and not s.route_id), None)
+    unassigned_invoices = [inv for inv in invoices if not inv.route_id]
     
     return render_template('admin_dashboard.html', 
                           invoices=invoices, 
@@ -442,4 +452,8 @@ def admin_dashboard():
                           batch_session_item_counts=batch_session_item_counts,
                           route_date_map=route_date_map,
                           routes_data=routes_data,
+                          not_started_total=not_started_total,
+                          in_progress_total=in_progress_total,
+                          ready_total=ready_total,
+                          unassigned_invoices=unassigned_invoices,
                           unassigned_route_batch=unassigned_route_batch)

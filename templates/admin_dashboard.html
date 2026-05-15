@@ -211,9 +211,9 @@
 
 <div id="view-focus" style="display:none;">
     <div class="row g-2 mb-3">
-        <div class="col-6 col-md"><div class="card text-center h-100 border-secondary"><div class="card-body py-2"><div class="text-muted small">Not Started</div><div class="display-6 fw-bold text-secondary">{{ invoices|selectattr('status','eq','not_started')|list|length }}</div></div></div></div>
-        <div class="col-6 col-md"><div class="card text-center h-100 border-warning"><div class="card-body py-2"><div class="text-muted small">In Progress</div><div class="display-6 fw-bold text-warning">{{ invoices|selectattr('status','in',['picking','awaiting_batch_items','awaiting_packing'])|list|length }}</div></div></div></div>
-        <div class="col-6 col-md"><div class="card text-center h-100 border-success"><div class="card-body py-2"><div class="text-muted small">Ready</div><div class="display-6 fw-bold text-success">{{ invoices|selectattr('status','eq','ready_for_dispatch')|list|length }}</div></div></div></div>
+        <div class="col-6 col-md"><div class="card text-center h-100 border-secondary"><div class="card-body py-2"><div class="text-muted small">Not Started</div><div class="display-6 fw-bold text-secondary">{{ not_started_total }}</div></div></div></div>
+        <div class="col-6 col-md"><div class="card text-center h-100 border-warning"><div class="card-body py-2"><div class="text-muted small">In Progress</div><div class="display-6 fw-bold text-warning">{{ in_progress_total }}</div></div></div></div>
+        <div class="col-6 col-md"><div class="card text-center h-100 border-success"><div class="card-body py-2"><div class="text-muted small">Ready</div><div class="display-6 fw-bold text-success">{{ ready_total }}</div></div></div></div>
         <div class="col-6 col-md"><div class="card text-center h-100 border-info"><div class="card-body py-2"><div class="text-muted small">❄️ Cooler Active</div><div class="display-6 fw-bold text-info">{{ open_batch_sessions|selectattr('session_type','eq','cooler_route')|list|length }}</div></div></div></div>
         <div class="col-6 col-md"><div class="card text-center h-100 border-primary"><div class="card-body py-2"><div class="text-muted small">Time Remaining</div><div class="display-6 fw-bold text-primary">{{ total_remaining_time|round|int }}m</div></div></div></div>
     </div>
@@ -273,11 +273,11 @@
     </div>
     {% endfor %}
 
-    {% if invoices|rejectattr('route_id')|list %}
+    {% if unassigned_invoices %}
     <div class="card mb-3 shadow-sm" style="border-left:4px solid #6c757d;">
         <div class="card-header d-flex align-items-center flex-wrap gap-2 py-2" style="background:#6c757d;color:#fff;cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#focus-unassigned">
             <span class="fw-bold"><i class="fas fa-box me-1"></i>Unassigned</span>
-            <span class="badge bg-light text-dark ms-auto">{{ invoices|rejectattr('route_id')|list|length }} orders</span>
+            <span class="badge bg-light text-dark ms-auto">{{ unassigned_invoices|length }} orders</span>
         </div>
         <div class="collapse show" id="focus-unassigned">
             <div class="card-body p-0">
@@ -285,7 +285,7 @@
                     <table class="table table-sm table-hover mb-0 align-middle">
                         <thead class="table-light"><tr><th>Invoice</th><th>Customer</th><th>Status</th><th class="text-center">Lines</th><th class="text-center">Qty</th><th class="text-center">Weight</th><th class="text-center">Time</th><th class="text-center">Actions</th></tr></thead>
                         <tbody>
-                            {% for invoice in invoices if not invoice.route_id %}
+                            {% for invoice in unassigned_invoices %}
                             <tr>
                                 <td><strong>{{ invoice.invoice_no }}</strong></td>
                                 <td class="text-truncate" style="max-width: 220px;">{{ invoice.customer_name }}</td>
