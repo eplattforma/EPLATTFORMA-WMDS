@@ -482,6 +482,71 @@ def extract_sensitive_for_route_stop_invoices(rsi_list):
     return summary
 
 
+def cooler_auto_assign_item(session_id, queue_item_id):
+    row = db.session.execute(
+        text(
+            "SELECT s.cooler_pack_mode, i.route_id, s.route_id "
+            "FROM batch_pick_queue bpq "
+            "JOIN batch_picking_sessions s ON s.id = bpq.batch_session_id "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "WHERE bpq.id = :qid AND s.id = :sid"
+        ),
+        {"qid": queue_item_id, "sid": session_id},
+    ).fetchone()
+    if row is None or (row[0] or "") != "sequential_stop":
+        return None
+
+    stop_row = db.session.execute(
+        text(
+            "SELECT rs.route_stop_id, rs.seq_no "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN route_stop_invoice rsi ON rsi.invoice_no = bpq.invoice_no "
+            "JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
+            "WHERE bpq.id = :qid AND rsi.is_active = :truthy "
+            "ORDER BY rs.seq_no DESC LIMIT 1"
+        ),
+        {"qid": queue_item_id, "truthy": True},
+    ).fetchone()
+    if stop_row is None:
+        return None
+
+    box_row = db.session.execute(
+        text(
+            "SELECT id FROM cooler_boxes "
+            "WHERE route_id = :rid AND delivery_date = ("
+            "  SELECT s.delivery_date FROM shipments s WHERE s.id = :rid"
+            ") AND status = 'open' "
+            "ORDER BY box_no DESC LIMIT 1"
+        ),
+        {"rid": row[1]},
+    ).fetchone()
+    if box_row is None:
+        return None
+
+    db.session.execute(
+        text(
+            "INSERT INTO cooler_box_items "
+            "(cooler_box_id, invoice_no, customer_code, customer_name, route_stop_id, "
+            " delivery_sequence, item_code, item_name, expected_qty, picked_qty, "
+            " picked_by, picked_at, queue_item_id, status, created_at, updated_at) "
+            "SELECT :box_id, bpq.invoice_no, i.customer_code, i.customer_name, "
+            "       rs.route_stop_id, rs.seq_no, bpq.item_code, ii.item_name, "
+            "       bpq.qty_required, bpq.qty_picked, :who, :now, bpq.id, 'picked', "
+            "       :now, :now "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN invoice_items ii ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code "
+            "JOIN route_stop_invoice rsi ON rsi.invoice_no = bpq.invoice_no "
+            "JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
+            "WHERE bpq.id = :qid AND rsi.is_active = :truthy "
+            "ORDER BY rs.seq_no DESC LIMIT 1"
+        ),
+        {"box_id": box_row[0], "who": _current_username(), "now": get_utc_now(), "qid": queue_item_id, "truthy": True},
+    )
+    return box_row[0]
+
+
 def _next_route_batch_name(route_id):
     base = f"ROUTE-BATCH-{route_id}"
     existing = {

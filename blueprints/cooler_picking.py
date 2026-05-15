@@ -1220,6 +1220,26 @@ def queue_pick(queue_item_id):
             f"picked by {_username()}",
             invoice_no=row[1], item_code=row[2],
         )
+        try:
+            session_row = db.session.execute(
+                text(
+                    "SELECT s.id, s.cooler_pack_mode "
+                    "FROM batch_picking_sessions s "
+                    "JOIN batch_pick_queue bpq ON bpq.batch_session_id = s.id "
+                    "WHERE bpq.id = :qid AND s.session_type = 'cooler_route' "
+                    "LIMIT 1"
+                ),
+                {"qid": queue_item_id},
+            ).fetchone()
+            if session_row and (session_row[1] or "") == "sequential_stop":
+                from services.cooler_route_extraction import cooler_auto_assign_item
+                cooler_auto_assign_item(session_row[0], queue_item_id)
+        except Exception as exc:
+            current_app.logger.warning(
+                "cooler.queue_pick auto-assign skipped for queue %s: %s",
+                queue_item_id,
+                exc,
+            )
         db.session.commit()
         flash(f"Picked {row[2]} for {row[1]}.", "success")
 

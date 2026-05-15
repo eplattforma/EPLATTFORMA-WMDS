@@ -1,0 +1,63 @@
+What To Test Now
+Login as warehouse manager and run through this sequence on a real route that has SENSITIVE items.
+Test A — Mode selection at lock time
+Go to /cooler/route/<id>/<date> for a route with unsequenced cooler items.
+Expected: The lock button area now shows two radio options:
+
+Location Order (default)
+Sequential Stop (with box type dropdown appearing when selected)
+
+Try locking with Location Order first — this is the safer test since it matches existing behaviour.
+Verify in DB after locking:
+sqlSELECT id, name, cooler_pack_mode, cooler_box_type_id, sequence_locked_at
+FROM batch_picking_sessions
+WHERE session_type = 'cooler_route'
+ORDER BY id DESC LIMIT 3;
+Expected: cooler_pack_mode = 'location_order', cooler_box_type_id = NULL.
+Test B — Sequential Stop with box type
+Lock a second route using Sequential Stop mode. Select a box type from the dropdown.
+Verify:
+sqlSELECT cooler_pack_mode, cooler_box_type_id
+FROM batch_picking_sessions
+WHERE name LIKE 'COOLER-ROUTE-%'
+ORDER BY id DESC LIMIT 1;
+Expected: cooler_pack_mode = 'sequential_stop', cooler_box_type_id = the ID of the box type you selected.
+Also check the new columns exist on cooler_boxes:
+sqlSELECT column_name FROM information_schema.columns
+WHERE table_name = 'cooler_boxes'
+AND column_name IN ('fill_cm3', 'fill_weight_kg', 'cooler_session_id');
+Expected: 3 rows returned.
+Test C — Batch completion redirect
+Pick all items in a COOLER-ROUTE batch (either via the cooler screen Pick buttons or via the batch interface). When the last item is confirmed, you should be automatically redirected to the cooler screen with a flash message indicating picking is complete.
+If this redirect doesn't fire, check:
+python# In Replit shell
+from models import BatchPickingSession
+from app import app, db
+with app.app_context():
+    s = BatchPickingSession.query.filter(
+        BatchPickingSession.session_type == 'cooler_route'
+    ).order_by(BatchPickingSession.id.desc()).first()
+    print(s.cooler_pack_mode, s.route_id)
+If route_id is NULL the redirect can't find the destination. That would mean the route_id column wasn't being set at session creation time.
+
+What's Still Not Built (Task #34 Remainder)
+What Replit confirmed is done:
+
+✅ Schema columns added
+✅ Mode selection UI at lock time
+✅ Mode saved in lock endpoint
+✅ Batch completion redirect
+
+What still needs testing or may not be built yet:
+Auto-boxing for sequential_stop — when a picker confirms an item in a sequential_stop cooler batch, does cooler_auto_assign_item() fire? Check cooler_box_items after confirming one item:
+sqlSELECT * FROM cooler_box_items
+WHERE cooler_box_id IN (
+    SELECT id FROM cooler_boxes
+    WHERE cooler_session_id = <your_session_id>
+);
+If no rows appear after picking an item in sequential_stop mode, the auto-boxing hook wasn't wired into routes_batch.py.
+Pack by Stop panel — after picking completes in location_order mode, does the cooler screen show a "Pack by Stop" section with one-click box creation per stop? This is the main UI addition for location_order mode.
+Fill bar on boxes — does the Cooler Boxes section show a capacity percentage bar per box?
+
+What To Tell Replit Next
+After running Tests A, B, C, share what you see and we'll know exactly what's working and what needs the second pass. The most important one to verify is Test C (completion redirect) because that's the operational flow gate — without it the picker finishes and has no obvious next step.

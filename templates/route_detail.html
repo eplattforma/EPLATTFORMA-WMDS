@@ -471,6 +471,44 @@
             <i class="fas fa-arrow-right me-1"></i>Open cooler picking screen
           </a>
         </div>
+        {% if cooler_estimate and cooler_estimate.box_estimates %}
+        <hr>
+        <div class="row g-3">
+          <div class="col-12">
+            <h6 class="mb-2">Pack by Stop</h6>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>Box type</th>
+                    <th>Count</th>
+                    <th>Fill</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for estimate in cooler_estimate.box_estimates %}
+                    {% for alloc in estimate.allocation %}
+                    <tr>
+                      <td>{{ alloc.box_type_name }}</td>
+                      <td>{{ alloc.count }}</td>
+                      <td>
+                        {% if alloc.fill_pct is defined %}
+                          <div class="progress" style="height: 10px;">
+                            <div class="progress-bar" role="progressbar" style="width: {{ alloc.fill_pct|default(0) }}%"></div>
+                          </div>
+                        {% else %}
+                          <span class="text-muted">-</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endif %}
