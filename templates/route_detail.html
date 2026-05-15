@@ -373,9 +373,17 @@
             </div>
             <p class="mb-1"><strong>{{ route_batch_item_count }}</strong> items accumulated from <strong>{{ route_batch_invoice_count }}</strong> invoices</p>
             {% if not route_batch_session.sequence_locked_at %}
-            <p class="text-muted small mb-2">New invoices joining this route will automatically add their items.</p>
+            <p class="text-muted small mb-2">New invoices joining this route will automatically add their items. Lock when all invoices are assigned and ready for picking.</p>
+            <form method="post" action="{{ url_for('batch.lock_route_batch', route_id=route.id) }}" class="mt-2">
+                <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Lock this route batch for picking? New invoices will create a sibling session.');">
+                    <i class="fas fa-lock me-1"></i>Lock Route Batch
+                </button>
+            </form>
             {% else %}
-            <p class="text-success mb-1">Locked at {{ route_batch_session.sequence_locked_at|local_time }}</p>
+            <p class="text-success mb-1"><i class="fas fa-check me-1"></i>Locked at {{ route_batch_session.sequence_locked_at|local_time }} by {{ route_batch_session.sequence_locked_by }}</p>
+            <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-sm btn-primary mt-1">
+                <i class="fas fa-tasks me-1"></i>Assign to Picker
+            </a>
             {% endif %}
         </div>
     </div>

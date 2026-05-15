@@ -516,7 +516,7 @@ def _session_locked(session_id):
 def _get_route_id_for_stop(route_stop_id):
     try:
         row = db.session.execute(
-            text("SELECT shipment_id FROM route_stops WHERE route_stop_id = :rid"),
+            text("SELECT shipment_id FROM route_stop WHERE route_stop_id = :rid"),
             {"rid": route_stop_id},
         ).fetchone()
         return row[0] if row else None
@@ -554,30 +554,73 @@ def _get_or_create_route_batch_session(route_id, creator):
 
 
 def extract_normal_items_for_route_stop_invoices(rsi_list, creator=None):
+    """Extract non-SENSITIVE unpicked items into the route's ROUTE-BATCH session.
+
+    SENSITIVE items are owned by the cooler pipeline and are skipped here.
+    Idempotent — safe to call multiple times for the same RSI.
+    Short-circuits when ``route_batch_mode_enabled`` is OFF.
+    """
     summary = {"extracted": 0, "already_present": 0, "skipped_picked": 0}
     if Setting.get(db.session, "route_batch_mode_enabled", "false").lower() != "true":
         return summary
     if not rsi_list:
         return summary
+
     for rsi in rsi_list:
         route_id = _get_route_id_for_stop(rsi.route_stop_id)
         if not route_id:
             continue
+
         session = _get_or_create_route_batch_session(route_id, creator or _current_username())
+        session_id = session["id"]
+
+        # Handle late-joining invoice when session is already locked.
+        if _session_locked(session_id):
+            session = _get_or_create_route_batch_session(route_id, creator or _current_username())
+            session_id = session["id"]
+
         items = db.session.query(InvoiceItem).filter(
             InvoiceItem.invoice_no == rsi.invoice_no,
             InvoiceItem.is_picked.is_(False),
         ).all()
+
+        # Build SENSITIVE code set for this invoice to exclude cooler items.
+        all_codes = {it.item_code for it in items}
+        sensitive = _sensitive_codes(all_codes) if all_codes else set()
+
         for item in items:
-            if (item.item_code, item.invoice_no) in set():
-                pass
-            if item.locked_by_batch_id and item.locked_by_batch_id != session["id"]:
+            # Skip items that belong to the cooler pipeline.
+            if item.item_code in sensitive:
                 continue
-            if item.locked_by_batch_id == session["id"]:
+
+            if item.is_picked:
+                summary["skipped_picked"] += 1
+                continue
+
+            if item.locked_by_batch_id == session_id:
                 summary["already_present"] += 1
                 continue
-            item.locked_by_batch_id = session["id"]
+
+            # Skip items already owned by a different batch (e.g. manual batch).
+            if item.locked_by_batch_id and item.locked_by_batch_id != session_id:
+                continue
+
+            item.locked_by_batch_id = session_id
             summary["extracted"] += 1
-        db.session.add(BatchSessionInvoice(batch_session_id=session["id"], invoice_no=rsi.invoice_no))
-    db.session.commit()
+
+        # Ensure junction row exists (idempotent).
+        existing_jn = BatchSessionInvoice.query.filter_by(
+            batch_session_id=session_id, invoice_no=rsi.invoice_no,
+        ).first()
+        if existing_jn is None:
+            db.session.add(BatchSessionInvoice(
+                batch_session_id=session_id, invoice_no=rsi.invoice_no,
+            ))
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        logger.error("route batch extraction commit failed: %s", e)
+        db.session.rollback()
+
     return summary

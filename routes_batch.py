@@ -3760,3 +3760,44 @@ def batch_admin_print_report(batch_id):
                           batch_session=batch_session,
                           invoices=invoices,
                           current_time=current_time)
+
+
+@batch_bp.route('/route-batch/<int:route_id>/lock', methods=['POST'])
+@login_required
+@require_permission('picking.manage_batches')
+def lock_route_batch(route_id):
+    """Lock a route batch so it becomes assignable to a picker.
+
+    Stamps ``sequence_locked_at`` / ``sequence_locked_by`` on the active
+    ROUTE-BATCH session for *route_id*.  After locking, late-joining
+    invoices will spawn a sibling session (ROUTE-BATCH-<id>-2, etc.).
+    """
+    from timezone_utils import get_utc_now
+
+    session = BatchPickingSession.query.filter(
+        BatchPickingSession.route_id == route_id,
+        BatchPickingSession.session_type == 'route_batch',
+        BatchPickingSession.status.notin_(['Completed', 'Cancelled', 'Archived']),
+        BatchPickingSession.sequence_locked_at.is_(None),
+    ).order_by(BatchPickingSession.id.desc()).first()
+
+    if not session:
+        flash("No unlocked route batch found for this route.", "warning")
+        return redirect(request.referrer or url_for('admin_dashboard'))
+
+    session.sequence_locked_at = get_utc_now()
+    session.sequence_locked_by = current_user.username
+
+    try:
+        db.session.commit()
+        flash(
+            f"Route batch {session.name} locked. "
+            "Assign it to a picker from Manage Batches.",
+            "success",
+        )
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("lock_route_batch failed: %s", e)
+        flash("Failed to lock route batch. Please try again.", "danger")
+
+    return redirect(request.referrer or url_for('admin_dashboard'))

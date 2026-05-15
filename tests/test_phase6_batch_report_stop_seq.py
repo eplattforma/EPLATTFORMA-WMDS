@@ -41,11 +41,11 @@ def test_label_uses_stop_seq_for_cooler_batch(app):
     from routes_batch import _build_stop_seq_lookup, _routing_label_for_invoice
 
     with app.app_context():
-        _seed(db, route_id=900, invoice_no="INV-RPTA", seq_no=2.0)
-        _seed(db, route_id=900, invoice_no="INV-RPTB", seq_no=5.0)
+        _seed(db, route_id=9900, invoice_no="INV-RPTA", seq_no=2.0)
+        _seed(db, route_id=9900, invoice_no="INV-RPTB", seq_no=5.0)
 
         bps = BatchPickingSession(name="t", created_by="test_admin_user", picking_mode="Sequential",
-            zones="SENSITIVE", session_type="cooler_route", route_id=900,
+            zones="SENSITIVE", session_type="cooler_route", route_id=9900,
             status="Active",
         )
         db.session.add(bps)
