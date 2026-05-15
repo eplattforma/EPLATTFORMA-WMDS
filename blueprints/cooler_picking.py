@@ -928,21 +928,7 @@ def box_close(box_id):
             "error": f"Box #{box_id} is {box['status']}; only open boxes can be closed."
         }), 400
 
-    # Guard 1: box must have at least one item assigned
-    item_count = db.session.execute(
-        text("SELECT COUNT(*) FROM cooler_box_items WHERE cooler_box_id = :bid"),
-        {"bid": box_id},
-    ).scalar() or 0
-    if item_count == 0:
-        msg = f"Box #{box_id} has no items assigned — assign items before closing."
-        if request.form.get("_html_form"):
-            flash(msg, "warning")
-            return redirect(url_for("cooler.route_picking",
-                                    route_id=box["route_id"],
-                                    delivery_date=str(box["delivery_date"])))
-        return jsonify({"error": msg}), 400
-
-    # Guard 2: all assigned items must be picked
+    # Guard: all assigned items must be picked
     unpicked = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_box_items cbi "

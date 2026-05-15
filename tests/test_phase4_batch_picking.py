@@ -92,6 +92,17 @@ def setup(app):
     from app import db
     with app.app_context():
         _ensure_queue_table(db)
+        # Clear any stale locks left by other test files sharing the same
+        # in-memory SQLite engine (cross-file state leaks via the singleton
+        # SQLAlchemy engine even with function-scoped app fixtures).
+        try:
+            db.session.execute(
+                text("UPDATE invoice_items SET locked_by_batch_id = NULL "
+                     "WHERE locked_by_batch_id IS NOT NULL")
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
         yield app, db
 
 

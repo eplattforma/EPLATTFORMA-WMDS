@@ -1689,6 +1689,15 @@ def reconcile_view(shipment_id):
     from services_route_lifecycle import get_route_reconciliation_summary
     
     route = Shipment.query.get_or_404(shipment_id)
+
+    if route.status != 'COMPLETED':
+        flash(
+            f"Route #{shipment_id} cannot be reconciled while in status "
+            f"'{route.status}'. The route must be COMPLETED first.",
+            "danger"
+        )
+        return redirect(url_for("routes.detail", shipment_id=shipment_id))
+
     summary = get_route_reconciliation_summary(shipment_id)
     
     return render_template('route_reconcile.html', route=route, summary=summary)
@@ -1700,7 +1709,16 @@ def reconcile_view(shipment_id):
 def reconcile_action(shipment_id):
     """Perform route reconciliation"""
     from services_route_lifecycle import reconcile_route
-    
+
+    route = Shipment.query.get_or_404(shipment_id)
+    if route.status != 'COMPLETED':
+        flash(
+            f"Route #{shipment_id} cannot be reconciled while in status "
+            f"'{route.status}'. The route must be COMPLETED first.",
+            "danger"
+        )
+        return redirect(url_for("routes.detail", shipment_id=shipment_id))
+
     force = request.form.get('force') == 'true'
     
     success, message = reconcile_route(shipment_id, current_user.username, force=force)
