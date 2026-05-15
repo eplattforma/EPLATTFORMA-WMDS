@@ -387,11 +387,9 @@ document.addEventListener('DOMContentLoaded', function() {
     })();
     localStorage.removeItem('adminSortingConfig');
     var sortingModal = document.getElementById('sortingModal');
-    if (sortingModal) sortingModal.addEventListener('show.bs.modal', function() {
-        if (typeof updateModalFields === 'function') updateModalFields();
-        if (typeof updateStatusSequenceDisplay === 'function') updateStatusSequenceDisplay();
+    if (sortingModal && typeof updateModalFields === 'function') sortingModal.addEventListener('show.bs.modal', function() {
+        updateModalFields();
     });
-    if (typeof updateStatusSequenceDisplay === 'function') updateStatusSequenceDisplay();
     document.querySelectorAll('.assign-btn').forEach(function(button) { button.addEventListener('click', function() { document.getElementById('modalInvoiceNo').value = this.getAttribute('data-invoice-no'); }); });
     window.isModalOpen = false;
     document.querySelectorAll('.modal').forEach(function(modal) {

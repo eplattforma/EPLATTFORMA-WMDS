@@ -1966,6 +1966,21 @@ def batch_picking_item(batch_id):
                 
                 db.session.commit()
                 current_app.logger.info(f"Batch {batch_id} completed: All items picked successfully")
+                if getattr(batch_session, 'session_type', None) == 'cooler_route' and batch_session.route_id:
+                    from models import Shipment
+                    route = Shipment.query.get(batch_session.route_id)
+                    if route and route.delivery_date:
+                        pack_mode = getattr(batch_session, 'cooler_pack_mode', 'location_order')
+                        if pack_mode == 'sequential_stop':
+                            msg = "✅ Cooler picking complete. All items have been auto-assigned to boxes. Seal each box and print labels below."
+                        else:
+                            msg = "✅ Cooler picking complete. Now use Pack by Stop below to assign items to boxes."
+                        flash(msg, "success")
+                        return redirect(url_for(
+                            "cooler.route_picking",
+                            route_id=batch_session.route_id,
+                            delivery_date=route.delivery_date.strftime("%Y-%m-%d"),
+                        ))
                 
             flash('All items in this batch have been picked!', 'success')
             return redirect(url_for('batch.batch_completion_summary', batch_id=batch_id))

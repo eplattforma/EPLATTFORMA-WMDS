@@ -452,6 +452,18 @@ def route_picking(route_id, delivery_date):
         _l.getLogger(__name__).debug("cooler estimator failed: %s", e)
 
     open_boxes = [b for b in boxes if b["status"] == "open"]
+    box_types = []
+    try:
+        rows = db.session.execute(text(
+            "SELECT id, name, internal_volume_cm3, fill_efficiency, max_weight_kg "
+            "FROM cooler_box_types WHERE is_active = true "
+            "ORDER BY sort_order, name"
+        )).fetchall()
+        box_types = [dict(zip(
+            ["id", "name", "internal_volume_cm3", "fill_efficiency", "max_weight_kg"], r
+        )) for r in rows]
+    except Exception:
+        box_types = []
 
     _TERMINAL_COOLER = ("Completed", "Cancelled", "Archived")
     # batch_in_progress is True only when sequencing has been locked AND the
@@ -470,6 +482,7 @@ def route_picking(route_id, delivery_date):
         queue=queue, sequenced=sequenced, unsequenced=unsequenced,
         cooler_session=cooler_session, estimate=estimate,
         boxes=boxes, open_boxes=open_boxes,
+        box_types=box_types,
         picking_phase=picking_phase,
         batch_in_progress=batch_in_progress,
         assigned_to_box=assigned_to_box,
@@ -519,6 +532,18 @@ def lock_sequencing(route_id):
                      "Attach SENSITIVE invoices first.",
         }), 404
     session_id = session_row[0]
+    pack_mode = request.form.get("cooler_pack_mode", "location_order")
+    box_type_id = request.form.get("cooler_box_type_id") or None
+    if box_type_id:
+        try:
+            box_type_id = int(box_type_id)
+        except ValueError:
+            box_type_id = None
+    if pack_mode == "sequential_stop" and not box_type_id:
+        flash("Please select a box type for Sequential Stop mode.", "danger")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id_int,
+                                delivery_date=request.form.get("delivery_date", "")))
 
     rows = db.session.execute(text(
         "SELECT bpq.id, bpq.invoice_no, rs.seq_no "
@@ -556,9 +581,10 @@ def lock_sequencing(route_id):
     db.session.execute(text(
         "UPDATE batch_picking_sessions "
         "SET sequence_locked_at = :now, sequence_locked_by = :who, "
+        "    cooler_pack_mode = :mode, cooler_box_type_id = :btid, "
         "    last_activity_at = :now "
         "WHERE id = :sid"
-    ), {"sid": session_id, "now": now, "who": _username()})
+    ), {"sid": session_id, "now": now, "who": _username(), "mode": pack_mode, "btid": box_type_id})
 
     _audit(
         "cooler.lock_sequencing",

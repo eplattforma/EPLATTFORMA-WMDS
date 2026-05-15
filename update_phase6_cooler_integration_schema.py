@@ -109,6 +109,18 @@ def update_phase6_cooler_integration_schema():
                     conn, insp, "batch_picking_sessions",
                     "sequence_locked_by", "VARCHAR(64)", is_pg=is_pg,
                 )
+                _add_column_if_missing(
+                    conn, insp, "batch_picking_sessions",
+                    "cooler_pack_mode", "VARCHAR(20) DEFAULT 'location_order'",
+                    is_pg=is_pg,
+                )
+                _add_column_if_missing(
+                    conn, insp, "batch_picking_sessions",
+                    "cooler_box_type_id",
+                    "INTEGER REFERENCES cooler_box_types(id) ON DELETE SET NULL"
+                    if is_pg else "INTEGER",
+                    is_pg=is_pg,
+                )
                 # Cooler enhancement: route_id lets us find the latest cooler
                 # session for a route (so we can create COOLER-ROUTE-<id>-2,
                 # -3, ... for late additions when the previous one is closed).
@@ -219,6 +231,18 @@ def update_phase6_cooler_integration_schema():
             if "cooler_boxes" in insp.get_table_names():
                 _add_column_if_missing(
                     conn, insp, "cooler_boxes", "box_type_id", box_type_fk,
+                    is_pg=is_pg,
+                )
+                _add_column_if_missing(
+                    conn, insp, "cooler_boxes", "fill_cm3", "NUMERIC(12,2) DEFAULT 0",
+                    is_pg=is_pg,
+                )
+                _add_column_if_missing(
+                    conn, insp, "cooler_boxes", "fill_weight_kg", "NUMERIC(10,3) DEFAULT 0",
+                    is_pg=is_pg,
+                )
+                _add_column_if_missing(
+                    conn, insp, "cooler_boxes", "cooler_session_id", "INTEGER",
                     is_pg=is_pg,
                 )
 

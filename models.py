@@ -268,6 +268,8 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
     session_type = db.Column(db.String(20), default='standard')  # 'standard' | 'cooler_route'
     sequence_locked_at = db.Column(UTCDateTime(), nullable=True)
     sequence_locked_by = db.Column(db.String(64), nullable=True)
+    cooler_pack_mode = db.Column(db.String(20), default='location_order')
+    cooler_box_type_id = db.Column(db.Integer, nullable=True)
     # route_id lets us find the latest cooler session for a route so we can
     # spin up a sequenced sibling (COOLER-ROUTE-<id>-2, -3, ...) when the
     # previous one is Completed/Cancelled/Archived and a late SENSITIVE

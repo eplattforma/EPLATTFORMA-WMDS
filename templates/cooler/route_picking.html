@@ -58,22 +58,47 @@
           {% endif %}
         </div>
         <div class="col-md-4 text-end">
-          {% if has_permission('cooler.lock_sequencing') %}
+  {% if has_permission('cooler.lock_sequencing') and not (cooler_session and cooler_session.sequence_locked_at) %}
             <form method="post"
                   action="{{ url_for('cooler.lock_sequencing', route_id=route_id) }}">
               <input type="hidden" name="_html_form" value="1">
               <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-              <button class="btn btn-{{ 'outline-success' if cooler_session and cooler_session.is_locked else 'success' }}"
-                      type="submit"
-                      {% if not unsequenced and cooler_session and cooler_session.is_locked %}disabled{% endif %}>
-                <i class="fas fa-lock me-1"></i>
-                {% if cooler_session and cooler_session.is_locked %}
-                  Re-lock sequencing ({{ unsequenced|length }} new)
-                {% else %}
-                  Lock cooler sequencing
-                {% endif %}
-              </button>
+              <div class="row g-3 mb-3">
+                <div class="col-12 col-md-6">
+                  <label class="form-label fw-bold small">Picking Mode</label>
+                  <div class="d-flex flex-column gap-2">
+                    <div class="form-check border rounded p-2">
+                      <input class="form-check-input" type="radio" name="cooler_pack_mode" value="location_order" id="mode_loc" checked>
+                      <label class="form-check-label" for="mode_loc"><strong>Location Order</strong><div class="text-muted small">Picker walks the warehouse efficiently. Assign items to boxes after picking completes.</div></label>
+                    </div>
+                    <div class="form-check border rounded p-2">
+                      <input class="form-check-input" type="radio" name="cooler_pack_mode" value="sequential_stop" id="mode_seq">
+                      <label class="form-check-label" for="mode_seq"><strong>Sequential Stop</strong><div class="text-muted small">Last stop first. Items auto-assigned to boxes as picked. Boxes fill by capacity then seal automatically.</div></label>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-12 col-md-6" id="box_type_section" style="display:none;">
+                  <label class="form-label fw-bold small">Box Type <span class="text-muted fw-normal">(boxes created automatically)</span></label>
+                  <select name="cooler_box_type_id" class="form-select">
+                    <option value="">— choose box size —</option>
+                    {% for bt in box_types %}
+                    <option value="{{ bt.id }}">{{ bt.name }} ({{ (bt.internal_volume_cm3 * bt.fill_efficiency)|round|int }} cm³ usable)</option>
+                    {% endfor %}
+                  </select>
+                  {% if estimate and estimate.box_estimates %}
+                  <div class="text-muted small mt-1">Estimator recommends: <strong>{{ estimate.box_estimates[0].box_type_name }}</strong></div>
+                  {% endif %}
+                </div>
+              </div>
+              <button class="btn btn-success" type="submit"><i class="fas fa-lock me-1"></i>Lock Cooler Sequencing</button>
             </form>
+            <script>
+            document.querySelectorAll('[name="cooler_pack_mode"]').forEach(function(el) {
+              el.addEventListener('change', function() {
+                document.getElementById('box_type_section').style.display = (this.value === 'sequential_stop') ? '' : 'none';
+              });
+            });
+            </script>
           {% endif %}
         </div>
       </div>
