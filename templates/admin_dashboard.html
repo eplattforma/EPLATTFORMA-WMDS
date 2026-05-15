@@ -386,11 +386,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     })();
     localStorage.removeItem('adminSortingConfig');
-    loadSortingPreferences();
-    saveSortingPreferences();
     var sortingModal = document.getElementById('sortingModal');
-    if (sortingModal) sortingModal.addEventListener('show.bs.modal', function() { updateModalFields(); updateStatusSequenceDisplay(); });
-    updateStatusSequenceDisplay();
+    if (sortingModal) sortingModal.addEventListener('show.bs.modal', function() {
+        if (typeof updateModalFields === 'function') updateModalFields();
+        if (typeof updateStatusSequenceDisplay === 'function') updateStatusSequenceDisplay();
+    });
+    if (typeof updateStatusSequenceDisplay === 'function') updateStatusSequenceDisplay();
     document.querySelectorAll('.assign-btn').forEach(function(button) { button.addEventListener('click', function() { document.getElementById('modalInvoiceNo').value = this.getAttribute('data-invoice-no'); }); });
     window.isModalOpen = false;
     document.querySelectorAll('.modal').forEach(function(modal) {
