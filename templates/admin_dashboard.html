@@ -416,14 +416,16 @@
                             {% endif %}
                             
                             {% if invoice.invoice_no in batch_picked_info %}
+                            {% set batch_done = invoice.invoice_no in batch_fully_picked_invoice_nos %}
                             <a href="#" data-bs-toggle="popover" data-bs-placement="left" title="Batch Info" 
                                data-bs-content="{% for batch_id, batch in batch_picked_info[invoice.invoice_no].items() %}{{ batch.batch_number or 'BATCH-' ~ batch_id }}: {{ batch.count }} items<br>{% endfor %}"
                                data-bs-html="true">
-                                <i class="fas fa-layer-group text-info ms-1" data-bs-toggle="tooltip" title="Batch picked"></i>
+                                <i class="fas fa-layer-group ms-1 {{ 'text-success' if batch_done else 'text-info' }}" data-bs-toggle="tooltip" title="{{ 'Batch fully picked' if batch_done else 'Batch picked' }}"></i>
                             </a>
                             {% endif %}
                             {% if invoice.invoice_no in cooler_invoice_nos %}
-                            <span class="badge ms-1" style="background-color:#0d6efd; color:#fff;" data-bs-toggle="tooltip" title="Has items in a cooler batch">
+                            {% set cooler_done = invoice.invoice_no in cooler_fully_picked_invoice_nos %}
+                            <span class="badge ms-1" style="background-color:{{ '#198754' if cooler_done else '#0d6efd' }}; color:#fff;" data-bs-toggle="tooltip" title="{{ 'Cooler fully picked' if cooler_done else 'Has items in a cooler batch' }}">
                                 <i class="fas fa-snowflake"></i>
                             </span>
                             {% endif %}

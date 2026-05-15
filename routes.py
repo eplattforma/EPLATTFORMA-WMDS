@@ -636,10 +636,12 @@ def admin_dashboard():
                     batch = batch_sessions_by_id.get(batch_id)
                     batch_name = batch.name if batch else f"Batch #{batch_id}"
                     batch_number = batch.batch_number if batch and batch.batch_number else f"BATCH-{batch_id}"
+                    batch_status = batch.status if batch else None
                     batch_sessions[batch_id] = {
                         "id": batch_id,
                         "name": batch_name,
                         "batch_number": batch_number,
+                        "status": batch_status,
                         "count": 0,
                         "items": []
                     }
@@ -656,9 +658,16 @@ def admin_dashboard():
                     })
             
             batch_picked_info[invoice.invoice_no] = batch_sessions
-    
+
+    # Invoices where every associated batch session is Completed
+    batch_fully_picked_invoice_nos = set()
+    for inv_no, sessions in batch_picked_info.items():
+        if sessions and all(s.get("status") == "Completed" for s in sessions.values()):
+            batch_fully_picked_invoice_nos.add(inv_no)
+
     # BATCH QUERY 4: Find invoices that have items queued in a cooler batch session
     cooler_invoice_nos = set()
+    cooler_fully_picked_invoice_nos = set()
     if invoice_nos:
         try:
             cooler_rows = db.session.execute(
@@ -675,6 +684,26 @@ def admin_dashboard():
         except Exception as _e:
             import logging as _log
             _log.warning(f"admin_dashboard: cooler indicator query failed: {_e}")
+
+        # Invoices where ALL cooler queue rows are fully picked
+        if cooler_invoice_nos:
+            try:
+                unpicked_cooler = db.session.execute(
+                    db.text(
+                        "SELECT DISTINCT bpq.invoice_no "
+                        "FROM batch_pick_queue bpq "
+                        "JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id "
+                        "WHERE bps.session_type = 'cooler_route' "
+                        "AND bpq.invoice_no = ANY(:invoice_nos) "
+                        "AND (bpq.qty_picked IS NULL OR bpq.qty_picked = 0)"
+                    ),
+                    {"invoice_nos": list(cooler_invoice_nos)}
+                ).fetchall()
+                has_unpicked = {row[0] for row in unpicked_cooler}
+                cooler_fully_picked_invoice_nos = cooler_invoice_nos - has_unpicked
+            except Exception as _e:
+                import logging as _log
+                _log.warning(f"admin_dashboard: cooler fully-picked query failed: {_e}")
 
     # BATCH QUERY 5: Get open batch picking sessions for Batch Management section
     # Include all non-terminal statuses so deferred/cooler batches (which use
@@ -809,6 +838,8 @@ def admin_dashboard():
                           review_issues_count=review_issues_count,
                           active_pickers_data=active_pickers_data,
                           cooler_invoice_nos=cooler_invoice_nos,
+                          cooler_fully_picked_invoice_nos=cooler_fully_picked_invoice_nos,
+                          batch_fully_picked_invoice_nos=batch_fully_picked_invoice_nos,
                           open_batch_sessions=open_batch_sessions,
                           batch_session_item_counts=batch_session_item_counts,
                           route_date_map=route_date_map)
