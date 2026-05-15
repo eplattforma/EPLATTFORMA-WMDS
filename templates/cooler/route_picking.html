@@ -311,6 +311,86 @@
     </table>
   {% endif %}
 
+  {# Pack by Stop — shown when picking is complete and items need boxing.
+     Groups sequenced items by delivery stop so the manager can create
+     one box per stop with a single click (location_order mode). #}
+  {% set _all_assigned = sequenced | selectattr('status', 'eq', 'picked') | list | length == 0
+       or (sequenced | selectattr('status', 'eq', 'picked') | list | length > 0
+           and assigned_to_box | length >= (sequenced | selectattr('status', 'eq', 'picked') | list | length)) %}
+  {% if picking_phase and picking_phase.complete and sequenced
+        and has_permission('cooler.manage_boxes')
+        and not (cooler_session and cooler_session.get('cooler_pack_mode') == 'sequential_stop') %}
+  <div class="card mt-4 border-primary">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+      <span><i class="fas fa-layer-group me-2"></i>Pack by Stop</span>
+      <span class="badge bg-light text-primary">Picking complete — assign items to boxes per stop</span>
+    </div>
+    <div class="card-body p-0">
+      {% set ns = namespace(cur_seq=None, stop_has_unassigned=false) %}
+      {% for q in sequenced | sort(attribute='delivery_sequence') | reverse %}
+        {% if q.delivery_sequence != ns.cur_seq %}
+          {% if not loop.first %}</tbody></table></div>{% endif %}
+          {% set ns.cur_seq = q.delivery_sequence %}
+          {# Count unassigned picked items for this stop #}
+          {% set ns.stop_has_unassigned = false %}
+          {% for iq in sequenced %}
+            {% if iq.delivery_sequence == q.delivery_sequence and iq.status == 'picked' and not assigned_to_box.get(iq.queue_item_id) %}
+              {% set ns.stop_has_unassigned = true %}
+            {% endif %}
+          {% endfor %}
+          <div class="border-bottom px-3 pt-3 pb-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">
+                <span class="badge bg-secondary me-1">Stop {{ q.delivery_sequence|int }}</span>
+                {{ q.customer_name or q.customer_code or '—' }}
+              </h6>
+              {% if ns.stop_has_unassigned %}
+              <form method="post"
+                    action="{{ url_for('cooler.pack_stop', route_id=route_id) }}"
+                    class="d-inline">
+                <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+                <input type="hidden" name="delivery_sequence" value="{{ q.delivery_sequence }}">
+                <button type="submit" class="btn btn-sm btn-primary">
+                  <i class="fas fa-box me-1"></i>Create box for this stop
+                </button>
+              </form>
+              {% else %}
+              <span class="badge bg-success"><i class="fas fa-check me-1"></i>All boxed</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Item</th>
+                <th>Invoice</th>
+                <th class="text-end">Qty</th>
+                <th>Box</th>
+              </tr>
+            </thead>
+            <tbody>
+        {% endif %}
+        <tr class="{{ 'table-success' if assigned_to_box.get(q.queue_item_id) else '' }}">
+          <td><strong>{{ q.item_code }}</strong></td>
+          <td><span class="text-muted small">{{ q.invoice_no }}</span></td>
+          <td class="text-end">{{ q.expected_qty|int }}</td>
+          <td>
+            {% if assigned_to_box.get(q.queue_item_id) %}
+              <span class="badge bg-success">Box #{{ assigned_to_box[q.queue_item_id] }}</span>
+            {% elif q.status == 'picked' %}
+              <span class="text-warning small"><i class="fas fa-clock me-1"></i>Unassigned</span>
+            {% else %}
+              <span class="text-muted small">Not picked</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      {% if sequenced %}</tbody></table></div>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   {# Cooler Boxes #}
   <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
     <h4 class="mb-0">Cooler Boxes</h4>

@@ -1411,6 +1411,133 @@ def queue_assign_box(queue_item_id):
     return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
 
 
+@cooler_bp.route("/route/<route_id>/pack-stop", methods=["POST"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def pack_stop(route_id):
+    """Create one cooler box for all picked, unassigned items at a delivery stop.
+
+    Intended for location_order mode: after all items are physically
+    picked by warehouse location, the manager packs them per-stop with
+    a single button click.  Each stop gets its own box so the driver
+    can work through the truck load in stop order.
+    """
+    try:
+        route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        abort(400)
+
+    delivery_date_str = (request.form.get("delivery_date") or "").strip()
+    if not delivery_date_str:
+        flash("Missing delivery date.", "danger")
+        return redirect(url_for("cooler.route_list"))
+    try:
+        delivery_sequence = float(request.form.get("delivery_sequence"))
+    except (TypeError, ValueError):
+        flash("Invalid delivery stop sequence.", "danger")
+        return redirect(url_for("cooler.route_list"))
+
+    # Collect all picked, unboxed queue items for this stop
+    rows = db.session.execute(
+        text(
+            "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_picked, "
+            "       i.customer_code, i.customer_name, "
+            "       rs.route_stop_id, rs.seq_no, ii.item_name "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "LEFT JOIN route_stop_invoice rsi "
+            "       ON rsi.invoice_no = bpq.invoice_no "
+            "      AND rsi.is_active = :truthy "
+            "LEFT JOIN route_stop rs "
+            "       ON rs.route_stop_id = rsi.route_stop_id "
+            "LEFT JOIN invoice_items ii "
+            "       ON ii.invoice_no = bpq.invoice_no "
+            "      AND ii.item_code = bpq.item_code "
+            "WHERE bpq.pick_zone_type = 'cooler' "
+            "  AND i.route_id = :rid "
+            "  AND bpq.delivery_sequence = :seq "
+            "  AND bpq.status = 'picked' "
+            "  AND NOT EXISTS ("
+            "        SELECT 1 FROM cooler_box_items cbi "
+            "        WHERE cbi.queue_item_id = bpq.id"
+            "  ) "
+            "ORDER BY bpq.invoice_no, bpq.item_code"
+        ),
+        {"rid": route_id_int, "truthy": True, "seq": delivery_sequence},
+    ).fetchall()
+
+    if not rows:
+        flash("No picked unassigned items for this stop.", "warning")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id_int,
+                                delivery_date=delivery_date_str))
+
+    # Find the next available box number for this route + date
+    last_no = db.session.execute(
+        text(
+            "SELECT COALESCE(MAX(box_no), 0) FROM cooler_boxes "
+            "WHERE route_id = :rid AND delivery_date = :dd"
+        ),
+        {"rid": route_id_int, "dd": delivery_date_str},
+    ).scalar() or 0
+    new_box_no = int(last_no) + 1
+
+    now = get_utc_now()
+    result = db.session.execute(
+        text(
+            "INSERT INTO cooler_boxes "
+            "(route_id, delivery_date, box_no, status, created_at, updated_at) "
+            "VALUES (:rid, :dd, :bno, 'open', :now, :now) RETURNING id"
+        ),
+        {"rid": route_id_int, "dd": delivery_date_str, "bno": new_box_no, "now": now},
+    ).fetchone()
+    box_id = result[0]
+
+    for r in rows:
+        queue_item_id = r[0]
+        invoice_no = r[1]
+        item_code = r[2]
+        qty_picked = float(r[3] or 0)
+        db.session.execute(
+            text(
+                "INSERT INTO cooler_box_items "
+                "(cooler_box_id, invoice_no, customer_code, customer_name, "
+                " route_stop_id, delivery_sequence, item_code, item_name, "
+                " expected_qty, picked_qty, picked_by, picked_at, "
+                " queue_item_id, status, created_at, updated_at) "
+                "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+                "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+            ),
+            {
+                "bid": box_id, "inv": invoice_no,
+                "cc": r[4], "cn": r[5],
+                "rsid": r[6], "seq": r[7],
+                "ic": item_code, "iname": r[8],
+                "exp": qty_picked, "pq": qty_picked,
+                "who": _username(), "now": now,
+                "qid": queue_item_id,
+            },
+        )
+
+    _audit(
+        "cooler.pack_stop",
+        f"Box #{new_box_no} (id={box_id}) created for stop "
+        f"seq={delivery_sequence} route={route_id_int} "
+        f"with {len(rows)} item(s) by {_username()}",
+    )
+    db.session.commit()
+    flash(
+        f"Box #{new_box_no} created with {len(rows)} item(s) "
+        f"for stop {int(delivery_sequence)}.",
+        "success",
+    )
+    return redirect(url_for("cooler.route_picking",
+                            route_id=route_id_int,
+                            delivery_date=delivery_date_str))
+
+
 def _redirect_to_picking_from_queue(queue_item_id, delivery_date_str=""):
     """Helper: redirect back to the route picking page after a queue action."""
     row = db.session.execute(

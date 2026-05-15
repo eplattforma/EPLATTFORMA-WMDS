@@ -473,40 +473,37 @@
         </div>
         {% if cooler_estimate and cooler_estimate.box_estimates %}
         <hr>
-        <div class="row g-3">
-          <div class="col-12">
-            <h6 class="mb-2">Pack by Stop</h6>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th>Box type</th>
-                    <th>Count</th>
-                    <th>Fill</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for estimate in cooler_estimate.box_estimates %}
-                    {% for alloc in estimate.allocation %}
-                    <tr>
-                      <td>{{ alloc.box_type_name }}</td>
-                      <td>{{ alloc.count }}</td>
-                      <td>
-                        {% if alloc.fill_pct is defined %}
-                          <div class="progress" style="height: 10px;">
-                            <div class="progress-bar" role="progressbar" style="width: {{ alloc.fill_pct|default(0) }}%"></div>
-                          </div>
-                        {% else %}
-                          <span class="text-muted">-</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                    {% endfor %}
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
+        <div>
+          <h6 class="mb-2"><i class="fas fa-box me-1"></i>Estimated Box Allocation</h6>
+          {% set primary = cooler_estimate.box_estimates[0] %}
+          <p class="mb-1 small text-muted">{{ primary.label }}</p>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            {% for alloc in primary.allocation %}
+            <span class="badge bg-primary fs-6 py-2 px-3">
+              {{ alloc.count }} &times; {{ alloc.box_type_name }}
+            </span>
+            {% endfor %}
           </div>
+          {% if cooler_estimate.caveats %}
+            {% for caveat in cooler_estimate.caveats %}
+            <div class="alert alert-warning py-1 px-2 mb-1 small">
+              <i class="fas fa-exclamation-triangle me-1"></i>{{ caveat }}
+            </div>
+            {% endfor %}
+          {% endif %}
+          {% if cooler_estimate.box_estimates|length > 1 %}
+          <details class="mt-1">
+            <summary class="small text-muted" style="cursor:pointer">Other options</summary>
+            <ul class="list-unstyled mt-1 mb-0 ms-2 small">
+              {% for be in cooler_estimate.box_estimates[1:] %}
+              <li class="text-muted">
+                {{ be.label }}:
+                {% for a in be.allocation %}{{ a.count }} &times; {{ a.box_type_name }}{% if not loop.last %}, {% endif %}{% endfor %}
+              </li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
         </div>
         {% endif %}
       </div>
