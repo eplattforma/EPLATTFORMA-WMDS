@@ -3630,18 +3630,24 @@ def pick_item(invoice_no):
     if locked_by_batches:
         current_app.logger.info(f"Blocked {len(locked_by_batches)} batch-locked items from regular picking in {invoice_no}: {locked_batch_details}")
 
-    # If all remaining items are locked by batches, redirect to dashboard
+    # If all remaining items are locked by batches, the picker is done
+    # with their part of this invoice — take them to the completion screen.
     if len(locked_by_batches) > 0 and not items_to_pick:
-        lines = '; '.join(
-            f"{ic} ({iname}) → {bname}"
-            for ic, iname, bname in locked_batch_details
+        batch_names = ', '.join(
+            sorted({bname for _, _, bname in locked_batch_details})
         )
         flash(
-            f'The following item(s) are assigned to a batch picking session and '
-            f'must be picked there, not individually: {lines}',
-            'warning',
+            f'All remaining items have been sent to batch picking ({batch_names}). '
+            f'Your picking for this invoice is complete.',
+            'success',
         )
-        return redirect(url_for('picker_dashboard'))
+        # Ensure the invoice status reflects that regular picking is done.
+        try:
+            from batch_aware_order_status import update_order_status_batch_aware
+            update_order_status_batch_aware(invoice_no)
+        except Exception:
+            pass
+        return redirect(url_for('picking_completed', invoice_no=invoice_no))
     
     # If all items are picked, check for skipped items that need resolution
     if not items_to_pick:
