@@ -659,7 +659,6 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     window.openAssignToRoute = function() {
         var checked = document.querySelectorAll('.order-checkbox:checked').length;
-        document.getElementById('atrSelectedCount').textContent = checked;
         document.getElementById('atrWarehouseCount').textContent = checked;
         document.getElementById('atrStatusMsg').innerHTML = '';
         document.getElementById('atrRouteSelect').value = '';
