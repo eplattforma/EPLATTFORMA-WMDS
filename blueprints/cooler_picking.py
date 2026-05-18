@@ -1240,6 +1240,34 @@ def queue_pick(queue_item_id):
                 queue_item_id,
                 exc,
             )
+
+        # Promotion check: if this invoice was waiting on cooler items and is
+        # now fully ready, advance it to ready_for_dispatch immediately.
+        # This is the safety net for items that are picked but never boxed
+        # (location_order mode, or any case where box_close won't fire).
+        # The same logic also lives in box_close; having it here ensures the
+        # status moves forward even when no box is ever created for the item.
+        _invoice_no = row[1]
+        try:
+            from services.order_readiness import is_order_ready
+            from models import Invoice as _Invoice
+            _inv = _Invoice.query.filter_by(invoice_no=_invoice_no).first()
+            if _inv is not None and _inv.status == "awaiting_batch_items" \
+                    and is_order_ready(_invoice_no):
+                _inv.status = "ready_for_dispatch"
+                _audit(
+                    "cooler.order_ready_for_dispatch",
+                    f"Invoice {_invoice_no} promoted "
+                    f"awaiting_batch_items -> ready_for_dispatch "
+                    f"after cooler queue item #{queue_item_id} picked",
+                    invoice_no=_invoice_no,
+                )
+        except Exception as _exc:
+            current_app.logger.warning(
+                "cooler.queue_pick: promotion check failed for %s: %s",
+                _invoice_no, _exc,
+            )
+
         db.session.commit()
         flash(f"Picked {row[2]} for {row[1]}.", "success")
 
