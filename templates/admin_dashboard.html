@@ -245,28 +245,86 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title" id="assignToRouteModalLabel"><i class="fas fa-truck me-2"></i>Assign Selected to Route</h5>
+                <h5 class="modal-title" id="assignToRouteModalLabel"><i class="fas fa-truck me-2"></i>Assign Orders to Delivery Route</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted small mb-3"><span id="atrSelectedCount">0</span> order(s) selected.</p>
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Select Route</label>
-                    <select class="form-select" id="atrRouteSelect">
-                        <option value="">-- Choose existing route --</option>
-                        {% for route in route_info.values() %}
-                        <option value="{{ route.id }}">
-                            #{{ route.id }} — {{ route.driver_name }}{% if route.route_name %} ({{ route.route_name }}){% endif %} — {{ route.delivery_date.strftime('%d/%m/%Y') }}
-                        </option>
-                        {% endfor %}
-                    </select>
+                    <label class="form-label fw-semibold text-muted small">Route Assignment Option</label>
+                    <div class="btn-group w-100" role="group" id="atrModeGroup">
+                        <button type="button" class="btn btn-primary btn-sm atr-mode-btn active" data-mode="existing" onclick="setAtrMode('existing')">
+                            <i class="fas fa-list me-1"></i>Existing Route
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm atr-mode-btn" data-mode="new" onclick="setAtrMode('new')">
+                            <i class="fas fa-plus me-1"></i>Create New
+                        </button>
+                        <button type="button" class="btn btn-outline-success btn-sm atr-mode-btn" data-mode="warehouse" onclick="setAtrMode('warehouse')">
+                            <i class="fas fa-warehouse me-1"></i>Warehouse Pickup
+                        </button>
+                    </div>
+                    <p class="text-muted small mt-1 mb-0" id="atrModeHint">Select existing route or create new</p>
                 </div>
+
+                <!-- Existing Route panel -->
+                <div id="atrPanelExisting">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Select Route</label>
+                        <select class="form-select" id="atrRouteSelect">
+                            <option value="">-- Select Existing Route --</option>
+                            {% for route in route_info.values() %}
+                            <option value="{{ route.id }}">
+                                #{{ route.id }} — {{ route.driver_name }}{% if route.route_name %} ({{ route.route_name }}){% endif %} — {{ route.delivery_date.strftime('%d/%m/%Y') }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Choose from planned routes or unassign invoices</div>
+                    </div>
+                    <div class="alert alert-info py-2 small">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <strong>Auto-Grouping:</strong> Orders will be automatically grouped by customer. Each customer will appear only once as a stop on the route, with all their invoices combined.
+                    </div>
+                </div>
+
+                <!-- Create New panel -->
+                <div id="atrPanelNew" style="display:none;">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Driver Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="atrDriverName" placeholder="Enter driver name"
+                               list="atrDriverList">
+                        <datalist id="atrDriverList">
+                            {% for d in drivers %}<option value="{{ d.username }}">{% endfor %}
+                        </datalist>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Delivery Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" id="atrDeliveryDate">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Route Name <span class="text-muted small">(optional)</span></label>
+                        <input type="text" class="form-control" id="atrRouteName" placeholder="e.g. Morning Run">
+                    </div>
+                    <div class="alert alert-info py-2 small">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <strong>Auto-Grouping:</strong> Orders will be automatically grouped by customer. Each customer will appear only once as a stop on the route, with all their invoices combined.
+                    </div>
+                </div>
+
+                <!-- Warehouse Pickup panel -->
+                <div id="atrPanelWarehouse" style="display:none;">
+                    <div class="alert alert-success py-3">
+                        <i class="fas fa-warehouse me-2"></i>
+                        <strong>Warehouse Pickup</strong><br>
+                        <span class="small">The selected orders will be marked as <strong>collected by customer</strong> from the warehouse. Their status will be updated to <em>Delivered</em>.</span>
+                    </div>
+                    <p class="text-muted small"><span id="atrWarehouseCount">0</span> order(s) will be marked as warehouse pickup.</p>
+                </div>
+
                 <div id="atrStatusMsg" class="mt-2 small"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-dark" id="atrConfirmBtn" onclick="doAssignToRoute()">
-                    <i class="fas fa-truck me-1"></i>Assign
+                <button type="button" class="btn btn-success" id="atrConfirmBtn" onclick="doAssignToRoute()">
+                    <i class="fas fa-check me-1"></i>Assign to Route
                 </button>
             </div>
         </div>
@@ -580,38 +638,90 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         form.submit();
     };
+    var _atrMode = 'existing';
+    window.setAtrMode = function(mode) {
+        _atrMode = mode;
+        document.getElementById('atrPanelExisting').style.display  = mode === 'existing'  ? '' : 'none';
+        document.getElementById('atrPanelNew').style.display       = mode === 'new'       ? '' : 'none';
+        document.getElementById('atrPanelWarehouse').style.display = mode === 'warehouse' ? '' : 'none';
+        document.querySelectorAll('.atr-mode-btn').forEach(function(b) {
+            var m = b.getAttribute('data-mode');
+            b.className = b.className.replace(/btn-(primary|outline-secondary|outline-success|outline-primary|success|secondary)/g, '');
+            if (m === mode) {
+                b.classList.add(m === 'warehouse' ? 'btn-success' : m === 'new' ? 'btn-secondary' : 'btn-primary');
+            } else {
+                b.classList.add(m === 'warehouse' ? 'btn-outline-success' : m === 'new' ? 'btn-outline-secondary' : 'btn-outline-primary');
+            }
+        });
+        var hints = {existing: 'Select existing route or create new', new: 'A new route will be created with the orders as stops', warehouse: 'Orders will be marked as collected from the warehouse'};
+        document.getElementById('atrModeHint').textContent = hints[mode] || '';
+        document.getElementById('atrStatusMsg').innerHTML = '';
+    };
     window.openAssignToRoute = function() {
         var checked = document.querySelectorAll('.order-checkbox:checked').length;
         document.getElementById('atrSelectedCount').textContent = checked;
-        document.getElementById('atrStatusMsg').textContent = '';
+        document.getElementById('atrWarehouseCount').textContent = checked;
+        document.getElementById('atrStatusMsg').innerHTML = '';
         document.getElementById('atrRouteSelect').value = '';
+        document.getElementById('atrDriverName').value = '';
+        document.getElementById('atrRouteName').value = '';
+        document.getElementById('atrDeliveryDate').value = new Date().toISOString().slice(0, 10);
+        setAtrMode('existing');
+        var btn = document.getElementById('atrConfirmBtn');
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-check me-1"></i>Assign to Route';
         var modal = new bootstrap.Modal(document.getElementById('assignToRouteModal'));
         modal.show();
     };
     window.doAssignToRoute = function() {
-        var routeId = document.getElementById('atrRouteSelect').value;
-        if (!routeId) { document.getElementById('atrStatusMsg').innerHTML = '<span class="text-danger">Please select a route.</span>'; return; }
         var invoiceNos = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(function(cb) { return cb.value; });
         if (!invoiceNos.length) return;
         var btn = document.getElementById('atrConfirmBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Assigning…';
-        fetch('{{ url_for("routes.auto_assign") }}', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() if csrf_token is defined else "" }}'},
-            body: JSON.stringify({route_id: parseInt(routeId), invoice_nos: invoiceNos, driver_name: '_existing_', delivery_date: new Date().toISOString().slice(0,10)})
-        }).then(function(r) { return r.json(); }).then(function(data) {
-            if (data.ok) {
-                document.getElementById('atrStatusMsg').innerHTML = '<span class="text-success"><i class="fas fa-check me-1"></i>Assigned successfully. Reloading…</span>';
-                setTimeout(function() { window.location.reload(); }, 1200);
-            } else {
-                document.getElementById('atrStatusMsg').innerHTML = '<span class="text-danger">' + (data.message || 'Assignment failed.') + '</span>';
-                btn.disabled = false; btn.innerHTML = '<i class="fas fa-truck me-1"></i>Assign';
-            }
-        }).catch(function() {
-            document.getElementById('atrStatusMsg').innerHTML = '<span class="text-danger">Network error.</span>';
-            btn.disabled = false; btn.innerHTML = '<i class="fas fa-truck me-1"></i>Assign';
-        });
+        var statusEl = document.getElementById('atrStatusMsg');
+        var setLoading = function() { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing…'; };
+        var resetBtn = function() { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check me-1"></i>Assign to Route'; };
+        var onSuccess = function(msg) {
+            statusEl.innerHTML = '<span class="text-success"><i class="fas fa-check me-1"></i>' + (msg || 'Done. Reloading…') + '</span>';
+            setTimeout(function() { window.location.reload(); }, 1200);
+        };
+        var onError = function(msg) { statusEl.innerHTML = '<span class="text-danger">' + (msg || 'Failed.') + '</span>'; resetBtn(); };
+
+        if (_atrMode === 'existing') {
+            var routeId = document.getElementById('atrRouteSelect').value;
+            if (!routeId) { statusEl.innerHTML = '<span class="text-danger">Please select a route.</span>'; return; }
+            setLoading();
+            fetch('{{ url_for("routes.auto_assign") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({route_id: parseInt(routeId), invoice_nos: invoiceNos, driver_name: 'existing', delivery_date: new Date().toISOString().slice(0,10)})
+            }).then(function(r){return r.json();}).then(function(d){ d.ok ? onSuccess('Assigned to route successfully. Reloading…') : onError(d.message); }).catch(function(){ onError('Network error.'); });
+
+        } else if (_atrMode === 'new') {
+            var driverName = document.getElementById('atrDriverName').value.trim();
+            var deliveryDate = document.getElementById('atrDeliveryDate').value;
+            var routeName = document.getElementById('atrRouteName').value.trim();
+            if (!driverName) { statusEl.innerHTML = '<span class="text-danger">Driver name is required.</span>'; return; }
+            if (!deliveryDate) { statusEl.innerHTML = '<span class="text-danger">Delivery date is required.</span>'; return; }
+            setLoading();
+            fetch('{{ url_for("routes.auto_assign") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({driver_name: driverName, delivery_date: deliveryDate, route_name: routeName || driverName + ' Route', invoice_nos: invoiceNos})
+            }).then(function(r){return r.json();}).then(function(d){ d.ok ? onSuccess('New route created and orders assigned. Reloading…') : onError(d.message); }).catch(function(){ onError('Network error.'); });
+
+        } else if (_atrMode === 'warehouse') {
+            setLoading();
+            var promises = invoiceNos.map(function(inv) {
+                return fetch('{{ url_for("warehouse.assign_to_route") }}', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({invoice_no: inv, warehouse_collection: true})
+                }).then(function(r){return r.json();});
+            });
+            Promise.all(promises).then(function(results) {
+                var failed = results.filter(function(d){ return d.error; });
+                if (failed.length) { onError(failed[0].error); } else { onSuccess('Orders marked as warehouse pickup. Reloading…'); }
+            }).catch(function(){ onError('Network error.'); });
+        }
     };
     window.openCorrections = function() {
         var checkedBoxes = document.querySelectorAll('.order-checkbox:checked');
