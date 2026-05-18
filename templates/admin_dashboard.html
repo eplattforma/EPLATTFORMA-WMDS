@@ -490,6 +490,78 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         window.updateSelectedCount();
     };
+    /* ── Sorting ─────────────────────────────────────────────────── */
+    var STATUS_PRIORITY = ['picking','awaiting_batch_items','awaiting_packing','not_started','ready_for_dispatch','shipped','delivered','delivery_failed','returned_to_warehouse','cancelled'];
+    var sortConfig = {primary:'status', primaryDir:'asc', secondary:'', secondaryDir:'asc'};
+    function getStatusPriority(badgeText) {
+        var raw = (badgeText || '').trim().toLowerCase().replace(/\s+/g,'_');
+        var idx = STATUS_PRIORITY.indexOf(raw);
+        return idx === -1 ? 99 : idx;
+    }
+    function getCellText(row, field) {
+        var cells = row.querySelectorAll('td');
+        if (field === 'status')        return cells[5] ? cells[5].textContent.trim() : '';
+        if (field === 'routing')       return cells[4] ? cells[4].textContent.trim() : '';
+        if (field === 'customer_name') return cells[3] ? cells[3].textContent.trim() : '';
+        if (field === 'invoice_no')    return cells[1] ? cells[1].textContent.trim() : '';
+        return '';
+    }
+    function compareRows(a, b, field, dir) {
+        if (field === 'status') {
+            var diff = getStatusPriority(getCellText(a, 'status')) - getStatusPriority(getCellText(b, 'status'));
+            return dir === 'asc' ? diff : -diff;
+        }
+        var ta = getCellText(a, field), tb = getCellText(b, field);
+        var cmp = ta.localeCompare(tb, undefined, {numeric: true});
+        return dir === 'asc' ? cmp : -cmp;
+    }
+    window.applySorting = function() {
+        sortConfig.primary    = document.getElementById('primarySort').value;
+        sortConfig.primaryDir = document.getElementById('primaryDirection').value;
+        sortConfig.secondary  = document.getElementById('secondarySort').value;
+        sortConfig.secondaryDir = document.getElementById('secondaryDirection').value;
+        var tbody = document.querySelector('#ordersTable tbody');
+        if (!tbody) return;
+        var dataRows = Array.from(tbody.querySelectorAll('tr[data-route-group]'));
+        var headerRows = Array.from(tbody.querySelectorAll('tr.route-header'));
+        dataRows.sort(function(a, b) {
+            var cmp = compareRows(a, b, sortConfig.primary, sortConfig.primaryDir);
+            if (cmp === 0 && sortConfig.secondary) cmp = compareRows(a, b, sortConfig.secondary, sortConfig.secondaryDir);
+            return cmp;
+        });
+        // Rebuild tbody: interleave route headers then their rows
+        var groups = {};
+        dataRows.forEach(function(r) {
+            var g = r.getAttribute('data-route-group'); groups[g] = groups[g] || [];
+            groups[g].push(r);
+        });
+        tbody.innerHTML = '';
+        headerRows.forEach(function(h) {
+            var gid = h.getAttribute('data-route-id') || 'unassigned';
+            tbody.appendChild(h);
+            (groups[gid] || []).forEach(function(r) { tbody.appendChild(r); });
+        });
+        var modal = bootstrap.Modal.getInstance(document.getElementById('sortingModal'));
+        if (modal) modal.hide();
+    };
+    window.resetToDefaults = function() {
+        document.getElementById('primarySort').value      = 'status';
+        document.getElementById('primaryDirection').value = 'asc';
+        document.getElementById('secondarySort').value    = '';
+        document.getElementById('secondaryDirection').value = 'asc';
+    };
+    window.updateModalFields = function() {
+        document.getElementById('primarySort').value       = sortConfig.primary;
+        document.getElementById('primaryDirection').value  = sortConfig.primaryDir;
+        document.getElementById('secondarySort').value     = sortConfig.secondary;
+        document.getElementById('secondaryDirection').value = sortConfig.secondaryDir;
+        var seq = document.getElementById('statusSequence');
+        if (seq) seq.innerHTML = STATUS_PRIORITY.map(function(s) {
+            return '<span class="badge bg-secondary me-1 mb-1">' + s.replace(/_/g,' ') + '</span>';
+        }).join('');
+    };
+    /* ── End Sorting ─────────────────────────────────────────────── */
+
     window.clearSelection = function() {
         document.querySelectorAll('.order-checkbox').forEach(function(cb) { cb.checked = false; });
         var selectAll = document.getElementById('selectAll');
