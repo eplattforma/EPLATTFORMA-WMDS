@@ -423,6 +423,19 @@ document.addEventListener('DOMContentLoaded', function() {
         updateModalFields();
     });
     document.querySelectorAll('.assign-btn').forEach(function(button) { button.addEventListener('click', function() { document.getElementById('modalInvoiceNo').value = this.getAttribute('data-invoice-no'); }); });
+    window.updateSelectedCount = function() {
+        var checked = document.querySelectorAll('.order-checkbox:checked').length;
+        var total = document.querySelectorAll('.order-checkbox').length;
+        var el = document.getElementById('selectedCount');
+        if (el) el.textContent = checked + ' / ' + total + ' selected';
+    };
+    window.toggleAllOrders = function() {
+        var selectAll = document.getElementById('selectAll');
+        document.querySelectorAll('.order-checkbox').forEach(function(cb) {
+            cb.checked = selectAll.checked;
+        });
+        window.updateSelectedCount();
+    };
     window.openCorrections = function() {
         var checkedBoxes = document.querySelectorAll('.order-checkbox:checked');
         if (checkedBoxes.length === 0) {
