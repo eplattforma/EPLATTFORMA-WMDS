@@ -646,7 +646,6 @@ def extract_normal_items_for_route_stop_invoices(rsi_list, creator=None):
 
         items = db.session.query(InvoiceItem).filter(
             InvoiceItem.invoice_no == rsi.invoice_no,
-            InvoiceItem.is_picked.is_(False),
         ).all()
 
         # Build SENSITIVE code set for this invoice to exclude cooler items.
@@ -660,6 +659,13 @@ def extract_normal_items_for_route_stop_invoices(rsi_list, creator=None):
 
             if item.is_picked:
                 summary["skipped_picked"] += 1
+                logger.warning(
+                    "route batch extraction skipped already-picked item "
+                    "invoice=%s item=%s route=%s",
+                    item.invoice_no,
+                    item.item_code,
+                    route_id,
+                )
                 continue
 
             if item.locked_by_batch_id == session_id:
