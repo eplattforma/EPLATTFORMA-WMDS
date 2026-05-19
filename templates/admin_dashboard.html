@@ -386,6 +386,33 @@
                 var nos = window.getSelectedInvoiceNos();
                 if (nos.length === 0) { alert('No invoices selected.'); return; }
                 var mode = document.querySelector('input[name="assignMode"]:checked').value;
+                var btn = document.getElementById('assignSubmitBtn');
+                var resetBtn = function() { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus me-1"></i>Assign'; } };
+
+                if (mode === 'warehouse') {
+                    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Marking...'; }
+                    var promises = nos.map(function(inv) {
+                        return fetch('{{ url_for("warehouse.assign_to_route") }}', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({invoice_no: inv, warehouse_collection: true})
+                        }).then(function(r) { return r.json().catch(function(){ return {error: 'Invalid response'}; }); });
+                    });
+                    Promise.all(promises).then(function(results) {
+                        var failed = results.filter(function(d) { return d && d.error; });
+                        if (failed.length) {
+                            alert('Some invoices failed: ' + failed[0].error);
+                            resetBtn();
+                        } else {
+                            window.location.reload();
+                        }
+                    }).catch(function(err) {
+                        alert('Network error: ' + err);
+                        resetBtn();
+                    });
+                    return;
+                }
+
                 var payload = { invoice_nos: nos };
                 if (mode === 'existing') {
                     var rid = document.getElementById('existingRouteSelect').value;
@@ -402,7 +429,6 @@
                     payload.driver_name = driver;
                     payload.delivery_date = date;
                 }
-                var btn = document.getElementById('assignSubmitBtn');
                 if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Assigning...'; }
                 fetch('{{ url_for("routes.auto_assign") }}', {
                     method: 'POST',
@@ -414,12 +440,12 @@
                           window.location.reload();
                       } else {
                           alert('Assign failed: ' + (res.data && res.data.message ? res.data.message : 'Unknown error'));
-                          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus me-1"></i>Assign'; }
+                          resetBtn();
                       }
                   })
                   .catch(function(err) {
                       alert('Network error: ' + err);
-                      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus me-1"></i>Assign'; }
+                      resetBtn();
                   });
             });
         }
@@ -427,8 +453,10 @@
             r.addEventListener('change', function() {
                 var existing = document.getElementById('existingRouteFields');
                 var fresh = document.getElementById('newRouteFields');
-                if (this.value === 'existing') { existing.style.display=''; fresh.style.display='none'; }
-                else { existing.style.display='none'; fresh.style.display=''; }
+                var wh = document.getElementById('warehouseFields');
+                if (this.value === 'existing') { existing.style.display=''; fresh.style.display='none'; wh.style.display='none'; }
+                else if (this.value === 'new') { existing.style.display='none'; fresh.style.display=''; wh.style.display='none'; }
+                else { existing.style.display='none'; fresh.style.display='none'; wh.style.display=''; }
             });
         });
     });
@@ -521,6 +549,17 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="form-check form-check-inline">
               <input class="form-check-input" type="radio" name="assignMode" id="modeNew" value="new">
               <label class="form-check-label" for="modeNew">Create new route</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="assignMode" id="modeWarehouse" value="warehouse">
+              <label class="form-check-label" for="modeWarehouse"><i class="fas fa-warehouse me-1"></i>Pick from warehouse</label>
+            </div>
+          </div>
+
+          <div id="warehouseFields" style="display:none;">
+            <div class="alert alert-success py-2 small mb-0">
+              <i class="fas fa-info-circle me-1"></i>
+              Marks the selected invoices as <strong>customer warehouse pickup</strong> (no driver / no route). They will be flagged for in-warehouse collection.
             </div>
           </div>
 
