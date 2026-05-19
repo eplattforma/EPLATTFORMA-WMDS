@@ -233,53 +233,59 @@
 </div>
 
 <div id="view-focus" style="display:none;">
-    <div class="card shadow mb-4">
-        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-bullseye me-2"></i>Focus View</h5>
-            <small class="text-white-50">Compact layout</small>
-        </div>
-        <div class="card-body">
-            {% if invoices %}
-            <div class="table-responsive">
-                <table class="table table-hover table-sm">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="min-width: 120px;">Invoice No</th>
-                            <th style="min-width: 150px;">Customer</th>
-                            <th style="min-width: 120px;">Status</th>
-                            <th class="text-center" style="width: 70px;">Lines</th>
-                            <th class="text-center" style="width: 70px;">Weight</th>
-                            <th class="text-center" style="width: 90px;">Time</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for invoice in invoices %}
-                        <tr>
-                            <td><strong>{{ invoice.invoice_no[-5:] if invoice.invoice_no else '' }}</strong></td>
-                            <td class="customer-cell">
-                                <div class="d-flex align-items-start justify-content-between gap-2">
-                                    <div class="flex-grow-1 overflow-hidden">
-                                        <div class="customer-main text-truncate" title="{{ invoice.customer_name }}">{{ invoice.customer_name }}</div>
-                                        {% if invoice.routing %}
-                                        <div class="customer-sub text-truncate" title="{{ invoice.routing }}">{{ invoice.routing }}</div>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            </td>
-                            <td>{% if invoice.status == 'Completed' %}<span class="badge bg-success">Completed</span>{% elif invoice.status == 'ready_for_dispatch' %}<span class="badge" style="background-color: #008000; color: white;">Ready for Dispatch</span>{% elif invoice.status == 'picking' %}<span class="badge bg-warning text-dark">Picking</span>{% elif invoice.status == 'not_started' %}<span class="badge bg-secondary">Not Started</span>{% elif invoice.status == 'shipped' %}<span class="badge bg-success">Shipped</span>{% elif invoice.status == 'delivered' %}<span class="badge bg-info">Delivered</span>{% elif invoice.status == 'awaiting_batch_items' %}<span class="badge" style="background-color:#fd7e14; color:#fff;">Awaiting Batch Items</span>{% elif invoice.status == 'awaiting_packing' %}<span class="badge" style="background-color:#fd7e14; color:#fff;">Awaiting Packing</span>{% else %}<span class="badge bg-secondary">{{ invoice.status|title }}</span>{% endif %}</td>
-                            <td class="text-center">{% set _pl=picked_lines_count.get(invoice.invoice_no,0) %}{% set _tl=total_lines_count.get(invoice.invoice_no,invoice.total_lines or 0) %}{{ _pl }}/{{ _tl }}</td>
-                            <td class="text-center">{{ (invoice.total_weight or 0)|round(0)|int }}</td>
-                            <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="alert alert-info mb-0">No orders have been imported yet.</div>
-            {% endif %}
-        </div>
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-bullseye me-2"></i>Focus View</h5>
+        <small class="text-white-50">Compact layout</small>
     </div>
+    <div class="card-body">
+        {% if invoices %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm" id="focusOrdersTable">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-center" style="width: 40px;"><input type="checkbox" id="selectAllFocus" onchange="toggleAllOrdersFocus()"></th>
+                        <th style="min-width: 110px;">Invoice No</th>
+                        <th style="width: 72px;">Updated</th>
+                        <th style="min-width: 150px;">Customer</th>
+                        <th style="min-width: 120px;">Status</th>
+                        <th class="text-center" style="width: 60px;">Lines</th>
+                        <th class="text-center" style="width: 60px;">Weight</th>
+                        <th class="text-center" style="width: 84px;">Time</th>
+                        <th style="min-width: 92px;">Assigned</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for invoice in invoices %}
+                    <tr data-route-group="{{ invoice.route_id or 'unassigned' }}" data-weight="{{ invoice.total_weight or 0 }}" data-est-time="{{ invoice.total_exp_time or 0 }}">
+                        <td class="text-center"><input type="checkbox" class="order-checkbox-focus" value="{{ invoice.invoice_no }}"></td>
+                        <td><strong>{{ invoice.invoice_no[-5:] if invoice.invoice_no else '' }}</strong></td>
+                        <td><small class="text-muted">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '-' }}</small></td>
+                        <td class="customer-cell">
+                            <div class="d-flex align-items-start justify-content-between gap-2">
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <div class="customer-main text-truncate" title="{{ invoice.customer_name }}">{{ invoice.customer_name }}</div>
+                                    {% if invoice.routing %}
+                                    <div class="customer-sub text-truncate" title="{{ invoice.routing }}">{{ invoice.routing }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>{% if invoice.status == 'Completed' %}<span class="badge bg-success">Completed</span>{% elif invoice.status == 'ready_for_dispatch' %}<span class="badge" style="background-color: #008000; color: white;">Ready for Dispatch</span>{% elif invoice.status == 'picking' %}{% if invoice.invoice_no in batch_picked_info %}<span class="badge bg-info">Partially Picked (Batch)</span>{% else %}<span class="badge bg-warning text-dark">Picking</span>{% endif %}{% elif invoice.status == 'not_started' %}<span class="badge bg-secondary">Not Started</span>{% elif invoice.status == 'shipped' %}<span class="badge bg-success">Shipped</span>{% elif invoice.status == 'delivered' %}<span class="badge bg-info">Delivered</span>{% elif invoice.status == 'awaiting_batch_items' %}<span class="badge" style="background-color:#fd7e14; color:#fff;">Awaiting Batch Items</span>{% elif invoice.status == 'awaiting_packing' %}<span class="badge" style="background-color:#fd7e14; color:#fff;">Awaiting Packing</span>{% else %}<span class="badge bg-secondary">{{ invoice.status|title }}</span>{% endif %}</td>
+                        <td class="text-center">{% set _pl=picked_lines_count.get(invoice.invoice_no,0) %}{% set _tl=total_lines_count.get(invoice.invoice_no,invoice.total_lines or 0) %}{% if _pl>=_tl and _tl>0 %}<span class="text-success fw-semibold">{{ _tl }}/{{ _tl }}</span>{% elif _pl==0 %}<span class="text-secondary">0/{{ _tl }}</span>{% else %}<span class="text-primary">{{ _pl }}/{{ _tl }}</span>{% endif %}</td>
+                        <td class="text-center">{{ (invoice.total_weight or 0)|round(0)|int }}</td>
+                        <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
+                        <td>{% if invoice.assigned_to %}{{ invoice.assigned_to }}{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-0">No orders have been imported yet.</div>
+        {% endif %}
+    </div>
+</div>
 </div>
 
 <script>
@@ -308,6 +314,13 @@
         if (!master) return;
         boxes.forEach(function(box) { box.checked = master.checked; });
         if (typeof updateSelectedCount === 'function') updateSelectedCount();
+    };
+
+    window.toggleAllOrdersFocus = function() {
+        var master = document.getElementById('selectAllFocus');
+        var boxes = document.querySelectorAll('.order-checkbox-focus');
+        if (!master) return;
+        boxes.forEach(function(box) { box.checked = master.checked; });
     };
 
     window.updateSelectedCount = function() {
