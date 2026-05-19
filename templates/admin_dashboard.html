@@ -357,9 +357,19 @@
     };
 
     window.editSequence = function(invoiceNo, currentSeq) {
-        var newSeq = prompt('Edit stop sequence for ' + invoiceNo + ':', currentSeq);
+        var newSeq = prompt('Edit stop sequence for ' + invoiceNo + ' (decimals like 1.5 allowed):', currentSeq);
         if (newSeq === null) return;
-        window.location.reload();
+        var parsed = parseFloat(newSeq);
+        if (isNaN(parsed) || parsed < 0.01) { alert('Please enter a valid positive number.'); return; }
+        fetch('/admin/update-stop-sequence', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({invoice_no: invoiceNo, sequence: parsed})
+        }).then(function(r){ return r.json(); })
+          .then(function(d) {
+              if (d.success) { window.location.reload(); }
+              else { alert('Failed to update sequence: ' + (d.error || 'Unknown error')); }
+          }).catch(function(err) { alert('Network error: ' + err); });
     };
 
     window.getSelectedInvoiceNos = function() {
