@@ -228,6 +228,9 @@
             <button type="button" class="btn btn-primary" id="openAssignModalBtn" data-bs-toggle="modal" data-bs-target="#assignModal">
                 <i class="fas fa-user-plus me-1"></i>Assign to route
             </button>
+            <button type="button" class="btn btn-outline-danger" id="bulkUnassignRouteBtn" onclick="bulkUnassignFromRoute()">
+                <i class="fas fa-unlink me-1"></i>Unassign from route
+            </button>
             <form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline">
                 <input type="hidden" name="invoice_no" id="bulkAutocompleteInvoiceNo">
                 <button type="submit" class="btn btn-warning" onclick="return confirm('Complete selected order?')">
@@ -462,6 +465,29 @@
             });
         });
     });
+
+    window.bulkUnassignFromRoute = function() {
+        var nos = window.getSelectedInvoiceNos ? window.getSelectedInvoiceNos() : [];
+        if (!nos.length) { alert('No invoices selected.'); return; }
+        if (!confirm('Unassign ' + nos.length + ' invoice(s) from their route(s)?')) return;
+        var btn = document.getElementById('bulkUnassignRouteBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Unassigning...'; }
+        fetch('{{ url_for("routes.unassign_from_route") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({invoice_nos: nos})
+        }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, data: d}; }); })
+          .then(function(res) {
+              if (res.ok && res.data && res.data.ok) { window.location.reload(); }
+              else {
+                  alert('Unassign failed: ' + (res.data && res.data.message ? res.data.message : 'Unknown error'));
+                  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-unlink me-1"></i>Unassign from route'; }
+              }
+          }).catch(function(err) {
+              alert('Network error: ' + err);
+              if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-unlink me-1"></i>Unassign from route'; }
+          });
+    };
 
     window.editRouting = function(invoiceNo, currentRouting) {
         var newRouting = prompt('Edit routing number for ' + invoiceNo + ':', currentRouting || '');
