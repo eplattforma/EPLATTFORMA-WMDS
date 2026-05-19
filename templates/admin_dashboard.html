@@ -207,7 +207,7 @@
                         <td class="text-center">{{ (invoice.total_weight or 0)|round(0)|int }}</td>
                         <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
                         <td>{% if invoice.assigned_to %}{{ invoice.assigned_to }}{% endif %}</td>
-                        <td><div class="btn-group btn-group-sm" role="group"><a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm" title="Print"><i class="fas fa-print"></i></a><button class="btn btn-outline-primary btn-sm" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')" title="Quick View"><i class="fas fa-eye"></i></button>{% if invoice.status not in ['ready_for_dispatch', 'shipped', 'delivered'] %}<button class="btn btn-primary btn-sm assign-btn" data-invoice-no="{{ invoice.invoice_no }}" data-bs-toggle="modal" data-bs-target="#assignModal" title="Assign"><i class="fas fa-user-plus"></i></button>{% if invoice.assigned_to %}<form method="post" action="{{ url_for('unassign_picker') }}" class="d-inline"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-danger btn-sm" title="Unassign"><i class="fas fa-user-minus"></i></button></form>{% endif %}{% if invoice.status in ['not_started', 'picking'] %}<form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline" onsubmit="return confirm('Autocomplete order {{ invoice.invoice_no }}?')"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-warning btn-sm" title="Complete"><i class="fas fa-magic"></i></button></form>{% endif %}{% endif %}{% if invoice_exceptions[invoice.invoice_no] > 0 %}<a href="{{ url_for('admin_view_exceptions', invoice_no=invoice.invoice_no) }}" class="btn btn-danger btn-sm" title="Exceptions"><i class="fas fa-exclamation-triangle"></i></a>{% endif %}</div></td>
+                        <td><div class="btn-group btn-group-sm" role="group"><a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm" title="Print"><i class="fas fa-print"></i></a><button class="btn btn-outline-primary btn-sm" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')" title="Quick View"><i class="fas fa-eye"></i></button>{% if invoice.status not in ['ready_for_dispatch', 'shipped', 'delivered'] %}<button class="btn btn-primary btn-sm assign-picker-btn" data-invoice-no="{{ invoice.invoice_no }}" data-bs-toggle="modal" data-bs-target="#assignPickerModal" title="Assign picker"><i class="fas fa-user-plus"></i></button>{% if invoice.assigned_to %}<form method="post" action="{{ url_for('unassign_picker') }}" class="d-inline"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-danger btn-sm" title="Unassign"><i class="fas fa-user-minus"></i></button></form>{% endif %}{% if invoice.status in ['not_started', 'picking'] %}<form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline" onsubmit="return confirm('Autocomplete order {{ invoice.invoice_no }}?')"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-warning btn-sm" title="Complete"><i class="fas fa-magic"></i></button></form>{% endif %}{% endif %}{% if invoice_exceptions[invoice.invoice_no] > 0 %}<a href="{{ url_for('admin_view_exceptions', invoice_no=invoice.invoice_no) }}" class="btn btn-danger btn-sm" title="Exceptions"><i class="fas fa-exclamation-triangle"></i></a>{% endif %}</div></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -451,6 +451,52 @@
         })
         .catch(function() { alert('Network error while updating routing number.'); });
     };
+</script>
+
+<div class="modal fade" id="assignPickerModal" tabindex="-1" aria-labelledby="assignPickerModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="assignPickerModalLabel"><i class="fas fa-user-plus me-2"></i>Assign Picker to Order</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="{{ url_for('assign_picker') }}">
+        <div class="modal-body">
+          <div class="mb-2"><strong>Invoice:</strong> <span id="assignPickerInvoiceDisplay">—</span></div>
+          <input type="hidden" name="invoice_no" id="assignPickerInvoiceNo">
+          <div class="mb-3">
+            <label for="picker_username" class="form-label">Picker</label>
+            <select class="form-select" id="picker_username" name="picker_username" required>
+              <option value="">-- Select a Picker --</option>
+              {% for p in pickers %}
+              <option value="{{ p.username }}">{{ p.display_name or p.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus me-1"></i>Assign Picker</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var pickerModal = document.getElementById('assignPickerModal');
+    if (pickerModal) {
+        pickerModal.addEventListener('show.bs.modal', function(event) {
+            var btn = event.relatedTarget;
+            var invNo = btn ? btn.getAttribute('data-invoice-no') : '';
+            var noInput = document.getElementById('assignPickerInvoiceNo');
+            var disp = document.getElementById('assignPickerInvoiceDisplay');
+            if (noInput) noInput.value = invNo || '';
+            if (disp) disp.textContent = invNo || '—';
+        });
+    }
+});
 </script>
 
 <div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assignModalLabel" aria-hidden="true">
