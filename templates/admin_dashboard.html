@@ -104,7 +104,6 @@
                     <tr>
                         <th class="text-center" style="width: 40px;"><input type="checkbox" id="selectAll" onchange="toggleAllOrders()"></th>
                         <th style="min-width: 120px;">Invoice No</th>
-                        <th style="width: 80px;">Updated</th>
                         <th style="min-width: 150px;">Customer</th>
                         <th style="min-width: 120px;">Status</th>
                         <th class="text-center" style="width: 70px;">Lines</th>
@@ -121,7 +120,7 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="7" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="6" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
@@ -129,7 +128,7 @@
                             {% endif %}
                         {% else %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
-                                <td colspan="7" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
+                                <td colspan="6" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
                                 <td colspan="2"></td>
@@ -140,7 +139,7 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="7" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="6" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
@@ -148,7 +147,7 @@
                             {% endif %}
                         {% elif not invoice.route_id and loop.previtem.route_id %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
-                                <td colspan="7" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
+                                <td colspan="6" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
                                 <td colspan="2"></td>
@@ -157,8 +156,7 @@
                     {% endif %}
                     <tr data-route-group="{{ invoice.route_id or 'unassigned' }}" data-weight="{{ invoice.total_weight or 0 }}" data-est-time="{{ invoice.total_exp_time or 0 }}">
                         <td class="text-center"><input type="checkbox" class="order-checkbox" value="{{ invoice.invoice_no }}" onchange="updateSelectedCount()"></td>
-                        <td>{% set invoice_display = invoice.invoice_no[-5:] if invoice.invoice_no else '' %}{% if stop_sequences.get(invoice.invoice_no) %}<div class="d-flex align-items-center"><span id="seq-display-{{ invoice.invoice_no }}" class="badge bg-primary me-1" style="cursor: pointer;" onclick="editSequence('{{ invoice.invoice_no }}', {{ stop_sequences[invoice.invoice_no] }})" title="Stop sequence - click to edit">{{ stop_sequences[invoice.invoice_no]|format_seq }}</span><strong>{{ invoice_display }}</strong></div>{% else %}<strong>{{ invoice_display }}</strong>{% endif %}</td>
-                        <td><small class="text-muted">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '-' }}</small></td>
+                        <td>{% set invoice_display = invoice.invoice_no[-5:] if invoice.invoice_no else '' %}{% if stop_sequences.get(invoice.invoice_no) %}<div class="d-flex align-items-center"><span id="seq-display-{{ invoice.invoice_no }}" class="badge bg-primary me-1" style="cursor: pointer;" onclick="editSequence('{{ invoice.invoice_no }}', {{ stop_sequences[invoice.invoice_no] }})" title="Stop sequence - click to edit">{{ stop_sequences[invoice.invoice_no]|format_seq }}</span><strong>{{ invoice_display }}</strong></div>{% else %}<strong>{{ invoice_display }}</strong>{% endif %}<div style="font-size:0.7rem;color:#8a9bb5;line-height:1.2;margin-top:1px;">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '' }}</div></td>
                         <td class="customer-cell">
                             <div class="d-flex align-items-start justify-content-between gap-2">
                                 <div class="flex-grow-1 overflow-hidden">
