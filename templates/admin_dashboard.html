@@ -224,3 +224,32 @@
             <div class="card-body p-0 active-pickers-table-container">
                 {% if active_pickers_data %}
                 <div class="table-responsive active-pickers-table-body"><table class="table table-sm table-hover mb-0 active-pickers-table"><tbody>{% for picker in active_pickers_data %}<tr><td><strong>{{ picker.username }}</strong></td><td>{{ picker.check_in_time }}</td><td>{{ picker.elapsed_minutes }}m</td><td style="color: #ff9800;"><strong>{{ picker.idle_time|round|int }}m</strong></td><td>{% if picker.on_break %}<span class="badge bg-warning text-dark" title="On Break"><i class="fas fa-pause-circle"></i></span>{% else %}<span class="badge bg-success" title="Working"><i class="fas fa-play-circle"></i></span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+                {% else %}
+                <div class="text-muted p-3">No active pickers.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.editRouting = function(invoiceNo, currentRouting) {
+        var newRouting = prompt('Edit routing number for ' + invoiceNo + ':', currentRouting || '');
+        if (newRouting === null) return;
+        fetch('/admin/update-routing-number', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({invoice_no: invoiceNo, routing_number: newRouting.trim()})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) {
+                alert('Failed to update routing: ' + (d.error || 'Unknown error'));
+            } else {
+                window.location.reload();
+            }
+        })
+        .catch(function() { alert('Network error while updating routing number.'); });
+    };
+</script>
+{% endblock %}
