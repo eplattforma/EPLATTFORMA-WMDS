@@ -1,0 +1,95 @@
+Please update this picking/batch screen layout.
+
+Goal:
+Make the table more compact by combining duplicate or confusing columns.
+
+PART 1 — Time columns
+Replace the three separate time columns — Est. Time, Actual, Remaining — with one compact column called "Time".
+
+New Time column format:
+1. First line: Actual time
+   - Show actual minutes if available.
+   - Use the same blue badge style currently used for actual time.
+   - If no actual time exists, show "—".
+
+2. Second line: Estimate only
+   - Show only: "Est Xm"
+   - Do NOT show remaining time.
+   - Do NOT show comments such as "over by", "left", "not started", or "slightly over".
+   - Do NOT use a background badge for the estimate.
+   - The estimate should be plain text on the dark row background.
+   - Use font colour only to indicate performance against estimate.
+
+Estimate colour rules:
+- Grey: no actual time yet / not started.
+- Green: actual time is less than or equal to estimated time.
+- Orange: actual time is slightly over estimate.
+- Red: actual time is significantly over estimate.
+
+Suggested thresholds:
+- Green: actual <= estimate.
+- Orange: actual > estimate and actual <= estimate * 1.25.
+- Red: actual > estimate * 1.25.
+
+PART 2 — Lines / Qty columns
+The current "Lines" and "Qty" columns should be combined into one column.
+
+Problem:
+- "Lines" currently shows total lines.
+- "Qty" currently shows something like 7/7 or 0/8.
+- This is not really quantity; it is picked lines / total lines.
+- The label "Qty" is therefore misleading.
+
+Change:
+- Remove/hide the separate "Lines" column.
+- Rename the current "Qty" progress column to "Lines".
+- Display it as picked lines / total lines.
+
+Examples:
+- Current:
+  Lines: 7
+  Qty: 7/7
+
+  New:
+  Lines: 7/7
+
+- Current:
+  Lines: 8
+  Qty: 0/8
+
+  New:
+  Lines: 0/8
+
+- Current:
+  Lines: 24
+  Qty: 24/24
+
+  New:
+  Lines: 24/24
+
+Optional visual improvement:
+- If picked lines = total lines, show the value in green or with a completed style.
+- If picked lines = 0, show neutral/grey.
+- If picked lines is between 0 and total lines, show blue/orange to indicate in progress.
+
+PART 3 — Rounding rule for this screen
+Round these values for display only:
+- Weight to 0 decimal points.
+- Estimated minutes to 0 decimal points.
+- Actual minutes to 0 decimal points.
+
+Do not show decimals on this screen.
+
+Examples:
+- Weight 121.0 should display as 121.
+- Est. Time 6.0 should display as Est 6m.
+- Actual 50.26m should display as 50m.
+- Actual 5.5m should display as 6m.
+- Est. Time 15.0 should display as Est 15m.
+
+Important:
+This is a visual/layout change only for this screen.
+Do not change the underlying stored values in the database.
+Only round the values for display.
+Keep the rest of the row actions, status badges, and assigned picker information unchanged.
+Make sure the layout works well on narrow/mobile screens.
