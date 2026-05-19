@@ -101,6 +101,75 @@ def clear_batch_cache(batch_id):
         session.pop(fixed_batch_key, None)
         current_app.logger.info(f"🧹 Cleared batch cache for batch {batch_id}")
 
+@batch_bp.route('/admin/batch/quick-view/<int:batch_id>', methods=['GET'])
+@login_required
+@require_permission('picking.manage_batches')
+def batch_quick_view(batch_id):
+    """Return JSON summary of a batch session for the dashboard quick-view modal."""
+    session_obj = BatchPickingSession.query.get_or_404(batch_id)
+    try:
+        rows = db.session.execute(
+            text("""
+                SELECT
+                    bpq.invoice_no,
+                    bpq.item_code,
+                    COALESCE(ii.item_name, bpq.item_code)  AS item_name,
+                    COALESCE(bpq.qty_required, 0)           AS qty,
+                    COALESCE(bpq.qty_picked,   0)           AS qty_picked,
+                    bpq.status,
+                    COALESCE(ii.location, '')               AS location
+                FROM batch_pick_queue bpq
+                LEFT JOIN invoice_items ii
+                    ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code
+                WHERE bpq.batch_session_id = :bid
+                ORDER BY bpq.invoice_no, ii.location, bpq.item_code
+            """),
+            {"bid": batch_id},
+        ).fetchall()
+    except Exception as _e:
+        current_app.logger.warning("batch_quick_view: query failed for %s: %s", batch_id, _e)
+        rows = []
+
+    # Group by invoice
+    invoices = {}
+    totals = {"total": 0, "picked": 0, "pending": 0, "skipped": 0, "exception": 0}
+    for r in rows:
+        inv = r[0]
+        if inv not in invoices:
+            invoices[inv] = {"invoice_no": inv, "items": []}
+        status = r[5] or "pending"
+        qty = int(r[3] or 0)
+        qty_picked = int(r[4] or 0)
+        invoices[inv]["items"].append({
+            "item_code":  r[1],
+            "item_name":  r[2] or "",
+            "qty":        qty,
+            "qty_picked": qty_picked,
+            "status":     status,
+            "location":   r[6] or "",
+        })
+        totals["total"] += 1
+        totals[status] = totals.get(status, 0) + 1
+        if status == "picked":
+            totals["picked"] += 1
+
+    from flask import jsonify as _jsonify
+    return _jsonify({
+        "session": {
+            "id":           session_obj.id,
+            "name":         session_obj.name,
+            "batch_number": session_obj.batch_number or "",
+            "status":       session_obj.status,
+            "session_type": getattr(session_obj, "session_type", "") or "",
+            "picking_mode": session_obj.picking_mode or "",
+            "assigned_to":  session_obj.assigned_to or "",
+            "created_by":   session_obj.created_by or "",
+        },
+        "totals":   totals,
+        "invoices": list(invoices.values()),
+    })
+
+
 @batch_bp.route('/admin/batch/manage')
 @login_required
 @require_permission('picking.manage_batches')

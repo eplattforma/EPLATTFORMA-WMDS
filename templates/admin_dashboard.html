@@ -240,7 +240,7 @@
     <div class="card-header bg-primary text-white"><h5 class="mb-0"><i class="fas fa-hourglass-half me-2"></i>Active Batch Sessions</h5></div>
     <div class="card-body">
         {% if open_batch_sessions %}
-        <div class="table-responsive"><table class="table table-hover"><thead><tr><th>ID</th><th>Name</th><th style="width: 150px;">Zones</th><th>Corridors</th><th>Mode</th><th>Items</th><th>Created By</th><th>Created</th><th>Status</th><th>Assigned To</th><th>Actions</th></tr></thead><tbody>{% for session in open_batch_sessions %}{% set _bc = batch_session_item_counts.get(session.id, {}) %}{% set _ic = _bc.get('total', 0) %}<tr {% if _ic == 0 %}class="table-warning"{% endif %}><td><span class="badge bg-dark">{{ session.id }}</span></td><td>{{ session.name }}</td><td>{% set zone_list = (session.zones or '').split(',') %}{% if zone_list|length >= 5 %}<span class="text-muted">All</span>{% else %}{{ session.zones }}{% endif %}</td><td>{% if session.corridors %}<span class="badge bg-info">{{ session.corridors }}</span>{% else %}<span class="text-muted">All</span>{% endif %}</td><td>{% if session.picking_mode == 'Consolidated' %}<span class="badge bg-info">Consolidated</span>{% else %}<span class="badge bg-primary">Sequential</span>{% endif %}</td><td>{% if _ic == 0 %}<span class="badge bg-danger" title="No items left in this batch"><i class="fas fa-exclamation-triangle me-1"></i>Empty</span>{% else %}<span class="badge bg-dark">{{ _ic }}</span>{% endif %}</td><td>{{ session.created_by }}</td><td>{{ session.created_at|local_time('%d-%m-%Y %H:%M') }}</td><td>{% if session.status == 'Created' %}<span class="badge bg-secondary">Created</span>{% elif session.status == 'In Progress' %}<span class="badge bg-warning text-dark">In Progress</span>{% elif session.status == 'Active' %}<span class="badge bg-success">Active</span>{% elif session.status == 'Paused' %}<span class="badge bg-warning text-dark">Paused</span>{% else %}<span class="badge bg-secondary">{{ session.status }}</span>{% endif %}</td><td>{% if session.assigned_to %}<span class="badge bg-success">{{ session.assigned_to }}</span>{% else %}<span class="badge bg-secondary">Unassigned</span>{% endif %}</td><td><div class="btn-group">{% if not session.assigned_to %}<button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#dashAssignModal" data-batch-id="{{ session.id }}" data-batch-name="{{ session.name }}" data-assign-url="{{ url_for('batch.batch_picking_assign', batch_id=session.id) }}"><i class="fas fa-user-plus"></i></button>{% else %}<form method="post" action="{{ url_for('batch.batch_picking_unassign', batch_id=session.id) }}" class="d-inline"><button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Unassign {{ session.name }}?')"><i class="fas fa-user-minus"></i></button></form>{% endif %}<a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-sm btn-info"><i class="fas fa-cog"></i></a></div></td></tr>{% endfor %}</tbody></table></div>
+        <div class="table-responsive"><table class="table table-hover"><thead><tr><th>ID</th><th>Name</th><th style="width: 150px;">Zones</th><th>Corridors</th><th>Mode</th><th>Items</th><th>Created By</th><th>Created</th><th>Status</th><th>Assigned To</th><th>Actions</th></tr></thead><tbody>{% for session in open_batch_sessions %}{% set _bc = batch_session_item_counts.get(session.id, {}) %}{% set _ic = _bc.get('total', 0) %}<tr {% if _ic == 0 %}class="table-warning"{% endif %}><td><span class="badge bg-dark">{{ session.id }}</span></td><td>{{ session.name }}</td><td>{% set zone_list = (session.zones or '').split(',') %}{% if zone_list|length >= 5 %}<span class="text-muted">All</span>{% else %}{{ session.zones }}{% endif %}</td><td>{% if session.corridors %}<span class="badge bg-info">{{ session.corridors }}</span>{% else %}<span class="text-muted">All</span>{% endif %}</td><td>{% if session.picking_mode == 'Consolidated' %}<span class="badge bg-info">Consolidated</span>{% else %}<span class="badge bg-primary">Sequential</span>{% endif %}</td><td>{% if _ic == 0 %}<span class="badge bg-danger" title="No items left in this batch"><i class="fas fa-exclamation-triangle me-1"></i>Empty</span>{% else %}<span class="badge bg-dark">{{ _ic }}</span>{% endif %}</td><td>{{ session.created_by }}</td><td>{{ session.created_at|local_time('%d-%m-%Y %H:%M') }}</td><td>{% if session.status == 'Created' %}<span class="badge bg-secondary">Created</span>{% elif session.status == 'In Progress' %}<span class="badge bg-warning text-dark">In Progress</span>{% elif session.status == 'Active' %}<span class="badge bg-success">Active</span>{% elif session.status == 'Paused' %}<span class="badge bg-warning text-dark">Paused</span>{% else %}<span class="badge bg-secondary">{{ session.status }}</span>{% endif %}</td><td>{% if session.assigned_to %}<span class="badge bg-success">{{ session.assigned_to }}</span>{% else %}<span class="badge bg-secondary">Unassigned</span>{% endif %}</td><td><div class="btn-group">{% if not session.assigned_to %}<button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#dashAssignModal" data-batch-id="{{ session.id }}" data-batch-name="{{ session.name }}" data-assign-url="{{ url_for('batch.batch_picking_assign', batch_id=session.id) }}"><i class="fas fa-user-plus"></i></button>{% else %}<form method="post" action="{{ url_for('batch.batch_picking_unassign', batch_id=session.id) }}" class="d-inline"><button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Unassign {{ session.name }}?')"><i class="fas fa-user-minus"></i></button></form>{% endif %}<button class="btn btn-sm btn-outline-primary batch-qv-btn" data-batch-id="{{ session.id }}" data-batch-label="{{ (session.batch_number or session.name)|e }}" title="Quick View"><i class="fas fa-eye"></i></button><a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-sm btn-info"><i class="fas fa-cog"></i></a></div></td></tr>{% endfor %}</tbody></table></div>
         {% else %}
         <div class="alert alert-info mb-0"><i class="fas fa-info-circle me-2"></i>No active batch sessions found.</div>
         {% endif %}
@@ -468,6 +468,89 @@
         window.quickViewData = data;
     }
 
+    function showBatchQuickView(batchId, batchLabel) {
+        document.getElementById('batchQuickViewModalLabel').innerHTML =
+            '<i class="fas fa-layer-group me-2"></i>Batch Quick View — ' + batchLabel;
+        document.getElementById('batchQVLoading').style.display = 'block';
+        document.getElementById('batchQVContent').style.display = 'none';
+        var modal = new bootstrap.Modal(document.getElementById('batchQuickViewModal'));
+        modal.show();
+        fetch('/admin/batch/quick-view/' + batchId)
+            .then(function(r){ return r.json(); })
+            .then(function(data){ renderBatchQuickView(data); })
+            .catch(function(err){
+                document.getElementById('batchQVLoading').innerHTML =
+                    '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error loading batch data.</div>';
+            });
+    }
+
+    function renderBatchQuickView(data) {
+        document.getElementById('batchQVLoading').style.display = 'none';
+        document.getElementById('batchQVContent').style.display = 'block';
+
+        var sess   = data.session  || {};
+        var totals = data.totals   || {};
+        var invs   = data.invoices || [];
+
+        var pct = totals.total > 0 ? Math.round((totals.picked || 0) / totals.total * 100) : 0;
+
+        var statusBadge = function(s) {
+            var m = { picked: 'bg-success', pending: 'bg-warning text-dark', skipped: 'bg-secondary', exception: 'bg-danger', cancelled: 'bg-secondary' };
+            return '<span class="badge ' + (m[s] || 'bg-light text-dark') + '">' + s.charAt(0).toUpperCase() + s.slice(1) + '</span>';
+        };
+
+        var html = '';
+
+        // Summary bar
+        html += '<div class="row g-2 mb-3">';
+        html += '<div class="col-auto"><span class="badge bg-dark fs-6">' + (totals.total || 0) + ' items</span></div>';
+        html += '<div class="col-auto"><span class="badge bg-success fs-6">' + (totals.picked || 0) + ' picked</span></div>';
+        if (totals.pending)   html += '<div class="col-auto"><span class="badge bg-warning text-dark fs-6">' + totals.pending + ' pending</span></div>';
+        if (totals.skipped)   html += '<div class="col-auto"><span class="badge bg-secondary fs-6">' + totals.skipped + ' skipped</span></div>';
+        if (totals.exception) html += '<div class="col-auto"><span class="badge bg-danger fs-6">' + totals.exception + ' exception</span></div>';
+        if (sess.assigned_to) html += '<div class="col-auto ms-auto"><span class="badge bg-info fs-6"><i class="fas fa-user me-1"></i>' + sess.assigned_to + '</span></div>';
+        html += '</div>';
+
+        // Progress bar
+        html += '<div class="progress mb-3" style="height:10px;" title="' + pct + '% picked">';
+        html += '<div class="progress-bar bg-success" style="width:' + pct + '%"></div>';
+        html += '</div>';
+
+        if (invs.length === 0) {
+            html += '<div class="alert alert-info">No items in queue for this batch.</div>';
+        } else {
+            invs.forEach(function(inv) {
+                var invPicked  = inv.items.filter(function(i){ return i.status === 'picked'; }).length;
+                var invTotal   = inv.items.length;
+                var invPct     = invTotal > 0 ? Math.round(invPicked / invTotal * 100) : 0;
+
+                html += '<div class="card mb-2 border-secondary">';
+                html += '<div class="card-header py-1 d-flex align-items-center">';
+                html += '<strong class="me-2">' + inv.invoice_no + '</strong>';
+                html += '<small class="text-muted ms-auto">' + invPicked + '/' + invTotal + ' picked (' + invPct + '%)</small>';
+                html += '</div>';
+                html += '<div class="card-body p-0"><div class="table-responsive">';
+                html += '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr>';
+                html += '<th>Location</th><th>Item Code</th><th>Item Name</th><th class="text-center">Qty</th><th class="text-center">Picked</th><th class="text-center">Status</th>';
+                html += '</tr></thead><tbody>';
+                inv.items.forEach(function(item) {
+                    var rc = item.status === 'picked' ? 'table-success' : (item.status === 'exception' ? 'table-danger' : (item.status === 'skipped' ? 'table-secondary' : ''));
+                    html += '<tr class="' + rc + '">';
+                    html += '<td><small class="text-muted">' + (item.location || '—') + '</small></td>';
+                    html += '<td><small class="font-monospace">' + (item.item_code || '') + '</small></td>';
+                    html += '<td>' + (item.item_name || '') + '</td>';
+                    html += '<td class="text-center">' + item.qty + '</td>';
+                    html += '<td class="text-center">' + (item.qty_picked > 0 ? '<span class="fw-bold text-success">' + item.qty_picked + '</span>' : '<span class="text-muted">—</span>') + '</td>';
+                    html += '<td class="text-center">' + statusBadge(item.status) + '</td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div></div></div>';
+            });
+        }
+
+        document.getElementById('batchQVContent').innerHTML = html;
+    }
+
     window.editSequence = function(invoiceNo, currentSeq) {
         var newSeq = prompt('Edit stop sequence for ' + invoiceNo + ' (decimals like 1.5 allowed):', currentSeq);
         if (newSeq === null) return;
@@ -492,6 +575,15 @@
     };
 
     document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.batch-qv-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                showBatchQuickView(
+                    parseInt(btn.getAttribute('data-batch-id'), 10),
+                    btn.getAttribute('data-batch-label')
+                );
+            });
+        });
+
         var assignModal = document.getElementById('assignModal');
         if (assignModal) {
             assignModal.addEventListener('show.bs.modal', function() {
@@ -781,6 +873,28 @@ document.addEventListener('DOMContentLoaded', function() {
           </button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- Batch Quick View Modal -->
+<div class="modal fade" id="batchQuickViewModal" tabindex="-1" aria-labelledby="batchQuickViewModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="batchQuickViewModalLabel"><i class="fas fa-layer-group me-2"></i>Batch Quick View</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="batchQVLoading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading…</span></div>
+          <p class="mt-2">Loading batch items…</p>
+        </div>
+        <div id="batchQVContent" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>
