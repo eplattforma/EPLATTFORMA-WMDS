@@ -1516,8 +1516,8 @@ def pack_stop(route_id):
     result = db.session.execute(
         text(
             "INSERT INTO cooler_boxes "
-            "(route_id, delivery_date, box_no, status, created_at, updated_at) "
-            "VALUES (:rid, :dd, :bno, 'open', :now, :now) RETURNING id"
+            "(route_id, delivery_date, box_no, status, created_at) "
+            "VALUES (:rid, :dd, :bno, 'open', :now) RETURNING id"
         ),
         {"rid": route_id_int, "dd": delivery_date_str, "bno": new_box_no, "now": now},
     ).fetchone()
@@ -1534,9 +1534,9 @@ def pack_stop(route_id):
                 "(cooler_box_id, invoice_no, customer_code, customer_name, "
                 " route_stop_id, delivery_sequence, item_code, item_name, "
                 " expected_qty, picked_qty, picked_by, picked_at, "
-                " queue_item_id, status, created_at, updated_at) "
-                "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
-                "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+            " queue_item_id, status, created_at) "
+            "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+            "        :exp, :pq, :who, :now, :qid, 'picked', :now)"
             ),
             {
                 "bid": box_id, "inv": invoice_no,
