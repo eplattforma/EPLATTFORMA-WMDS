@@ -86,7 +86,7 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="8" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="8" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="{{ route.id }}"></span></td>
@@ -109,7 +109,7 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="8" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="8" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="{{ route.id }}"></span></td>
@@ -273,7 +273,7 @@
                             <option value="">-- Select Existing Route --</option>
                             {% for route in route_info.values() %}
                             <option value="{{ route.id }}">
-                                #{{ route.id }} — {{ route.driver_name }}{% if route.route_name %} ({{ route.route_name }}){% endif %} — {{ route.delivery_date.strftime('%d/%m/%Y') }}
+                                #{{ route.id }} — {{ route.driver_name }}{% if route.route_name %} ({{ route.route_name }}){% endif %} — {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else 'No date' }}
                             </option>
                             {% endfor %}
                         </select>

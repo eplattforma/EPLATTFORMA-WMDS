@@ -680,7 +680,7 @@ def admin_dashboard():
         from models import Shipment
         _rows = Shipment.query.filter(Shipment.id.in_(cooler_route_ids)).with_entities(
             Shipment.id, Shipment.delivery_date).all()
-        route_date_map = {r.id: r.delivery_date.strftime('%Y-%m-%d') for r in _rows}
+        route_date_map = {r.id: r.delivery_date.strftime('%Y-%m-%d') if r.delivery_date else None for r in _rows}
     
     batch_session_item_counts = {}
     if open_batch_sessions:
