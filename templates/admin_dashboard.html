@@ -353,8 +353,53 @@
     };
 
     window.showSingleOrderQuickView = function(invoiceNo) {
-        window.location.href = '/admin/invoice/' + encodeURIComponent(invoiceNo);
+        document.getElementById('quickViewModalLabel').innerHTML =
+            '<i class="fas fa-eye me-2"></i>Quick View - ' + invoiceNo;
+        var modal = new bootstrap.Modal(document.getElementById('quickViewModal'));
+        modal.show();
+        document.getElementById('quickViewLoading').style.display = 'block';
+        document.getElementById('quickViewContent').style.display = 'none';
+        fetchUnitBreakdown([invoiceNo]);
     };
+
+    function fetchUnitBreakdown(invoiceNos) {
+        fetch('/admin/quick-view-breakdown', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({invoice_nos: invoiceNos})
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(data){ displayUnitBreakdown(data); })
+        .catch(function(err){
+            document.getElementById('quickViewLoading').innerHTML =
+                '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error loading data. Please try again.</div>';
+        });
+    }
+
+    function displayUnitBreakdown(data) {
+        document.getElementById('quickViewLoading').style.display = 'none';
+        document.getElementById('quickViewContent').style.display = 'block';
+        var customers = [...new Set((data.orders||[]).map(function(o){return o.customer_name;}))];
+        var customerText = customers.length === 1 ? customers[0] : customers.length + ' customers';
+        var headerInfo = 'Items: ' + (data.summary||{}).total_items + ' | Weight: ' + (data.summary||{}).total_weight + 'kg | ' + customerText;
+        document.getElementById('quickViewModalLabel').innerHTML =
+            '<i class="fas fa-eye me-2"></i>Quick View - ' + headerInfo;
+        var html = '<div class="row"><div class="col-md-3"><div class="card"><div class="card-header bg-secondary text-white"><h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Unit Breakdown</h6></div><div class="card-body"><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Type</th><th class="text-end">Qty</th><th class="text-end">%</th></tr></thead><tbody>';
+        (data.unit_breakdown||[]).forEach(function(u){
+            html += '<tr><td><strong>' + u.unit_type + '</strong></td><td class="text-end">' + u.quantity + '</td><td class="text-end">' + u.percentage + '%</td></tr>';
+        });
+        html += '</tbody></table></div></div></div></div><div class="col-md-9">';
+        if (data.case_items && data.case_items.length > 0) {
+            html += '<div class="card border-danger"><div class="card-header bg-danger text-white"><h6 class="mb-0"><i class="fas fa-boxes me-2"></i>Case Items for Admin Review (' + data.case_items.length + ')</h6></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-striped"><thead class="table-dark"><tr><th>Location</th><th>Item Name</th><th>Qty</th></tr></thead><tbody>';
+            data.case_items.forEach(function(item){
+                html += '<tr><td><small class="text-muted">' + item.location + '</small></td><td>' + item.item_name + '</td><td><span class="badge bg-warning text-white fs-6">' + item.quantity + '</span></td></tr>';
+            });
+            html += '</tbody></table></div></div></div>';
+        }
+        html += '</div></div>';
+        document.getElementById('quickViewContent').innerHTML = html;
+        window.quickViewData = data;
+    }
 
     window.editSequence = function(invoiceNo, currentSeq) {
         var newSeq = prompt('Edit stop sequence for ' + invoiceNo + ' (decimals like 1.5 allowed):', currentSeq);
@@ -647,6 +692,28 @@ document.addEventListener('DOMContentLoaded', function() {
           </button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- Quick View Modal -->
+<div class="modal fade" id="quickViewModal" tabindex="-1" aria-labelledby="quickViewModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="quickViewModalLabel"><i class="fas fa-eye me-2"></i>Quick View</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="quickViewLoading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading…</span></div>
+          <p class="mt-2">Loading unit breakdown…</p>
+        </div>
+        <div id="quickViewContent" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>
