@@ -4810,6 +4810,58 @@ def quick_view_breakdown():
             order_info['pallet'] = pallet_info
         order_details.append(order_info)
     
+    # Batch item breakdown — which items are currently assigned to a batch
+    # session and what is their pick status.
+    batch_items_by_session = []
+    try:
+        bq_rows = db.session.execute(
+            db.text("""
+                SELECT
+                    bpq.invoice_no,
+                    bpq.item_code,
+                    bpq.item_name,
+                    bpq.qty,
+                    COALESCE(bpq.qty_picked, 0)       AS qty_picked,
+                    bpq.status                         AS queue_status,
+                    bpq.batch_session_id,
+                    bps.name                           AS batch_name,
+                    COALESCE(bps.batch_number, '')     AS batch_number,
+                    COALESCE(bps.session_type, '')     AS session_type,
+                    bps.status                         AS session_status
+                FROM batch_pick_queue bpq
+                JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id
+                WHERE bpq.invoice_no = ANY(:inv_nos)
+                ORDER BY bpq.batch_session_id, bpq.invoice_no, bpq.item_code
+            """),
+            {"inv_nos": invoice_nos},
+        ).fetchall()
+
+        # Group by session
+        _sessions = {}
+        for r in bq_rows:
+            sid = r[6]
+            if sid not in _sessions:
+                _sessions[sid] = {
+                    'session_id': sid,
+                    'batch_name': r[7],
+                    'batch_number': r[8],
+                    'session_type': r[9],
+                    'session_status': r[10],
+                    'items': [],
+                }
+            _sessions[sid]['items'].append({
+                'invoice_no': r[0],
+                'item_code': r[1],
+                'item_name': r[2] or '',
+                'qty': r[3] or 0,
+                'qty_picked': int(r[4] or 0),
+                'status': r[5] or 'pending',
+            })
+        batch_items_by_session = list(_sessions.values())
+    except Exception as _be:
+        import logging as _blog
+        _blog.getLogger(__name__).warning("quick_view_breakdown: batch query failed: %s", _be)
+
     response_data = {
         'summary': {
             'total_orders': len(orders),
@@ -4827,7 +4879,8 @@ def quick_view_breakdown():
         'fragile_items': fragile_items,
         'spill_risk_items': spill_risk_items,
         'pallet_assignments': pallet_assignments,
-        'orders': order_details
+        'orders': order_details,
+        'batch_items_by_session': batch_items_by_session,
     }
     
     return jsonify(response_data)
