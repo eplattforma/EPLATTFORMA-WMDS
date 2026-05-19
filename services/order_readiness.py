@@ -156,6 +156,46 @@ def is_order_ready(invoice_no):
                 ).scalar() or 0
                 return pending_normal == 0
 
+            # Single-item all-cooler orders can have no normal queue rows at all.
+            # If there are cooler queue rows, they must still block until terminal.
+            pending_cooler = db.session.execute(
+                text(
+                    "SELECT COUNT(*) FROM batch_pick_queue "
+                    "WHERE invoice_no = :inv "
+                    "  AND pick_zone_type = 'cooler' "
+                    f"  AND status NOT IN {queue_terminal}"
+                ),
+                {"inv": invoice_no},
+            ).scalar() or 0
+            if pending_cooler > 0:
+                return False
+
+            if _table_exists("cooler_boxes") and _table_exists("cooler_box_items"):
+                open_boxes = db.session.execute(
+                    text(
+                        "SELECT COUNT(DISTINCT cb.id) "
+                        "FROM cooler_boxes cb "
+                        "JOIN cooler_box_items cbi "
+                        "  ON cbi.cooler_box_id = cb.id "
+                        "WHERE cbi.invoice_no = :inv "
+                        f"  AND cb.status NOT IN {box_terminal}"
+                    ),
+                    {"inv": invoice_no},
+                ).scalar() or 0
+                if open_boxes > 0:
+                    return False
+
+            try:
+                from models import Invoice
+                inv = db.session.query(Invoice).filter_by(invoice_no=invoice_no).first()
+                if inv is not None:
+                    items = list(getattr(inv, "items", []) or [])
+                    if items:
+                        return all(bool(getattr(i, "is_picked", False)) for i in items)
+            except Exception as e:
+                logger.debug("is_order_ready cooler fallback failed for %s: %s", invoice_no, e)
+            return False
+
     # Fallback: legacy session-path invoice — readiness from InvoiceItem.
     try:
         from models import Invoice

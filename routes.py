@@ -3836,6 +3836,10 @@ def pick_item(invoice_no):
                     current_item.pick_status = 'picked'
                 else:
                     current_item.pick_status = 'exception'
+
+                if getattr(batch, 'session_type', None) == 'cooler_route':
+                    current_item.is_picked = True
+                    current_item.pick_status = 'picked'
                 
                 # CRITICAL FIX: Update batch records if this item is part of a batch
                 # This prevents data inconsistency between individual and batch picking

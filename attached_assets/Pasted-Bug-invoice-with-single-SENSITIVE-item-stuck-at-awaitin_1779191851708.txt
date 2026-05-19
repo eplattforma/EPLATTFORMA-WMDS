@@ -1,0 +1,89 @@
+Bug: invoice with single SENSITIVE item stuck at awaiting_batch_items after cooler picking
+Diagnosis first — run these queries against invoice 55250
+sql-- Check the item's actual state
+SELECT item_code, is_picked, pick_status, locked_by_batch_id
+FROM invoice_items
+WHERE invoice_no = 'IN55250';
+
+-- Check the cooler queue row
+SELECT id, status, qty_required, qty_picked, pick_zone_type
+FROM batch_pick_queue
+WHERE invoice_no = 'IN55250';
+
+-- Check cooler boxes and their items
+SELECT cb.id, cb.box_no, cb.status AS box_status,
+       cbi.item_code, cbi.qty_assigned
+FROM cooler_boxes cb
+LEFT JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id
+WHERE cb.route_id = (
+    SELECT route_id FROM invoices WHERE invoice_no = 'IN55250'
+);
+Share the results. The fix depends on which of these is broken:
+
+If InvoiceItem.is_picked = false despite the batch pick being complete → the cooler batch confirm handler is not setting is_picked = True on the underlying item
+If batch_pick_queue.status != 'picked' → the queue row was not updated after picking
+If no cooler_box_items row exists → the item was never assigned to a box, and is_order_ready() is gating on box closure
+
+The systemic fix regardless of which culprit it is
+Fix 1 — Cooler batch completion must set InvoiceItem.is_picked = True
+In routes_batch.py, in the item confirmation handler for cooler sessions, after setting batch_pick_queue.status = 'picked', also set the underlying item:
+pythonif getattr(batch_session, 'session_type', None) == 'cooler_route':
+    from models import InvoiceItem
+    inv_item = InvoiceItem.query.filter_by(
+        invoice_no=invoice_no,
+        item_code=item_code,
+    ).first()
+    if inv_item and not inv_item.is_picked:
+        inv_item.is_picked = True
+        inv_item.pick_status = 'picked'
+        inv_item.picked_qty = qty_picked
+Fix 2 — Box close must trigger update_order_status_batch_aware() for all affected invoices
+In blueprints/cooler_picking.py, in the close_box endpoint, after setting cooler_boxes.status = 'closed', call the readiness recompute for every invoice that has items in this box:
+python# After closing the box
+from batch_aware_order_status import update_order_status_batch_aware
+affected_invoices = db.session.execute(text(
+    "SELECT DISTINCT invoice_no FROM cooler_box_items WHERE cooler_box_id = :bid"
+), {"bid": box_id}).fetchall()
+for row in affected_invoices:
+    try:
+        update_order_status_batch_aware(row[0])
+    except Exception as e:
+        current_app.logger.warning(
+            "Status recompute failed for %s after box close: %s", row[0], e
+        )
+Fix 3 — is_order_ready() must handle the single-item all-cooler case
+In batch_aware_order_status.py, in is_order_ready(), ensure the function correctly handles an invoice where ALL items are in the cooler queue (none in the normal queue). Currently the function may require at least one normal-queue item to be picked, which would make a single-item all-cooler invoice always fail readiness.
+Check the logic:
+python# The correct logic for a single-item all-cooler invoice:
+# 1. All batch_pick_queue rows for this invoice must have status='picked'
+# 2. All cooler_box_items rows for this invoice must be in a closed/loaded box
+# 3. InvoiceItem.is_picked must be True (covered by Fix 1)
+# There is no requirement for normal-queue rows to exist
+If the function has an implicit normal_items_count > 0 requirement, remove it.
+Fix 4 — Manual recovery for invoice 55250 right now
+If the diagnosis shows is_picked = false on the item despite it being picked:
+pythonfrom app import app, db
+from models import InvoiceItem
+from batch_aware_order_status import update_order_status_batch_aware
+
+with app.app_context():
+    item = InvoiceItem.query.filter_by(
+        invoice_no='IN55250'
+    ).first()
+    if item and not item.is_picked:
+        item.is_picked = True
+        item.pick_status = 'picked'
+        db.session.commit()
+        print("Item fixed")
+    update_order_status_batch_aware('IN55250')
+    print("Status recomputed")
+Verification
+
+Single-SENSITIVE-item invoice attached to route
+Lock cooler sequencing
+Assign COOLER-ROUTE batch to picker
+Picker confirms the item
+Immediately after confirm: SELECT is_picked, pick_status FROM invoice_items WHERE invoice_no = 'INX' → must show is_picked = true
+Create cooler box, assign item, close box
+Immediately after box close: SELECT status FROM invoices WHERE invoice_no = 'INX' → must show ready_for_dispatch
+The invoice must not require any further manual intervention
