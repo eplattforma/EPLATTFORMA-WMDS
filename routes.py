@@ -160,13 +160,6 @@ def inject_context():
         'resolve_supplier_name': resolve_supplier_name,
     }
 
-# Template filter for timezone conversion
-@app.template_filter('local_time')
-def local_time_filter(dt):
-    """Convert datetime to local timezone"""
-    if dt is None:
-        return ''
-    return format_local_time(dt, '%Y-%m-%d %H:%M:%S')
 
 @login_manager.user_loader
 def load_user(username):
@@ -686,19 +679,24 @@ def admin_dashboard():
     if open_batch_sessions:
         open_session_ids = [s.id for s in open_batch_sessions]
         try:
-            queue_rows = db.session.execute(
-                db.text(
-                    "SELECT batch_session_id, COUNT(*) AS total, SUM(CASE WHEN qty_picked > 0 THEN 1 ELSE 0 END) AS picked "
-                    "FROM batch_pick_queue WHERE batch_session_id = ANY(:sids) GROUP BY batch_session_id"
-                ),
-                {"sids": open_session_ids}
-            ).fetchall()
+            # Use a separate engine connection so that any failure here is fully
+            # isolated from the main request session.  A db.session.execute()
+            # failure would abort the PostgreSQL transaction, expiring all
+            # already-loaded ORM objects (including current_user) and causing
+            # lazy-load SELECT failures inside render_template.
+            with db.engine.connect() as _bq_conn:
+                queue_rows = _bq_conn.execute(
+                    db.text(
+                        "SELECT batch_session_id, COUNT(*) AS total, SUM(CASE WHEN qty_picked > 0 THEN 1 ELSE 0 END) AS picked "
+                        "FROM batch_pick_queue WHERE batch_session_id = ANY(:sids) GROUP BY batch_session_id"
+                    ),
+                    {"sids": open_session_ids}
+                ).fetchall()
             for row in queue_rows:
                 batch_session_item_counts[row[0]] = {'total': row[1], 'picked': int(row[2] or 0)}
         except Exception as _be:
             import logging as _blog
             _blog.warning(f"admin_dashboard: batch queue count query failed: {_be}")
-            db.session.rollback()
     
     total_remaining_time = 0
     for invoice in invoices:
@@ -838,6 +836,15 @@ def admin_dashboard():
                               unassigned_route_batch=unassigned_route_batch)
     except Exception as _admin_dash_err:
         import traceback as _tb
+        # Log a short one-liner FIRST so the exception type/message is visible
+        # even when the deployment log viewer truncates long multi-line entries.
+        try:
+            app.logger.error(
+                "ADMIN_DASHBOARD_RENDER_FAILED [short]: %s: %s",
+                type(_admin_dash_err).__name__, _admin_dash_err
+            )
+        except Exception:
+            pass
         try:
             _diag = {
                 'invoices_count': len(invoices) if invoices is not None else None,
