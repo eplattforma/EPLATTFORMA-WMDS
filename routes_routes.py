@@ -955,7 +955,12 @@ def remove_invoice_from_stop(route_stop_id, invoice_no):
             RouteStopInvoice.invoice_no == invoice_no
         )
     )
-    
+
+    # Release any cooler batch locks/queue rows now that the invoice is
+    # back at the warehouse (so SENSITIVE items become available again).
+    from services.cooler_route_extraction import release_cooler_locks_for_invoice
+    release_cooler_locks_for_invoice(invoice_no)
+
     db.session.commit()
     
     # Check if stop is now empty
@@ -1107,6 +1112,7 @@ def unassign_from_route():
     
     # Unassign each invoice from its route
     from sqlalchemy import delete
+    from services.cooler_route_extraction import release_cooler_locks_for_invoice
     for invoice in invoices:
         # Always delete route_stop_invoice records (don't rely on stop_id being set)
         db.session.execute(
@@ -1116,7 +1122,9 @@ def unassign_from_route():
         )
         invoice.route_id = None
         invoice.stop_id = None
-    
+        # Release cooler batch locks/queue rows for return-to-warehouse
+        release_cooler_locks_for_invoice(invoice.invoice_no)
+
     db.session.commit()
     
     # Clean up any empty stops after unassigning invoices
@@ -1578,6 +1586,11 @@ def remove_order_from_route(shipment_id, invoice_no):
     old_status = invoice.status
     invoice.route_id = None
     invoice.stop_id = None
+
+    # Release any cooler batch locks/queue rows now that the invoice is
+    # back at the warehouse (so SENSITIVE items become available again).
+    from services.cooler_route_extraction import release_cooler_locks_for_invoice
+    release_cooler_locks_for_invoice(invoice_no)
     
     # Optionally mark as unassigned (not_started)
     if mark_unassigned:

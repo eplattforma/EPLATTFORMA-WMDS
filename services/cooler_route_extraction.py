@@ -255,6 +255,50 @@ def _existing_queue_keys(session_id):
     return {(r[0], r[1]) for r in rows}
 
 
+def release_cooler_locks_for_invoice(invoice_no):
+    """Release all cooler batch holds for an invoice that is going back
+    to the warehouse (no longer assigned to any route).
+
+    Deletes pending cooler ``batch_pick_queue`` rows for the invoice and
+    clears ``invoice_items.locked_by_batch_id`` for items still locked to
+    any ``cooler_route`` session and not yet picked. Picked rows and
+    picked items are preserved for audit. Safe to call multiple times.
+
+    Returns dict with counters: ``queue_deleted``, ``items_unlocked``.
+    """
+    # 1) Drop pending cooler queue rows for this invoice
+    res = db.session.execute(
+        text(
+            "DELETE FROM batch_pick_queue "
+            "WHERE invoice_no = :inv "
+            "  AND pick_zone_type = 'cooler' "
+            "  AND status = 'pending'"
+        ),
+        {"inv": invoice_no},
+    )
+    queue_deleted = res.rowcount or 0
+
+    # 2) Clear locks on unpicked InvoiceItems that point at cooler_route
+    #    sessions. Use a correlated subquery so we don't touch locks held
+    #    by standard (non-cooler) batches.
+    res2 = db.session.execute(
+        text(
+            "UPDATE invoice_items "
+            "SET locked_by_batch_id = NULL "
+            "WHERE invoice_no = :inv "
+            "  AND is_picked = FALSE "
+            "  AND locked_by_batch_id IN ( "
+            "    SELECT id FROM batch_picking_sessions "
+            "    WHERE session_type = 'cooler_route' "
+            "  )"
+        ),
+        {"inv": invoice_no},
+    )
+    items_unlocked = res2.rowcount or 0
+
+    return {"queue_deleted": queue_deleted, "items_unlocked": items_unlocked}
+
+
 def _detach_queue_rows_from_other_sessions(invoice_no, keep_session_id):
     """When an invoice is moved between routes, drop its cooler queue
     rows from any OTHER cooler session so the new route's session owns
