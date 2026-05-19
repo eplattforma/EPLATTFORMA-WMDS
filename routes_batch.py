@@ -2962,7 +2962,36 @@ def delete_batch_comprehensive(batch_id, batch_name, admin_username):
     # 1. Unlock items that were locked by this batch
     from batch_locking_utils import unlock_items_for_batch
     deletion_counts['unlocked_items'] = unlock_items_for_batch(batch_id, preserve_picked=False)
-    
+
+    # 1b. Cooler-specific teardown: cancel open boxes and recompute invoice
+    # statuses so they resolve back to not_started / picking /
+    # ready_for_dispatch rather than staying stuck.
+    _batch_obj = BatchPickingSession.query.get(batch_id)
+    if _batch_obj and getattr(_batch_obj, 'session_type', None) == 'cooler_route':
+        db.session.execute(
+            text("""
+                UPDATE cooler_boxes
+                SET status = 'cancelled'
+                WHERE cooler_session_id = :sid
+                  AND status NOT IN ('closed', 'loaded', 'delivered')
+            """),
+            {"sid": batch_id},
+        )
+        _affected = db.session.execute(
+            text("""
+                SELECT DISTINCT invoice_no
+                FROM batch_session_invoices
+                WHERE batch_session_id = :sid
+            """),
+            {"sid": batch_id},
+        ).fetchall()
+        from batch_aware_order_status import update_order_status_batch_aware
+        for _row in _affected:
+            try:
+                update_order_status_batch_aware(_row[0])
+            except Exception as _e:
+                current_app.logger.warning("delete_batch_comprehensive: status recompute failed for %s: %s", _row[0], _e)
+
     # 2. Delete batch picked items
     deletion_counts['batch_picked_items'] = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
     BatchPickedItem.query.filter_by(batch_session_id=batch_id).delete()
@@ -3068,6 +3097,35 @@ def delete_batch(batch_id):
         # logs and PickingExceptions are NOT touched.
         from batch_locking_utils import unlock_items_for_batch
         unlocked = unlock_items_for_batch(batch_id, preserve_picked=False)
+
+        # Cooler-specific teardown: cancel open boxes and recompute invoice
+        # statuses so they resolve back to not_started / picking /
+        # ready_for_dispatch rather than staying stuck.
+        if getattr(batch_session, 'session_type', None) == 'cooler_route':
+            db.session.execute(
+                text("""
+                    UPDATE cooler_boxes
+                    SET status = 'cancelled'
+                    WHERE cooler_session_id = :sid
+                      AND status NOT IN ('closed', 'loaded', 'delivered')
+                """),
+                {"sid": batch_id},
+            )
+            _affected = db.session.execute(
+                text("""
+                    SELECT DISTINCT invoice_no
+                    FROM batch_session_invoices
+                    WHERE batch_session_id = :sid
+                """),
+                {"sid": batch_id},
+            ).fetchall()
+            from batch_aware_order_status import update_order_status_batch_aware
+            for _row in _affected:
+                try:
+                    update_order_status_batch_aware(_row[0])
+                except Exception as _e:
+                    current_app.logger.warning("delete_batch: status recompute failed for %s: %s", _row[0], _e)
+
         BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).delete()
         try:
             db.session.execute(

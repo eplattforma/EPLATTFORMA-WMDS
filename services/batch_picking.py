@@ -567,6 +567,34 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
             except Exception:
                 pass
 
+        # Cooler-specific teardown: cancel open boxes and recompute invoice
+        # statuses so they resolve back to not_started / picking /
+        # ready_for_dispatch rather than staying stuck.
+        if getattr(batch, 'session_type', None) == 'cooler_route':
+            db.session.execute(
+                text("""
+                    UPDATE cooler_boxes
+                    SET status = 'cancelled'
+                    WHERE cooler_session_id = :sid
+                      AND status NOT IN ('closed', 'loaded', 'delivered')
+                """),
+                {"sid": batch_id},
+            )
+            affected_invoices = db.session.execute(
+                text("""
+                    SELECT DISTINCT invoice_no
+                    FROM batch_session_invoices
+                    WHERE batch_session_id = :sid
+                """),
+                {"sid": batch_id},
+            ).fetchall()
+            from batch_aware_order_status import update_order_status_batch_aware
+            for _row in affected_invoices:
+                try:
+                    update_order_status_batch_aware(_row[0])
+                except Exception as _e:
+                    logger.warning("cancel_batch: status recompute failed for %s: %s", _row[0], _e)
+
         db.session.add(ActivityLog(
             picker_username=cancelled_by,
             activity_type="batch.cancelled",
