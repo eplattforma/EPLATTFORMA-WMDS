@@ -233,6 +233,49 @@
 </div>
 
 <script>
+    window.setDashboardView = function(view) {
+        var classic = document.getElementById('view-classic');
+        var focus = document.getElementById('view-focus');
+        var btnClassic = document.getElementById('btn-view-classic');
+        var btnFocus = document.getElementById('btn-view-focus');
+        if (!classic || !focus) return;
+        if (view === 'focus') {
+            classic.style.display = 'none';
+            focus.style.display = '';
+            if (btnClassic) btnClassic.className = 'btn btn-sm btn-outline-secondary';
+            if (btnFocus) btnFocus.className = 'btn btn-sm btn-primary';
+        } else {
+            classic.style.display = '';
+            focus.style.display = 'none';
+            if (btnClassic) btnClassic.className = 'btn btn-sm btn-secondary';
+            if (btnFocus) btnFocus.className = 'btn btn-sm btn-outline-primary';
+        }
+    };
+
+    window.toggleAllOrders = function() {
+        var master = document.getElementById('selectAll');
+        var boxes = document.querySelectorAll('.order-checkbox');
+        if (!master) return;
+        boxes.forEach(function(box) { box.checked = master.checked; });
+        if (typeof updateSelectedCount === 'function') updateSelectedCount();
+    };
+
+    window.updateSelectedCount = function() {
+        var checked = document.querySelectorAll('.order-checkbox:checked').length;
+        var countEl = document.getElementById('selectedCount');
+        if (countEl) countEl.textContent = checked;
+    };
+
+    window.showSingleOrderQuickView = function(invoiceNo) {
+        window.location.href = '/admin/order/' + encodeURIComponent(invoiceNo);
+    };
+
+    window.editSequence = function(invoiceNo, currentSeq) {
+        var newSeq = prompt('Edit stop sequence for ' + invoiceNo + ':', currentSeq);
+        if (newSeq === null) return;
+        window.location.reload();
+    };
+
     window.editRouting = function(invoiceNo, currentRouting) {
         var newRouting = prompt('Edit routing number for ' + invoiceNo + ':', currentRouting || '');
         if (newRouting === null) return;
