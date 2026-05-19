@@ -451,8 +451,8 @@
                     html += '<tr class="' + rowClass + '">';
                     html += '<td><small class="text-muted font-monospace">' + (item.item_code || '') + '</small></td>';
                     html += '<td>' + (item.item_name || '') + '</td>';
-                    html += '<td class="text-center">' + item.qty + '</td>';
-                    html += '<td class="text-center">' + (item.qty_picked > 0 ? '<span class="fw-bold text-success">' + item.qty_picked + '</span>' : '<span class="text-muted">—</span>') + '</td>';
+                    html += '<td class="text-center">' + Math.round(item.qty) + '</td>';
+                    html += '<td class="text-center">' + (item.qty_picked > 0 ? '<span class="fw-bold text-success">' + Math.round(item.qty_picked) + '</span>' : '<span class="text-muted">—</span>') + '</td>';
                     html += '<td class="text-center">' + statusBadge(item.status) + '</td>';
                     if (data.summary.total_orders > 1) {
                         html += '<td><small>' + (item.invoice_no || '') + '</small></td>';
