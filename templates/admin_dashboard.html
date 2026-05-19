@@ -425,9 +425,11 @@
                 } else {
                     var driver = document.getElementById('newRouteDriver').value;
                     var date = document.getElementById('newRouteDate').value;
+                    var rname = document.getElementById('newRouteName').value.trim();
                     if (!driver || !date) { alert('Driver and delivery date are required.'); return; }
                     payload.driver_name = driver;
                     payload.delivery_date = date;
+                    if (rname) payload.route_name = rname;
                 }
                 if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Assigning...'; }
                 fetch('{{ url_for("routes.auto_assign") }}', {
@@ -594,6 +596,10 @@ document.addEventListener('DOMContentLoaded', function() {
               <div class="col-md-6">
                 <label for="newRouteDate" class="form-label">Delivery date</label>
                 <input type="date" id="newRouteDate" class="form-control">
+              </div>
+              <div class="col-12">
+                <label for="newRouteName" class="form-label">Route name / description <span class="text-muted small">(optional)</span></label>
+                <input type="text" id="newRouteName" class="form-control" placeholder="e.g. North Athens — Friday run">
               </div>
             </div>
           </div>
