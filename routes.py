@@ -4833,6 +4833,8 @@ def quick_view_breakdown():
                 LEFT JOIN invoice_items ii
                     ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code
                 WHERE bpq.invoice_no = ANY(:inv_nos)
+                  AND bpq.status NOT IN ('cancelled')
+                  AND bps.status NOT IN ('Cancelled', 'Completed')
                 ORDER BY bpq.batch_session_id, bpq.invoice_no, bpq.item_code
             """),
             {"inv_nos": list(invoice_nos)},
