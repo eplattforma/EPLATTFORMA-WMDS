@@ -138,11 +138,50 @@ def batch_picking_manage():
             Shipment.id, Shipment.delivery_date).all()
         route_date_map = {r.id: r.delivery_date.strftime('%Y-%m-%d') for r in rows}
 
+    # Item counts per session so the table can show how many items are
+    # still in each batch (and flag empty ones, e.g. after invoices were
+    # returned to warehouse and cooler queue rows were released).
+    item_counts = {}
+    session_ids = [s.id for s in all_sessions]
+    if session_ids:
+        from sqlalchemy import text as _text
+        # batch_pick_queue is the source of truth for Phase 4+ sessions.
+        q_rows = db.session.execute(
+            _text(
+                "SELECT batch_session_id, COUNT(*) "
+                "FROM batch_pick_queue "
+                "WHERE batch_session_id = ANY(:ids) "
+                "GROUP BY batch_session_id"
+            ),
+            {"ids": session_ids},
+        ).fetchall()
+        for sid, cnt in q_rows:
+            item_counts[sid] = int(cnt)
+        # Fallback for legacy batches that don't use batch_pick_queue:
+        # count locked InvoiceItems instead.
+        missing_ids = [sid for sid in session_ids if sid not in item_counts]
+        if missing_ids:
+            l_rows = db.session.execute(
+                _text(
+                    "SELECT locked_by_batch_id, COUNT(*) "
+                    "FROM invoice_items "
+                    "WHERE locked_by_batch_id = ANY(:ids) "
+                    "GROUP BY locked_by_batch_id"
+                ),
+                {"ids": missing_ids},
+            ).fetchall()
+            for sid, cnt in l_rows:
+                item_counts[sid] = int(cnt)
+        # Any session with no rows in either source is genuinely empty.
+        for sid in session_ids:
+            item_counts.setdefault(sid, 0)
+
     return render_template('batch_picking_manage.html',
                           active_sessions=active_sessions,
                           completed_sessions=completed_sessions,
                           pickers=pickers,
-                          route_date_map=route_date_map)
+                          route_date_map=route_date_map,
+                          item_counts=item_counts)
 
 @batch_bp.route('/admin/batch/edit/<int:batch_id>', methods=['GET', 'POST'])
 @login_required

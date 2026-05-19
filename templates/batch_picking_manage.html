@@ -36,6 +36,7 @@
                         <th style="width: 150px;">Zones</th>
                         <th>Corridors</th>
                         <th>Mode</th>
+                        <th>Items</th>
                         <th>Created By</th>
                         <th>Created</th>
                         <th>Status</th>
@@ -45,7 +46,8 @@
                 </thead>
                 <tbody>
                     {% for session in active_sessions %}
-                    <tr>
+                    {% set _ic = item_counts.get(session.id, 0) %}
+                    <tr {% if _ic == 0 %}class="table-warning"{% endif %}>
                         <td>
                             <span class="badge bg-dark">{{ session.id }}</span>
                         </td>
@@ -72,6 +74,15 @@
                             <span class="badge bg-info">Consolidated</span>
                             {% else %}
                             <span class="badge bg-primary">Sequential</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if _ic == 0 %}
+                            <span class="badge bg-danger" title="No items left in this batch">
+                                <i class="fas fa-exclamation-triangle me-1"></i>Empty
+                            </span>
+                            {% else %}
+                            <span class="badge bg-dark">{{ _ic }}</span>
                             {% endif %}
                         </td>
                         <td>{{ session.created_by }}</td>
@@ -169,6 +180,7 @@
                         <th style="width: 150px;">Zones</th>
                         <th>Corridors</th>
                         <th>Mode</th>
+                        <th>Items</th>
                         <th>Created By</th>
                         <th>Created</th>
                         <th>Assigned To</th>
@@ -177,6 +189,7 @@
                 </thead>
                 <tbody>
                     {% for session in completed_sessions %}
+                    {% set _ic = item_counts.get(session.id, 0) %}
                     <tr>
                         <td>{{ session.id }}</td>
                         <td>{{ session.name }}</td>
@@ -202,6 +215,13 @@
                             <span class="badge bg-info">Consolidated</span>
                             {% else %}
                             <span class="badge bg-primary">Sequential</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if _ic == 0 %}
+                            <span class="badge bg-secondary">Empty</span>
+                            {% else %}
+                            <span class="badge bg-dark">{{ _ic }}</span>
                             {% endif %}
                         </td>
                         <td>{{ session.created_by }}</td>
