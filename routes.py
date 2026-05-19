@@ -4819,21 +4819,23 @@ def quick_view_breakdown():
                 SELECT
                     bpq.invoice_no,
                     bpq.item_code,
-                    bpq.item_name,
-                    bpq.qty,
-                    COALESCE(bpq.qty_picked, 0)       AS qty_picked,
-                    bpq.status                         AS queue_status,
+                    COALESCE(ii.item_name, bpq.item_code) AS item_name,
+                    COALESCE(bpq.qty_required, 0)          AS qty,
+                    COALESCE(bpq.qty_picked, 0)            AS qty_picked,
+                    bpq.status                             AS queue_status,
                     bpq.batch_session_id,
-                    bps.name                           AS batch_name,
-                    COALESCE(bps.batch_number, '')     AS batch_number,
-                    COALESCE(bps.session_type, '')     AS session_type,
-                    bps.status                         AS session_status
+                    bps.name                               AS batch_name,
+                    COALESCE(bps.batch_number, '')         AS batch_number,
+                    COALESCE(bps.session_type, '')         AS session_type,
+                    bps.status                             AS session_status
                 FROM batch_pick_queue bpq
                 JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id
+                LEFT JOIN invoice_items ii
+                    ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code
                 WHERE bpq.invoice_no = ANY(:inv_nos)
                 ORDER BY bpq.batch_session_id, bpq.invoice_no, bpq.item_code
             """),
-            {"inv_nos": invoice_nos},
+            {"inv_nos": list(invoice_nos)},
         ).fetchall()
 
         # Group by session
