@@ -800,41 +800,76 @@ def admin_dashboard():
     unassigned_route_batch = next((s for s in open_batch_sessions if getattr(s, 'session_type', None) == 'route_batch' and not s.route_id), None)
     unassigned_invoices = [inv for inv in invoices if not inv.route_id]
     
-    return render_template('admin_dashboard.html', 
-                          invoices=invoices, 
-                          completed_invoices=completed_invoices,
-                          shipped_invoices=route_assigned_invoices,
-                          pickers=pickers,
-                          drivers=drivers,
-                          planned_routes=planned_routes,
-                          route_info=route_info,
-                          invoice_exceptions=invoice_exceptions,
-                          batch_picked_info=batch_picked_info,
-                          picked_lines_count=picked_lines_count,
-                          total_lines_count=total_lines_count,
-                          picking_times=picking_times,
-                          stop_sequences=stop_sequences,
-                          current_time=get_local_time(),
-                          total_remaining_time=total_remaining_time,
-                          total_idle_time=total_idle_time,
-                          sort_by=sort_by,
-                          sort_dir=sort_dir,
-                          use_shipments=use_shipments,
-                          unresolved_issues_count=unresolved_issues_count,
-                          review_issues_count=review_issues_count,
-                          active_pickers_data=active_pickers_data,
-                          cooler_invoice_nos=cooler_invoice_nos,
-                          cooler_fully_picked_invoice_nos=cooler_fully_picked_invoice_nos,
-                          batch_fully_picked_invoice_nos=batch_fully_picked_invoice_nos,
-                          open_batch_sessions=open_batch_sessions,
-                          batch_session_item_counts=batch_session_item_counts,
-                          route_date_map=route_date_map,
-                          routes_data=routes_data,
-                          not_started_total=not_started_total,
-                          in_progress_total=in_progress_total,
-                          ready_total=ready_total,
-                          unassigned_invoices=unassigned_invoices,
-                          unassigned_route_batch=unassigned_route_batch)
+    try:
+        return render_template('admin_dashboard.html', 
+                              invoices=invoices, 
+                              completed_invoices=completed_invoices,
+                              shipped_invoices=route_assigned_invoices,
+                              pickers=pickers,
+                              drivers=drivers,
+                              planned_routes=planned_routes,
+                              route_info=route_info,
+                              invoice_exceptions=invoice_exceptions,
+                              batch_picked_info=batch_picked_info,
+                              picked_lines_count=picked_lines_count,
+                              total_lines_count=total_lines_count,
+                              picking_times=picking_times,
+                              stop_sequences=stop_sequences,
+                              current_time=get_local_time(),
+                              total_remaining_time=total_remaining_time,
+                              total_idle_time=total_idle_time,
+                              sort_by=sort_by,
+                              sort_dir=sort_dir,
+                              use_shipments=use_shipments,
+                              unresolved_issues_count=unresolved_issues_count,
+                              review_issues_count=review_issues_count,
+                              active_pickers_data=active_pickers_data,
+                              cooler_invoice_nos=cooler_invoice_nos,
+                              cooler_fully_picked_invoice_nos=cooler_fully_picked_invoice_nos,
+                              batch_fully_picked_invoice_nos=batch_fully_picked_invoice_nos,
+                              open_batch_sessions=open_batch_sessions,
+                              batch_session_item_counts=batch_session_item_counts,
+                              route_date_map=route_date_map,
+                              routes_data=routes_data,
+                              not_started_total=not_started_total,
+                              in_progress_total=in_progress_total,
+                              ready_total=ready_total,
+                              unassigned_invoices=unassigned_invoices,
+                              unassigned_route_batch=unassigned_route_batch)
+    except Exception as _admin_dash_err:
+        import traceback as _tb
+        try:
+            _diag = {
+                'invoices_count': len(invoices) if invoices is not None else None,
+                'completed_invoices_count': len(completed_invoices) if completed_invoices is not None else None,
+                'shipped_invoices_count': len(route_assigned_invoices) if route_assigned_invoices is not None else None,
+                'planned_routes_count': len(planned_routes) if planned_routes is not None else None,
+                'route_info_keys_sample': (list(route_info.keys())[:20] if isinstance(route_info, dict) else None),
+                'route_date_map_keys_sample': (list(route_date_map.keys())[:20] if isinstance(route_date_map, dict) else None),
+                'routes_data_count': len(routes_data) if routes_data is not None else None,
+                'open_batch_sessions_count': len(open_batch_sessions) if open_batch_sessions is not None else None,
+                'stop_sequences_size': len(stop_sequences) if isinstance(stop_sequences, dict) else None,
+                'unassigned_invoices_count': len(unassigned_invoices) if unassigned_invoices is not None else None,
+            }
+        except Exception as _diag_err:
+            _diag = {'diag_error': repr(_diag_err)}
+        try:
+            _planned = [{
+                'id': getattr(r, 'id', None),
+                'driver': getattr(r, 'driver_name', None),
+                'delivery_date': repr(getattr(r, 'delivery_date', None)),
+                'status': getattr(r, 'status', None),
+            } for r in (planned_routes or [])[:30]]
+        except Exception as _planned_err:
+            _planned = '<unprintable: %r>' % (_planned_err,)
+        try:
+            app.logger.error(
+                "ADMIN_DASHBOARD_RENDER_FAILED exc=%r diag=%r planned_routes=%r\n%s",
+                _admin_dash_err, _diag, _planned, _tb.format_exc()
+            )
+        except Exception:
+            pass
+        raise
 
 @app.route('/ready-to-ship')
 @login_required
