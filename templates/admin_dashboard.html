@@ -225,7 +225,7 @@
             <span id="selectedCount" class="badge bg-primary">0</span>
         </div>
         <div class="btn-group btn-group-sm flex-wrap" role="group">
-            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#assignModal">
+            <button type="button" class="btn btn-primary" id="openAssignModalBtn" data-bs-toggle="modal" data-bs-target="#assignModal">
                 <i class="fas fa-user-plus me-1"></i>Assign to route
             </button>
             <form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline">
@@ -359,6 +359,80 @@
         window.location.reload();
     };
 
+    window.getSelectedInvoiceNos = function() {
+        var boxes = document.querySelectorAll('.order-checkbox:checked, .order-checkbox-focus:checked');
+        var out = [];
+        boxes.forEach(function(b) { if (b.value) out.push(b.value); });
+        return Array.from(new Set(out));
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var assignModal = document.getElementById('assignModal');
+        if (assignModal) {
+            assignModal.addEventListener('show.bs.modal', function() {
+                var nos = window.getSelectedInvoiceNos();
+                var listEl = document.getElementById('assignInvoiceList');
+                var countEl = document.getElementById('assignInvoiceCount');
+                if (countEl) countEl.textContent = nos.length;
+                if (listEl) listEl.textContent = nos.length ? nos.join(', ') : '(none selected)';
+                var submitBtn = document.getElementById('assignSubmitBtn');
+                if (submitBtn) submitBtn.disabled = nos.length === 0;
+            });
+        }
+        var assignForm = document.getElementById('assignRouteForm');
+        if (assignForm) {
+            assignForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                var nos = window.getSelectedInvoiceNos();
+                if (nos.length === 0) { alert('No invoices selected.'); return; }
+                var mode = document.querySelector('input[name="assignMode"]:checked').value;
+                var payload = { invoice_nos: nos };
+                if (mode === 'existing') {
+                    var rid = document.getElementById('existingRouteSelect').value;
+                    if (!rid) { alert('Please pick a route.'); return; }
+                    var sel = document.getElementById('existingRouteSelect');
+                    var opt = sel.options[sel.selectedIndex];
+                    payload.route_id = parseInt(rid, 10);
+                    payload.driver_name = opt.getAttribute('data-driver') || '';
+                    payload.delivery_date = opt.getAttribute('data-date') || '';
+                } else {
+                    var driver = document.getElementById('newRouteDriver').value;
+                    var date = document.getElementById('newRouteDate').value;
+                    if (!driver || !date) { alert('Driver and delivery date are required.'); return; }
+                    payload.driver_name = driver;
+                    payload.delivery_date = date;
+                }
+                var btn = document.getElementById('assignSubmitBtn');
+                if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Assigning...'; }
+                fetch('{{ url_for("routes.auto_assign") }}', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                }).then(function(r) { return r.json().then(function(d){ return {ok: r.ok, data: d}; }); })
+                  .then(function(res) {
+                      if (res.ok && res.data && res.data.ok) {
+                          window.location.reload();
+                      } else {
+                          alert('Assign failed: ' + (res.data && res.data.message ? res.data.message : 'Unknown error'));
+                          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus me-1"></i>Assign'; }
+                      }
+                  })
+                  .catch(function(err) {
+                      alert('Network error: ' + err);
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus me-1"></i>Assign'; }
+                  });
+            });
+        }
+        document.querySelectorAll('input[name="assignMode"]').forEach(function(r) {
+            r.addEventListener('change', function() {
+                var existing = document.getElementById('existingRouteFields');
+                var fresh = document.getElementById('newRouteFields');
+                if (this.value === 'existing') { existing.style.display=''; fresh.style.display='none'; }
+                else { existing.style.display='none'; fresh.style.display=''; }
+            });
+        });
+    });
+
     window.editRouting = function(invoiceNo, currentRouting) {
         var newRouting = prompt('Edit routing number for ' + invoiceNo + ':', currentRouting || '');
         if (newRouting === null) return;
@@ -378,4 +452,75 @@
         .catch(function() { alert('Network error while updating routing number.'); });
     };
 </script>
+
+<div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assignModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="assignModalLabel"><i class="fas fa-route me-2"></i>Assign Invoices to Route</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="assignRouteForm">
+        <div class="modal-body">
+          <div class="mb-3">
+            <strong>Selected invoices (<span id="assignInvoiceCount">0</span>):</strong>
+            <div id="assignInvoiceList" class="small text-muted mt-1" style="max-height:80px;overflow:auto;"></div>
+          </div>
+          <hr>
+          <div class="mb-3">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="assignMode" id="modeExisting" value="existing" checked>
+              <label class="form-check-label" for="modeExisting">Add to existing planned route</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="assignMode" id="modeNew" value="new">
+              <label class="form-check-label" for="modeNew">Create new route</label>
+            </div>
+          </div>
+
+          <div id="existingRouteFields">
+            <label for="existingRouteSelect" class="form-label">Planned route</label>
+            <select id="existingRouteSelect" class="form-select">
+              <option value="">-- Select a planned route --</option>
+              {% for r in planned_routes %}
+              <option value="{{ r.id }}"
+                      data-driver="{{ r.driver_name or '' }}"
+                      data-date="{{ r.delivery_date.isoformat() if r.delivery_date else '' }}">
+                #{{ r.id }} — {{ r.driver_name or 'Unassigned' }}{% if r.delivery_date %} — {{ r.delivery_date.strftime('%d-%m-%Y') }}{% endif %}{% if r.route_name %} — {{ r.route_name }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            {% if not planned_routes %}
+            <div class="form-text text-warning">No planned routes available. Switch to "Create new route".</div>
+            {% endif %}
+          </div>
+
+          <div id="newRouteFields" style="display:none;">
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label for="newRouteDriver" class="form-label">Driver</label>
+                <select id="newRouteDriver" class="form-select">
+                  <option value="">-- Select driver --</option>
+                  {% for d in drivers %}
+                  <option value="{{ d.username }}">{{ d.display_name or d.username }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label for="newRouteDate" class="form-label">Delivery date</label>
+                <input type="date" id="newRouteDate" class="form-control">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" id="assignSubmitBtn" class="btn btn-primary">
+            <i class="fas fa-user-plus me-1"></i>Assign
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
