@@ -747,5 +747,25 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.addEventListener('hidden.bs.modal', function() { window.isModalOpen = false; });
     });
 });
+
+window.editRouting = function(invoiceNo, currentRouting) {
+    var newRouting = prompt('Edit routing number for ' + invoiceNo + ':', currentRouting || '');
+    if (newRouting === null) return;
+    fetch('/admin/update-routing-number', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({invoice_no: invoiceNo, routing_number: newRouting.trim()})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            var el = document.getElementById('routing-display-' + invoiceNo);
+            if (el) el.textContent = newRouting.trim() || '';
+        } else {
+            alert('Failed to update routing: ' + (d.error || 'Unknown error'));
+        }
+    })
+    .catch(function() { alert('Network error while updating routing number.'); });
+};
 </script>
 {% endblock %}
