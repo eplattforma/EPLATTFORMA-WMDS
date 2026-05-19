@@ -3613,7 +3613,7 @@ def pick_item(invoice_no):
                bps.name as lock_batch_name
         FROM invoice_items ii
         LEFT JOIN batch_picking_sessions bps ON ii.locked_by_batch_id = bps.id 
-            AND bps.status IN ('Active', 'Paused')
+            AND bps.status IN ('Created', 'Active', 'Paused')
         WHERE ii.invoice_no = :invoice_no
     """)
     
@@ -3656,6 +3656,10 @@ def pick_item(invoice_no):
         # Completed/Cancelled batch (the JOIN returned NULL so item_status is NOT
         # 'batch_locked' above).  Clear the foreign-key so the item is freely pickable.
         if item.locked_by_batch_id is not None:
+            if item.pick_status == 'sent_to_batch':
+                locked_by_batches.append(item)
+                locked_batch_details.append((item_code, item.item_name or item_code, 'Deferred batch'))
+                continue
             current_app.logger.info(
                 f"Clearing stale batch lock on {invoice_no}/{item_code} "
                 f"(was locked to batch #{item.locked_by_batch_id} which is no longer Active/Paused)"

@@ -1,0 +1,50 @@
+Bug fix: "Send to Batch" item reappears in regular picking immediately after deferral
+What's happening
+When a picker taps "Send to Batch" on an item, send_item_to_batch() correctly sets locked_by_batch_id and pick_status = 'sent_to_batch'. But the next time pick_item() loads, the item reappears in the pick list AND sits in the deferred batch queue simultaneously — double-pick risk.
+Root cause
+In routes.py:pick_item(), the SQL query that classifies items as batch_locked uses:
+sqlAND bps.status IN ('Active', 'Paused')
+Deferred batch sessions are created with status = 'Created'. This makes the JOIN return NULL, so the item is NOT classified as batch_locked. It then hits the stale-lock auto-clear block below, which sets item.locked_by_batch_id = None — completely erasing the lock that was just set.
+Fix 1 — Add 'Created' to the JOIN filter
+In routes.py:pick_item(), find the SQL query at approximately line 3563. Change:
+pythonAND bps.status IN ('Active', 'Paused')
+to:
+pythonAND bps.status IN ('Created', 'Active', 'Paused')
+Fix 2 — Protect sent_to_batch items from the stale-lock auto-clear
+Immediately below the batch_locked classification block, find the stale-lock auto-clear:
+pythonif item.locked_by_batch_id is not None:
+    current_app.logger.info(
+        f"Clearing stale batch lock on ..."
+    )
+    item.locked_by_batch_id = None
+Add a guard so it never clears a deliberately deferred item:
+pythonif item.locked_by_batch_id is not None:
+    # Never clear a deliberately deferred item — pick_status guards this
+    if item.pick_status == 'sent_to_batch':
+        locked_by_batches.append(item)
+        locked_batch_details.append((
+            item_code,
+            item.item_name or item_code,
+            f'Deferred batch'
+        ))
+        continue
+    current_app.logger.info(
+        f"Clearing stale batch lock on {invoice_no}/{item_code} "
+        f"(was locked to batch #{item.locked_by_batch_id} which is no longer Active/Paused)"
+    )
+    item.locked_by_batch_id = None
+Fix 3 — Scan for the same status filter elsewhere
+Search for any other place in the codebase where a JOIN or query determines whether a batch lock is "live" using only ('Active', 'Paused') — and add 'Created' to those too:
+bashgrep -n "Active.*Paused\|Paused.*Active" routes.py routes_batch.py models.py
+Any query that decides whether locked_by_batch_id is a valid live lock must treat 'Created' as live.
+Verification
+
+Picker opens invoice containing ICC-0005
+Picker taps "Send to Batch" → page moves to next item
+Refresh the picking page → ICC-0005 is absent from the pick list
+Check DB: SELECT locked_by_batch_id, pick_status FROM invoice_items WHERE item_code = 'ICC-0005' → locked_by_batch_id is non-null, pick_status = 'sent_to_batch'
+Go to Picker Dashboard → Batches section → deferred batch exists containing ICC-0005
+Claim the deferred batch → ICC-0005 pickable there only
+After picking via deferred batch → item no longer appears anywhere in picking
+
+No schema changes. routes.py fix only.
