@@ -3076,7 +3076,12 @@ def delete_batch(batch_id):
     except Exception:
         queue_count = 0
 
-    if picked_items_count or sess_inv_count or locks_count or queue_count or batch_session.status not in ['Created']:
+    _is_terminal = batch_session.status in ('Cancelled', 'Completed')
+    _has_active_content = picked_items_count or locks_count or (sess_inv_count and not _is_terminal)
+
+    if not _is_terminal and (picked_items_count or sess_inv_count or locks_count or queue_count or batch_session.status not in ['Created']):
+        # Batch is live and non-empty — route through cancel so locks are
+        # properly released and audit columns are stamped.
         flash(f'Batch "{label}" is not truly empty (picks={picked_items_count}, '
               f'invoices={sess_inv_count}, locks={locks_count}, queue={queue_count}, '
               f'status={batch_session.status}). Routing through Cancel to preserve audit.', 'info')
@@ -3087,6 +3092,14 @@ def delete_batch(batch_id):
             flash(f'Batch "{label}" cancelled.', 'success')
         except Exception as e:
             flash(f'Cancel failed: {e}', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+
+    if _is_terminal and _has_active_content:
+        # Already terminal but somehow still has picked items or active locks
+        # (shouldn't happen in normal flow, but guard it).
+        flash(f'Batch "{label}" is already {batch_session.status} but still has '
+              f'active content (picks={picked_items_count}, locks={locks_count}). '
+              'Please contact an administrator.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
 
     batch_name = batch_session.batch_number or f"BATCH-{batch_session.id}"
