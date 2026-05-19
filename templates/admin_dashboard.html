@@ -231,12 +231,6 @@
             <button type="button" class="btn btn-outline-danger" id="bulkUnassignRouteBtn" onclick="bulkUnassignFromRoute()">
                 <i class="fas fa-unlink me-1"></i>Unassign from route
             </button>
-            <form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline">
-                <input type="hidden" name="invoice_no" id="bulkAutocompleteInvoiceNo">
-                <button type="submit" class="btn btn-warning" onclick="return confirm('Complete selected order?')">
-                    <i class="fas fa-magic me-1"></i>Complete
-                </button>
-            </form>
         </div>
     </div>
 </div>
