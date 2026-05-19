@@ -521,6 +521,28 @@
         });
     });
 
+    window.openCorrections = function() {
+        var selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+        if (selectedCheckboxes.length === 0) {
+            window.location.href = '{{ url_for("admin_corrections") }}';
+            return;
+        }
+        var selectedInvoices = Array.from(selectedCheckboxes).map(function(cb){ return cb.value; });
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("admin_corrections") }}';
+        selectedInvoices.forEach(function(inv) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'invoice_nos[]';
+            input.value = inv;
+            form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+    };
+
     window.bulkUnassignFromRoute = function() {
         var nos = window.getSelectedInvoiceNos ? window.getSelectedInvoiceNos() : [];
         if (!nos.length) { alert('No invoices selected.'); return; }
