@@ -1,0 +1,65 @@
+Please update this picking/batch screen layout.
+
+Goal:
+Replace the three separate time columns — Est. Time, Actual, Remaining — with one compact column called "Time".
+
+New Time column format:
+1. First line: Actual time
+   - Show actual minutes if available.
+   - Use the same blue badge style currently used for actual time.
+   - If no actual time exists, show "—".
+
+2. Second line: Estimate only
+   - Show only: "Est Xm"
+   - Do NOT show remaining time.
+   - Do NOT show comments such as "over by", "left", "not started", or "slightly over".
+   - Do NOT use a background badge for the estimate.
+   - The estimate should be plain text on the dark row background.
+   - Use font colour only to indicate performance against estimate.
+
+Estimate colour rules:
+- Grey: no actual time yet / not started.
+- Green: actual time is less than or equal to estimated time.
+- Orange: actual time is slightly over estimate.
+- Red: actual time is significantly over estimate.
+
+Suggested thresholds:
+- Green: actual <= estimate.
+- Orange: actual > estimate and actual <= estimate * 1.25.
+- Red: actual > estimate * 1.25.
+
+Rounding rule for this screen:
+- Round Weight to 0 decimal points.
+- Round Estimated minutes to 0 decimal points.
+- Round Actual minutes to 0 decimal points.
+- Do not show decimal values on this screen.
+
+Examples:
+- Weight 121.0 should display as 121.
+- Est. Time 6.0 should display as Est 6m.
+- Actual 50.26m should display as 50m.
+- Actual 5.5m should display as 6m.
+- Est. Time 15.0 should display as Est 15m.
+
+Final display examples:
+
+Actual exists and is over:
+First line: 50m
+Second line: Est 6m in red text
+
+Actual exists and is on time:
+First line: 6m
+Second line: Est 8m in green text
+
+No actual yet:
+First line: —
+Second line: Est 5m in grey text
+
+Column changes:
+- Remove/hide the separate "Est. Time", "Actual", and "Remaining" columns.
+- Add one "Time" column in their place.
+- Keep the rest of the row actions and assigned picker information unchanged.
+- Make sure the layout works well on narrow/mobile screens.
+
+Important:
+This is only a visual/layout change for this screen. Do not change the underlying stored values in the database. Only round the values for display.

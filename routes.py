@@ -557,18 +557,16 @@ def admin_dashboard():
             if invoice.picking_complete_time and invoice.packing_complete_time:
                 packing_seconds = (invoice.packing_complete_time - invoice.picking_complete_time).total_seconds()
                 total_seconds += packing_seconds
-            picking_times[invoice.invoice_no] = f"{round(total_seconds / 60, 2)}m"
+            picking_times[invoice.invoice_no] = round(total_seconds / 60, 2)
         else:
             breakdown = breakdown_by_invoice.get(invoice.invoice_no)
             if breakdown:
                 if breakdown.picking_started and breakdown.picking_completed:
                     duration = (breakdown.picking_completed - breakdown.picking_started).total_seconds() / 60
-                    picking_times[invoice.invoice_no] = f"{int(duration)}m"
+                    picking_times[invoice.invoice_no] = round(duration, 2)
                 elif breakdown.picking_started and invoice.status == 'picking':
                     elapsed = (now_utc - breakdown.picking_started).total_seconds() / 60
-                    picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
-            else:
-                picking_times[invoice.invoice_no] = "—"
+                    picking_times[invoice.invoice_no] = round(elapsed, 2)
     
     batch_items_list = BatchPickedItem.query.filter(BatchPickedItem.invoice_no.in_(invoice_nos)).all()
     batch_sessions_by_id = {}
@@ -3167,7 +3165,7 @@ def picker_dashboard():
             if invoice.picking_complete_time and invoice.packing_complete_time:
                 packing_seconds = (invoice.packing_complete_time - invoice.picking_complete_time).total_seconds()
                 total_seconds += packing_seconds
-            picking_times[invoice.invoice_no] = f"{round(total_seconds / 60, 2)}m"
+            picking_times[invoice.invoice_no] = round(total_seconds / 60, 2)
             continue
             
         # Priority 2: Time from OrderTimeBreakdown
@@ -3175,10 +3173,10 @@ def picker_dashboard():
         if breakdown:
             if breakdown.picking_started and breakdown.picking_completed:
                 duration = (breakdown.picking_completed - breakdown.picking_started).total_seconds() / 60
-                picking_times[invoice.invoice_no] = f"{int(duration)}m"
+                picking_times[invoice.invoice_no] = round(duration, 2)
             elif breakdown.picking_started and invoice.status == 'picking':
                 elapsed = (now_utc - breakdown.picking_started).total_seconds() / 60
-                picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
+                picking_times[invoice.invoice_no] = round(elapsed, 2)
     
     # Get batch picking sessions assigned to this picker.
     # Completed batches must NOT appear here — once finished they leave the queue.

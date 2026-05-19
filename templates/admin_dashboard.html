@@ -72,9 +72,7 @@
                         <th class="text-center" style="width: 60px;">Lines</th>
                         <th class="text-center" style="width: 70px;">Qty</th>
                         <th class="text-center" style="width: 70px;">Weight</th>
-                        <th class="text-center" style="width: 80px;">Est. Time</th>
-                        <th class="text-center" style="width: 60px;">Actual</th>
-                        <th class="text-center" style="width: 90px;">Remaining</th>
+                        <th class="text-center" style="width: 90px;">Time</th>
                         <th style="min-width: 100px;">Assigned</th>
                         <th style="min-width: 120px;">Actions</th>
                     </tr>
@@ -89,8 +87,6 @@
                                 <td colspan="8" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="{{ route.id }}"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
                             </tr>
                             {% endif %}
@@ -99,8 +95,6 @@
                                 <td colspan="8" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="unassigned"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="unassigned"></span></td>
                                 <td colspan="2"></td>
                             </tr>
                         {% endif %}
@@ -112,8 +106,6 @@
                                 <td colspan="8" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="{{ route.id }}"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
                             </tr>
                             {% endif %}
@@ -122,8 +114,6 @@
                                 <td colspan="8" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="unassigned"></span></td>
-                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="unassigned"></span></td>
                                 <td colspan="2"></td>
                             </tr>
                         {% endif %}
@@ -138,9 +128,7 @@
                         <td class="text-center">{% if invoice.invoice_no in picked_lines_count %}<span class="{% if picked_lines_count[invoice.invoice_no] < total_lines_count[invoice.invoice_no] %}text-warning{% else %}text-success{% endif %}">{{ picked_lines_count[invoice.invoice_no] }}/{{ total_lines_count[invoice.invoice_no] }}</span>{% else %}{{ invoice.total_lines }}{% endif %}</td>
                         <td class="text-center">{{ (invoice.total_items or 0)|round(0) }}</td>
                         <td class="text-center">{{ (invoice.total_weight or 0)|round(0) }}</td>
-                        <td class="text-center">{{ (invoice.total_exp_time or 0)|round(0) }}</td>
-                        <td class="text-center">{% if picking_times and invoice.invoice_no in picking_times %}<span class="badge bg-info">{{ picking_times[invoice.invoice_no] }}</span>{% elif invoice.status in ['picking', 'ready_for_dispatch'] and invoice.picking_start_time %}{% set elapsed_minutes = ((current_time - invoice.picking_start_time).total_seconds() / 60)|round(0) %}<span class="badge bg-warning text-dark">{{ elapsed_minutes }}m</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
-                        <td class="text-center">{% if invoice.status == 'picking' and invoice.assigned_to %}{% set picked_items = picked_lines_count.get(invoice.invoice_no, 0) %}{% set total_items = total_lines_count.get(invoice.invoice_no, invoice.total_lines) %}{% set remaining_percentage = ((total_items - picked_items) / total_items * 100) if total_items > 0 else 0 %}{% set remaining_time = ((invoice.total_exp_time or 0) * remaining_percentage / 100)|round(0) %}{% if remaining_time > 0 %}<span class="badge bg-warning text-dark">{{ remaining_time }}m</span>{% else %}<span class="badge bg-success">Done</span>{% endif %}{% elif invoice.status == 'not_started' %}<span class="badge bg-secondary">{{ (invoice.total_exp_time or 0)|round(0) }}m</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+                        <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
                         <td>{% if invoice.assigned_to %}{{ invoice.assigned_to }}{% endif %}</td>
                         <td><div class="btn-group btn-group-sm" role="group"><a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm" title="Print"><i class="fas fa-print"></i></a><button class="btn btn-outline-primary btn-sm" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')" title="Quick View"><i class="fas fa-eye"></i></button>{% if invoice.status not in ['ready_for_dispatch', 'shipped', 'delivered'] %}<button class="btn btn-primary btn-sm assign-btn" data-invoice-no="{{ invoice.invoice_no }}" data-bs-toggle="modal" data-bs-target="#assignModal" title="Assign"><i class="fas fa-user-plus"></i></button>{% if invoice.assigned_to %}<form method="post" action="{{ url_for('unassign_picker') }}" class="d-inline"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-danger btn-sm" title="Unassign"><i class="fas fa-user-minus"></i></button></form>{% endif %}{% if invoice.status in ['not_started', 'picking'] %}<form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline" onsubmit="return confirm('Autocomplete order {{ invoice.invoice_no }}?')"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-warning btn-sm" title="Complete"><i class="fas fa-magic"></i></button></form>{% endif %}{% endif %}{% if invoice_exceptions[invoice.invoice_no] > 0 %}<a href="{{ url_for('admin_view_exceptions', invoice_no=invoice.invoice_no) }}" class="btn btn-danger btn-sm" title="Exceptions"><i class="fas fa-exclamation-triangle"></i></a>{% endif %}</div></td>
                     </tr>
@@ -400,7 +388,7 @@
                                 <td class="text-center">{{ item.total_lines }}</td>
                                 <td class="text-center">{{ item.picked_lines }}/{{ item.total_lines }}</td>
                                 <td class="text-center">{{ (invoice.total_weight or 0)|round(0) }}</td>
-                                <td class="text-center">{% if picking_times and invoice.invoice_no in picking_times %}{{ picking_times[invoice.invoice_no] }}{% else %}-{% endif %}</td>
+                                <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
                                 <td class="text-center">{% if rd.route_batch %}<span class="badge bg-dark">{{ rd.route_batch.status }}</span>{% else %}-{% endif %}</td>
                                 <td class="text-center"><div class="btn-group btn-group-sm"><a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success"><i class="fas fa-print"></i></a><button class="btn btn-outline-primary" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')"><i class="fas fa-eye"></i></button></div></td>
                             </tr>
@@ -433,7 +421,7 @@
                                 <td class="text-center">{{ invoice.total_lines }}</td>
                                 <td class="text-center">{{ picked_lines_count.get(invoice.invoice_no, 0) }}/{{ total_lines_count.get(invoice.invoice_no, 0) }}</td>
                                 <td class="text-center">{{ (invoice.total_weight or 0)|round(0) }}</td>
-                                <td class="text-center">{% if picking_times and invoice.invoice_no in picking_times %}{{ picking_times[invoice.invoice_no] }}{% else %}-{% endif %}</td>
+                                <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
                                 <td class="text-center"><button class="btn btn-outline-primary btn-sm" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')"><i class="fas fa-eye"></i></button></td>
                             </tr>
                             {% endfor %}
@@ -515,7 +503,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var totals = {};
         rows.forEach(function(row) {
             var gid = row.getAttribute('data-route-group');
-            if (!totals[gid]) totals[gid] = {weight: 0, est: 0, actual: 0, remaining: 0};
+            if (!totals[gid]) totals[gid] = {weight: 0, est: 0};
             totals[gid].weight += parseFloat(row.getAttribute('data-weight') || 0);
             totals[gid].est += parseFloat(row.getAttribute('data-est-time') || 0);
         });
