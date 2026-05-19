@@ -218,6 +218,25 @@
         {% endif %}
     </div>
 </div>
+<div class="card shadow-sm mb-4" id="bulkActionBar" style="display:none;">
+    <div class="card-body py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <strong class="text-muted">Selected:</strong>
+            <span id="selectedCount" class="badge bg-primary">0</span>
+        </div>
+        <div class="btn-group btn-group-sm flex-wrap" role="group">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#assignModal">
+                <i class="fas fa-user-plus me-1"></i>Assign to route
+            </button>
+            <form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline">
+                <input type="hidden" name="invoice_no" id="bulkAutocompleteInvoiceNo">
+                <button type="submit" class="btn btn-warning" onclick="return confirm('Complete selected order?')">
+                    <i class="fas fa-magic me-1"></i>Complete
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
 </div><!-- /view-classic -->
 
 <div class="card shadow mb-4">
@@ -326,6 +345,8 @@
         var checked = document.querySelectorAll('.order-checkbox:checked').length;
         var countEl = document.getElementById('selectedCount');
         if (countEl) countEl.textContent = checked;
+        var bar = document.getElementById('bulkActionBar');
+        if (bar) bar.style.display = checked > 0 ? '' : 'none';
     };
 
     window.showSingleOrderQuickView = function(invoiceNo) {
