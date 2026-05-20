@@ -1,0 +1,60 @@
+Fix expiry-date FTP export: exclude zero-stock expiry dates
+
+Business rule:
+If a row from the PS365 Serials Stock Position report has stock quantity 0, the expiry date is not applicable and must NOT be sent to Magento/server via ExpiryDates.csv.
+
+Example:
+Store: 777 - E-SHOP | Exp Date: 2026-05-29 | Stock: 0
+
+This must be excluded from the FTP upload because there is no actual stock with that expiry date.
+
+Main required fix:
+In services/expiry_ftp_upload.py, update export_expiry_dates_for_magento().
+
+Current query exports all rows with expiry_date:
+
+SELECT item_code AS SKU, expiry_date
+FROM stock_positions
+WHERE expiry_date IS NOT NULL AND expiry_date != ''
+ORDER BY SKU ASC, expiry_date DESC
+
+Change it to export only positive stock rows:
+
+SELECT item_code AS SKU, expiry_date
+FROM stock_positions
+WHERE expiry_date IS NOT NULL
+  AND expiry_date != ''
+  AND COALESCE(stock_quantity, 0) > 0
+ORDER BY SKU ASC, expiry_date DESC
+
+Reason:
+stock_positions may contain expiry rows where the stock quantity is 0. These dates should not be uploaded because Magento would show/apply an expiry date for stock that does not actually exist.
+
+Also update logging:
+- total rows exported
+- unique SKUs exported
+- number of rows skipped due to zero or negative stock, if easy to calculate
+
+Recommended defensive improvement:
+Also update the import logic in services/erp_export_flows/stock_position.py inside import_stock_positions_from_xlsx().
+
+When parsing stock:
+- convert stock to float
+- if stock_val <= 0, skip the record or mark it as skipped
+- only insert stock_positions rows where stock_val > 0
+
+However, the minimum critical fix is in services/expiry_ftp_upload.py, because this is the file that creates ExpiryDates.csv and uploads it to FTP.
+
+Important:
+There may also be older duplicate import logic in routes.py for /api/refresh-stock-position. If that route is still used, apply the same rule there as well, or make it call the shared import_stock_positions_from_xlsx() function so there is only one expiry import rule.
+
+Acceptance test:
+Given stock_positions contains:
+SKU A | expiry_date 2026-05-29 | stock_quantity 0
+SKU B | expiry_date 2026-06-10 | stock_quantity 5
+
+ExpiryDates.csv should contain only:
+SKU,expiry_date
+B,2026-06-10
+
+SKU A must not appear in the uploaded file.

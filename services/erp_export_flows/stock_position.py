@@ -66,6 +66,8 @@ def import_stock_positions_from_xlsx(file_path: str) -> dict:
 
             try:
                 stock_val = float(stock) if stock else 0
+                if stock_val <= 0:
+                    continue
                 records.append({
                     'item_code': current_item_code,
                     'item_description': current_item_desc,
@@ -94,7 +96,7 @@ def import_stock_positions_from_xlsx(file_path: str) -> dict:
         )
 
     db.session.commit()
-    logger.info(f"Imported {len(records)} stock position records into DB")
+    logger.info(f"Imported {len(records)} stock position records into DB (zero-stock rows skipped)")
     return {'records_imported': len(records)}
 
 REPORT_PAGE_URL = 'https://accv3.powersoft365.com/restricted/StockControl/repPowerSerials.aspx'

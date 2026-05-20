@@ -5374,6 +5374,8 @@ def refresh_stock_position():
                 
                 try:
                     stock_val = float(stock) if stock else 0
+                    if stock_val <= 0:
+                        continue
                     records_to_insert.append({
                         'item_code': current_item_code,
                         'item_description': current_item,
@@ -5549,6 +5551,8 @@ def upload_stock_position():
                 
                 try:
                     stock_val = float(stock) if stock else 0
+                    if stock_val <= 0:
+                        continue
                     records_to_insert.append({
                         'item_code': current_item_code,
                         'item_description': current_item,
@@ -5573,7 +5577,7 @@ def upload_stock_position():
             )
         
         db.session.commit()
-        logging.info(f"Successfully imported {len(records_to_insert)} stock records from uploaded file")
+        logging.info(f"Successfully imported {len(records_to_insert)} stock records from uploaded file (zero-stock rows skipped)")
         
         return jsonify({
             'success': True,

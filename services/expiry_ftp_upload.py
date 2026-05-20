@@ -31,29 +31,33 @@ def validate_export_file(path: str) -> None:
 def export_expiry_dates_for_magento(local_dir: str) -> str:
     """
     Build ExpiryDates.csv from database and return the full local file path.
-    
+
     Exports SKU and expiry_date from stock_positions table.
+    Only rows with stock_quantity > 0 are included — zero/negative stock rows
+    have no applicable expiry date and must not be sent to Magento.
     Keeps duplicates, sorts by SKU ASC, expiry_date DESC.
     This ensures earliest expiry date appears last for each SKU (first imported by Magento).
-    
+
     Args:
         local_dir: Directory to save the CSV file to
-        
+
     Returns:
         Full path to the exported CSV file
-        
+
     Raises:
         RuntimeError: If export fails or returns no data
     """
     os.makedirs(local_dir, exist_ok=True)
-    
-    # Query stock_positions for SKU and expiry_date
+
+    # Query stock_positions: only rows with positive stock and a valid expiry date
     try:
         result = db.session.execute(
             sa_text("""
                 SELECT item_code AS SKU, expiry_date
                 FROM stock_positions
-                WHERE expiry_date IS NOT NULL AND expiry_date != ''
+                WHERE expiry_date IS NOT NULL
+                  AND expiry_date != ''
+                  AND COALESCE(stock_quantity, 0) > 0
                 ORDER BY SKU ASC, expiry_date DESC
             """)
         )
@@ -62,8 +66,22 @@ def export_expiry_dates_for_magento(local_dir: str) -> str:
         logger.error("Failed to query stock_positions: %s", e)
         raise RuntimeError(f"Failed to query expiry dates from database: {e}")
 
+    # Count rows that were excluded due to zero/negative stock (for logging only)
+    try:
+        skipped_result = db.session.execute(
+            sa_text("""
+                SELECT COUNT(*) FROM stock_positions
+                WHERE expiry_date IS NOT NULL
+                  AND expiry_date != ''
+                  AND COALESCE(stock_quantity, 0) <= 0
+            """)
+        )
+        skipped_count = skipped_result.scalar() or 0
+    except Exception:
+        skipped_count = None
+
     if not rows:
-        logger.warning("No expiry dates found in stock_positions table")
+        logger.warning("No expiry dates with positive stock found in stock_positions table")
         raise RuntimeError("No expiry dates found in database")
 
     # Write CSV file
@@ -85,10 +103,11 @@ def export_expiry_dates_for_magento(local_dir: str) -> str:
     duplicate_rows = total_rows - unique_skus
     file_size = os.path.getsize(csv_path)
 
+    skipped_msg = f", skipped_zero_stock={skipped_count}" if skipped_count is not None else ""
     logger.info(
         "Expiry export created: path=%s, total_rows=%d, unique_skus=%d, "
-        "duplicate_rows=%d, file_size=%d bytes",
-        csv_path, total_rows, unique_skus, duplicate_rows, file_size
+        "duplicate_rows=%d, file_size=%d bytes%s",
+        csv_path, total_rows, unique_skus, duplicate_rows, file_size, skipped_msg
     )
 
     return csv_path
