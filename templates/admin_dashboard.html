@@ -603,7 +603,7 @@
                 el.textContent = t.lines;
             });
             document.querySelectorAll('.route-total-weight[data-route-id="' + rg + '"]').forEach(function(el) {
-                el.textContent = Math.round(t.weight) + ' kg';
+                el.textContent = Math.round(t.weight);
             });
             document.querySelectorAll('.route-total-est[data-route-id="' + rg + '"]').forEach(function(el) {
                 var mins = Math.round(t.est);
