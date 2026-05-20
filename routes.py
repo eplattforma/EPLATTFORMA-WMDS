@@ -3097,10 +3097,11 @@ def picker_dashboard():
         return redirect(url_for('index'))
     
     # Get all invoices assigned to this picker that still need picking/packing
-    # Picker-visible statuses: not_started, picking, awaiting_batch_items, awaiting_packing
+    # Picker-visible statuses: not_started, picking, awaiting_packing
+    # awaiting_batch_items is handled by batch picking — not shown to individual pickers
     # Once an order reaches 'ready_for_dispatch', the picker's job is complete
     invoices_raw = Invoice.query.filter_by(assigned_to=current_user.username).filter(
-        Invoice.status.in_(['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing'])
+        Invoice.status.in_(['not_started', 'picking', 'awaiting_packing'])
     ).all()
     
     invoices = []
