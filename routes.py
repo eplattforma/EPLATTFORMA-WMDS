@@ -3812,6 +3812,12 @@ def pick_item(invoice_no):
                 return redirect(url_for('pick_item', invoice_no=invoice_no))
             
             if confirm:
+                # Guard against double-submission / retry after 500:
+                # re-fetch the item fresh from DB; if it's already marked picked, skip silently.
+                db.session.refresh(current_item)
+                if current_item.is_picked:
+                    return redirect(url_for('pick_item', invoice_no=invoice_no))
+
                 # Complete time tracking for this item
                 tracking_id = request.form.get('tracking_id')
                 if tracking_id:
@@ -3859,14 +3865,24 @@ def pick_item(invoice_no):
                 # Log an exception if quantities don't match expected
                 expected_qty = current_item.expected_pick_pieces if current_item.expected_pick_pieces else current_item.qty
                 if picked_qty != expected_qty:
-                    exception = PickingException()
-                    exception.invoice_no = invoice_no
-                    exception.item_code = current_item.item_code
-                    exception.expected_qty = expected_qty
-                    exception.picked_qty = picked_qty
-                    exception.picker_username = current_user.username
-                    exception.reason = request.form.get('reason')
-                    db.session.add(exception)
+                    from datetime import timedelta
+                    _recent_cutoff = utc_now_for_db() - timedelta(minutes=5)
+                    _dup = PickingException.query.filter_by(
+                        invoice_no=invoice_no,
+                        item_code=current_item.item_code,
+                        picker_username=current_user.username,
+                        expected_qty=expected_qty,
+                        picked_qty=picked_qty
+                    ).filter(PickingException.timestamp >= _recent_cutoff).first()
+                    if not _dup:
+                        exception = PickingException()
+                        exception.invoice_no = invoice_no
+                        exception.item_code = current_item.item_code
+                        exception.expected_qty = expected_qty
+                        exception.picked_qty = picked_qty
+                        exception.picker_username = current_user.username
+                        exception.reason = request.form.get('reason')
+                        db.session.add(exception)
                 
                 # Save to the database
                 db.session.commit()
