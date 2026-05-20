@@ -2,17 +2,17 @@
 {% block title %}Cooler Picking — {{ route_id }} / {{ delivery_date }}{% endblock %}
 {% block content %}
 <div class="container-fluid my-4">
-  <h2><i class="fas fa-snowflake me-2"></i>Cooler Picking</h2>
+  <h2><i class="fas fa-snowflake me-2"></i>Cooler Route — Route {{ route_id }}</h2>
   <p class="text-muted mb-4">Route {{ route_id }} · Delivery date {{ delivery_date }}</p>
 
   {# Phase 6 — Cooler Status + Lock Sequencing card #}
   <div class="card mb-4 border-info">
     <div class="card-header bg-info-subtle d-flex justify-content-between align-items-center">
-      <span><i class="fas fa-shield me-2"></i>Cooler Status</span>
+      <span><i class="fas fa-shield me-2"></i>Cooler Route — Route {{ route_id }}</span>
       {% if cooler_session and cooler_session.is_locked %}
         <span class="badge bg-success">
           <i class="fas fa-lock me-1"></i>
-          Sequence locked
+          Route prepared
           {% if cooler_session.sequence_locked_by %}
             by {{ cooler_session.sequence_locked_by }}
           {% endif %}
@@ -65,39 +65,21 @@
               <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
               <div class="row g-3 mb-3">
                 <div class="col-12 col-md-6">
-                  <label class="form-label fw-bold small">Picking Mode</label>
-                  <div class="d-flex flex-column gap-2">
-                    <div class="form-check border rounded p-2">
-                      <input class="form-check-input" type="radio" name="cooler_pack_mode" value="location_order" id="mode_loc" checked>
-                      <label class="form-check-label" for="mode_loc"><strong>Location Order</strong><div class="text-muted small">Picker walks the warehouse efficiently. Assign items to boxes after picking completes.</div></label>
-                    </div>
-                    <div class="form-check border rounded p-2">
-                      <input class="form-check-input" type="radio" name="cooler_pack_mode" value="sequential_stop" id="mode_seq">
-                      <label class="form-check-label" for="mode_seq"><strong>Sequential Stop</strong><div class="text-muted small">Last stop first. Items auto-assigned to boxes as picked. Boxes fill by capacity then seal automatically.</div></label>
-                    </div>
-                  </div>
+                  <div class="text-muted small">Route preparation will use location order.</div>
                 </div>
                 <div class="col-12 col-md-6" id="box_type_section" style="display:none;">
-                  <label class="form-label fw-bold small">Box Type <span class="text-muted fw-normal">(boxes created automatically)</span></label>
+                  <label class="form-label fw-bold small">Box Type</label>
                   <select name="cooler_box_type_id" class="form-select">
-                    <option value="">— choose box size —</option>
+                    <option value="">— auto choose —</option>
                     {% for bt in box_types %}
                     <option value="{{ bt.id }}">{{ bt.name }} ({{ (bt.internal_volume_cm3 * bt.fill_efficiency)|round|int }} cm³ usable)</option>
                     {% endfor %}
                   </select>
-                  {% if estimate and estimate.box_estimates %}
-                  <div class="text-muted small mt-1">Estimator recommends: <strong>{{ estimate.box_estimates[0].box_type_name }}</strong></div>
-                  {% endif %}
                 </div>
               </div>
-              <button class="btn btn-success" type="submit"><i class="fas fa-lock me-1"></i>Lock Cooler Sequencing</button>
+              <button class="btn btn-success" type="submit"><i class="fas fa-lock me-1"></i>Prepare Cooler Route</button>
             </form>
             <script>
-            document.querySelectorAll('[name="cooler_pack_mode"]').forEach(function(el) {
-              el.addEventListener('change', function() {
-                document.getElementById('box_type_section').style.display = (this.value === 'sequential_stop') ? '' : 'none';
-              });
-            });
             </script>
           {% endif %}
         </div>
@@ -192,7 +174,7 @@
   </h4>
   {% if not sequenced %}
     <div class="alert alert-info">
-      No sequenced cooler items yet — click <strong>Lock cooler sequencing</strong> above.
+      No prepared cooler items yet — click <strong>Prepare Cooler Route</strong> above.
     </div>
   {% else %}
     <div class="table-responsive">
@@ -282,12 +264,12 @@
   {# Unsequenced (blocked) queue #}
   {% if unsequenced %}
     <h4 class="mt-4">
-      <i class="fas fa-clock text-warning me-1"></i>Unsequenced — awaiting lock
+      <i class="fas fa-clock text-warning me-1"></i>Awaiting route preparation
       <span class="badge bg-warning text-dark">{{ unsequenced|length }}</span>
     </h4>
     <div class="alert alert-warning small mb-2">
       These items are locked from regular picking but cannot be picked from the cooler queue
-      until <strong>Lock cooler sequencing</strong> is clicked. Late additions land here
+      until <strong>Prepare Cooler Route</strong> is clicked. Late additions land here
       automatically.
     </div>
     <table class="table table-sm table-bordered">
@@ -311,85 +293,15 @@
     </table>
   {% endif %}
 
-  {# Pack by Stop — shown when picking is complete and items need boxing.
-     Groups sequenced items by delivery stop so the manager can create
-     one box per stop with a single click (location_order mode). #}
-  {% set _all_assigned = sequenced | selectattr('status', 'eq', 'picked') | list | length == 0
-       or (sequenced | selectattr('status', 'eq', 'picked') | list | length > 0
-           and assigned_to_box | length >= (sequenced | selectattr('status', 'eq', 'picked') | list | length)) %}
-  {% if picking_phase and picking_phase.complete and sequenced
-        and has_permission('cooler.manage_boxes')
-        and not (cooler_session and cooler_session.get('cooler_pack_mode') == 'sequential_stop') %}
   <div class="card mt-4 border-primary">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-      <span><i class="fas fa-layer-group me-2"></i>Pack by Stop</span>
-      <span class="badge bg-light text-primary">Picking complete — assign items to boxes per stop</span>
-    </div>
-    <div class="card-body p-0">
-      {% set ns = namespace(cur_seq=None, stop_has_unassigned=false) %}
-      {% for q in sequenced | sort(attribute='delivery_sequence') | reverse %}
-        {% if q.delivery_sequence != ns.cur_seq %}
-          {% if not loop.first %}</tbody></table></div>{% endif %}
-          {% set ns.cur_seq = q.delivery_sequence %}
-          {# Count unassigned picked items for this stop #}
-          {% set ns.stop_has_unassigned = false %}
-          {% for iq in sequenced %}
-            {% if iq.delivery_sequence == q.delivery_sequence and iq.status == 'picked' and not assigned_to_box.get(iq.queue_item_id) %}
-              {% set ns.stop_has_unassigned = true %}
-            {% endif %}
-          {% endfor %}
-          <div class="border-bottom px-3 pt-3 pb-2">
-            <div class="d-flex justify-content-between align-items-center">
-              <h6 class="mb-0">
-                <span class="badge bg-secondary me-1">Stop {{ q.delivery_sequence|int }}</span>
-                {{ q.customer_name or q.customer_code or '—' }}
-              </h6>
-              {% if ns.stop_has_unassigned %}
-              <form method="post"
-                    action="{{ url_for('cooler.pack_stop', route_id=route_id) }}"
-                    class="d-inline">
-                <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-                <input type="hidden" name="delivery_sequence" value="{{ q.delivery_sequence }}">
-                <button type="submit" class="btn btn-sm btn-primary">
-                  <i class="fas fa-box me-1"></i>Create box for this stop
-                </button>
-              </form>
-              {% else %}
-              <span class="badge bg-success"><i class="fas fa-check me-1"></i>All boxed</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="table-responsive">
-          <table class="table table-sm mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>Item</th>
-                <th>Invoice</th>
-                <th class="text-end">Qty</th>
-                <th>Box</th>
-              </tr>
-            </thead>
-            <tbody>
-        {% endif %}
-        <tr class="{{ 'table-success' if assigned_to_box.get(q.queue_item_id) else '' }}">
-          <td><strong>{{ q.item_code }}</strong></td>
-          <td><span class="text-muted small">{{ q.invoice_no }}</span></td>
-          <td class="text-end">{{ q.expected_qty|int }}</td>
-          <td>
-            {% if assigned_to_box.get(q.queue_item_id) %}
-              <span class="badge bg-success">Box #{{ assigned_to_box[q.queue_item_id] }}</span>
-            {% elif q.status == 'picked' %}
-              <span class="text-warning small"><i class="fas fa-clock me-1"></i>Unassigned</span>
-            {% else %}
-              <span class="text-muted small">Not picked</span>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      {% if sequenced %}</tbody></table></div>{% endif %}
+      <span><i class="fas fa-layer-group me-2"></i>Generate Box Plan</span>
+      <form method="post" action="{{ url_for('cooler.confirm_box_plan', route_id=route_id, delivery_date=delivery_date) }}" class="d-inline">
+        <input type="hidden" name="box_type_id" value="">
+        <button type="submit" class="btn btn-light btn-sm">Confirm Box Plan</button>
+      </form>
     </div>
   </div>
-  {% endif %}
 
   {# Cooler Boxes #}
   <div class="d-flex justify-content-between align-items-center mt-4 mb-2">

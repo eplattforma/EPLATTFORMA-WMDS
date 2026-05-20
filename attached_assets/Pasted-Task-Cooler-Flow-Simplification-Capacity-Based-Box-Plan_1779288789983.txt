@@ -1,0 +1,775 @@
+Task — Cooler Flow Simplification + Capacity-Based Box Planning + Manual Batch Invoice Grouping by Route
+
+Implement this on the current WMDS codebase.
+
+Do not redo, remove, or break the v11 fixes:
+
+* Send-to-Batch stale lock bug: `'Created'` added to batch status JOIN
+* Cooler batch cancel/delete: open boxes cancelled and invoice statuses recomputed
+* Box creation: `created_by` recorded correctly
+
+This task has two parts:
+
+1. Simplify the cooler route workflow.
+2. Group manual batch invoice search results by route.
+
+Use the existing code and schema. Do not invent new column names. Do not create parallel workflows if an existing function already handles the same responsibility.
+
+Confirmed relevant files:
+
+* `blueprints/cooler_picking.py`
+* `templates/cooler/route_picking.html`
+* `services/cooler_estimator.py`
+* `services/cooler_route_extraction.py`
+* `update_phase5_cooler_picking_schema.py`
+* `update_phase6_cooler_integration_schema.py`
+* `routes_batch.py`
+* `templates/batch_add_invoices.html`
+* `templates/batch_picking_create.html`
+* `templates/batch_picking_create_with_filter.html`
+* `templates/batch_picking_filter.html`
+* `templates/batch_picking_filter_simple.html`
+
+Confirmed cooler functions/routes in `blueprints/cooler_picking.py`:
+
+* `route_picking(route_id, delivery_date)`
+* `lock_sequencing(route_id)`
+* `box_assign_item(box_id)`
+* `queue_assign_box(queue_item_id)`
+* `box_close(box_id)`
+* `pack_stop(route_id)`
+
+Confirmed route picking template:
+
+* `templates/cooler/route_picking.html`
+
+Confirmed schema fields:
+
+`cooler_boxes`:
+
+* `id`
+* `route_id`
+* `delivery_date`
+* `box_no`
+* `status`
+* `first_stop_sequence`
+* `last_stop_sequence`
+* `created_by`
+* `created_at`
+* `closed_by`
+* `closed_at`
+* `label_printed_at`
+* `notes`
+* `box_type_id`
+* `fill_cm3`
+* `fill_weight_kg`
+* `cooler_session_id`
+
+`cooler_box_items`:
+
+* `id`
+* `cooler_box_id`
+* `invoice_no`
+* `customer_code`
+* `customer_name`
+* `route_stop_id`
+* `delivery_sequence`
+* `item_code`
+* `item_name`
+* `expected_qty`
+* `picked_qty`
+* `picked_by`
+* `picked_at`
+* `queue_item_id`
+* `status`
+* `created_at`
+* `updated_at`
+
+Important:
+There is no `qty_assigned` column in `cooler_box_items`. Do not use it.
+
+`cooler_box_types`:
+
+* `id`
+* `name`
+* `description`
+* `internal_length_cm`
+* `internal_width_cm`
+* `internal_height_cm`
+* `internal_volume_cm3`
+* `fill_efficiency`
+* `max_weight_kg`
+* `is_active`
+* `sort_order`
+* `created_at`
+* `updated_at`
+
+`ps_items_dw` model is `DwItem` and includes:
+
+* `item_code_365`
+* `item_name`
+* `item_length`
+* `item_width`
+* `item_height`
+* `item_weight`
+
+============================================================
+PART A — COOLER FLOW SIMPLIFICATION
+===================================
+
+Current problem:
+The cooler picking screen mixes route preparation, picking method, manual assignment, and box packing into one complicated interface.
+
+Correct business process:
+
+1. Prepare Cooler Route.
+2. Picker picks all cooler items using the normal batch picking interface, sorted by warehouse location.
+3. After picking, the system generates a box plan.
+4. Box plan groups multiple delivery stops into cooler boxes based on capacity.
+5. Manager confirms the box plan.
+6. Boxes are created as open.
+7. User closes boxes only when physically sealed.
+8. Labels/manifest can then be printed.
+9. Cooler route/session completes only when all cooler items are picked, boxed, and boxes are closed.
+
+Do not use “Pack by Stop” as the main workflow.
+Do not create one box per stop as the normal process.
+
+Correct example:
+
+* Box 1 = Stops 10 → 8
+* Box 2 = Stops 7 → 5
+* Box 3 = Stops 4 → 1
+
+Wrong default process:
+
+* Box 1 = Stop 10
+* Box 2 = Stop 9
+* Box 3 = Stop 8
+
+A cooler box is a physical container. It may contain multiple stops.
+
+---
+
+## A1. Rename route preparation wording
+
+In `templates/cooler/route_picking.html`, change labels:
+
+Replace:
+`Cooler Status`
+
+With:
+`Cooler Route — Route {{ route_id }}`
+
+Replace:
+`Sequence locked`
+
+With:
+`Route prepared`
+
+Replace:
+`Sequence locked by {{ cooler_session.sequence_locked_by }}`
+
+With:
+`Route prepared by {{ cooler_session.sequence_locked_by }}`
+
+Replace:
+`Lock Cooler Sequencing`
+
+With:
+`Prepare Cooler Route`
+
+Replace:
+`Lock cooler sequencing`
+
+With:
+`Prepare Cooler Route`
+
+Replace:
+`No sequenced cooler items yet — click Lock cooler sequencing above.`
+
+With:
+`No prepared cooler items yet — click Prepare Cooler Route above.`
+
+Replace:
+`Unsequenced — awaiting lock`
+
+With:
+`Awaiting route preparation`
+
+Replace:
+`Sequenced — pickable`
+
+With:
+`Ready to pick`
+
+This is a user-facing wording change. Keep the existing route preparation/sequence-locking logic.
+
+---
+
+## A2. Remove Sequential Stop from the visible warehouse UI
+
+In `templates/cooler/route_picking.html`, remove the visible Picking Mode radio buttons from the main screen:
+
+* `Location Order`
+* `Sequential Stop`
+
+Do not show `Sequential Stop` in the normal UI.
+
+Reason:
+Sequential Stop means assigning/packing into boxes while picking in delivery stop order. The current production process should not use it.
+
+Backend rule:
+In `lock_sequencing(route_id)`, keep default behavior:
+
+`pack_mode = request.form.get("cooler_pack_mode", "location_order")`
+
+But because the UI will no longer send `cooler_pack_mode`, the default will be `location_order`.
+
+Do not require a box type during route preparation.
+
+Remove this user-facing requirement from the main flow:
+`Please select a box type for Sequential Stop mode.`
+
+If the Sequential Stop code remains, it must not be reachable from the normal warehouse screen.
+
+---
+
+## A3. Remove Pack by Stop from the normal workflow
+
+In `templates/cooler/route_picking.html`, remove or hide the section currently labelled:
+
+`Pack by Stop`
+
+Also remove or hide the button:
+
+`Create box for this stop`
+
+Do not use `pack_stop(route_id)` as the normal workflow.
+
+The backend route/function may remain for compatibility, but it must not be presented as the normal warehouse process.
+
+Replace the visible workflow with:
+
+* `Generate Box Plan`
+* `Confirm Box Plan`
+
+---
+
+## A4. Create new service: `services/cooler_box_planner.py`
+
+Create:
+
+`services/cooler_box_planner.py`
+
+Add function:
+
+`generate_box_plan(route_id, delivery_date, box_type_id=None)`
+
+The function must generate a proposed box plan from picked, unboxed cooler items.
+
+Use the existing data structure already used in `route_picking(route_id, delivery_date)`:
+
+`batch_pick_queue`
+joined to:
+
+* `invoices`
+* `shipments`
+* `route_stop_invoice`
+* `route_stop`
+* `invoice_items`
+* `ps_items_dw`
+
+Required filters:
+
+* `batch_pick_queue.pick_zone_type = 'cooler'`
+* `batch_pick_queue.status = 'picked'`
+* `invoices.route_id = route_id`
+* `shipments.delivery_date = delivery_date`
+* exclude queue rows already assigned in `cooler_box_items.queue_item_id`
+
+Required sorting:
+
+* delivery stop sequence descending, so higher stop numbers are planned first.
+
+Required grouping:
+
+* group items by delivery stop first;
+* keep one stop together where possible;
+* allow multiple stops in one box;
+* do not create one box per stop unless capacity requires it.
+
+Box capacity:
+Use `cooler_box_types`.
+
+For selected box type:
+
+* use selected `box_type_id`.
+
+If no box type is selected:
+
+* use an active box type from `cooler_box_types`;
+* choose the largest active usable volume by default.
+
+Usable capacity:
+`internal_volume_cm3 * fill_efficiency`
+
+Item volume:
+`item_length * item_width * item_height * qty`
+
+Item weight:
+`item_weight * qty`
+
+Dimension source:
+`ps_items_dw` / `DwItem`.
+
+Missing dimensions:
+If item length, width, or height is missing:
+
+* do not crash;
+* include the item in the plan;
+* increase `missing_dimension_count`;
+* include a warning that the box fill estimate is incomplete.
+
+Required return structure per planned box:
+
+```python
+{
+    "box_no": 1,
+    "box_type_id": 2,
+    "box_type_name": "Medium",
+    "stop_min": 8,
+    "stop_max": 10,
+    "stop_display": "Stops 10 → 8",
+    "stops": [10, 9, 8],
+    "queue_item_ids": [101, 102, 103],
+    "item_summaries": [
+        {
+            "queue_item_id": 101,
+            "invoice_no": "INV100",
+            "customer_code": "C001",
+            "customer_name": "Customer Name",
+            "route_stop_id": 55,
+            "delivery_sequence": 10,
+            "item_code": "ITEM001",
+            "item_name": "Product Name",
+            "qty": 2,
+            "estimated_volume_cm3": 1200,
+            "estimated_weight_kg": 0.5
+        }
+    ],
+    "estimated_fill_cm3": 32000,
+    "estimated_fill_pct": 82.0,
+    "estimated_weight_kg": 12.4,
+    "missing_dimension_count": 1,
+    "warnings": [
+        "Some items are missing dimensions. Box fill estimate may be incomplete."
+    ]
+}
+```
+
+Display stop direction as:
+`Stops 10 → 8`
+
+Do not display only:
+`Stops 8–10`
+
+Reason:
+The physical loading/packing logic is last stop first.
+
+---
+
+## A5. Add box plan preview endpoint
+
+In `blueprints/cooler_picking.py`, add:
+
+`GET /route/<route_id>/<delivery_date>/box-plan`
+
+Inside the existing `cooler_bp` blueprint.
+
+Function requirements:
+
+* login required;
+* require the same cooler management permissions used for box management;
+* call `generate_box_plan(route_id, delivery_date, box_type_id)`;
+* read `box_type_id` from the query string;
+* return JSON.
+
+Response when plan exists:
+
+```json
+{
+  "ok": true,
+  "plan": []
+}
+```
+
+Response when no picked unboxed items exist:
+
+```json
+{
+  "ok": true,
+  "plan": [],
+  "message": "No picked unboxed cooler items found."
+}
+```
+
+Do not throw an error for an empty plan.
+
+---
+
+## A6. Add confirm box plan endpoint
+
+In `blueprints/cooler_picking.py`, add:
+
+`POST /route/<route_id>/<delivery_date>/confirm-box-plan`
+
+Inside the existing `cooler_bp` blueprint.
+
+Function requirements:
+
+1. Read `box_type_id` from form data.
+2. Regenerate the plan server-side using `generate_box_plan()`.
+3. Do not trust any client-side plan.
+4. If plan is empty, flash warning and return to `route_picking`.
+5. Create one `cooler_boxes` row per planned box.
+6. Create `cooler_box_items` rows for all queue items in that planned box.
+7. Create boxes as `status = 'open'`.
+8. Set `created_by` using the same username helper already used in `blueprints/cooler_picking.py`.
+9. Use `get_utc_now()` as already used in this file.
+10. Continue box numbering after the current maximum `box_no` for the same `route_id` and `delivery_date`.
+
+When inserting into `cooler_boxes`, use existing columns:
+
+* `route_id`
+* `delivery_date`
+* `box_no`
+* `status`
+* `first_stop_sequence`
+* `last_stop_sequence`
+* `created_by`
+* `created_at`
+* `box_type_id`
+* `fill_cm3`
+* `fill_weight_kg`
+* `cooler_session_id`
+
+Use columns only where they exist in the current schema.
+
+When inserting into `cooler_box_items`, use existing columns:
+
+* `cooler_box_id`
+* `invoice_no`
+* `customer_code`
+* `customer_name`
+* `route_stop_id`
+* `delivery_sequence`
+* `item_code`
+* `item_name`
+* `expected_qty`
+* `picked_qty`
+* `picked_by`
+* `picked_at`
+* `queue_item_id`
+* `status`
+* `created_at`
+* `updated_at`
+
+Do not use `qty_assigned`.
+
+For each queue item, before insert:
+
+* confirm the queue row still exists;
+* confirm `batch_pick_queue.status = 'picked'`;
+* confirm it is not already assigned in `cooler_box_items.queue_item_id`.
+
+After success, flash:
+
+`Box plan confirmed — X box(es) created. Close each box when physically sealed.`
+
+---
+
+## A7. Add `picked_unboxed_count` to route picking page
+
+In `route_picking(route_id, delivery_date)`, calculate:
+
+`picked_unboxed_count`
+
+Definition:
+Count cooler queue rows where:
+
+* route/date matches the current route page;
+* `batch_pick_queue.pick_zone_type = 'cooler'`;
+* `batch_pick_queue.status = 'picked'`;
+* no row exists in `cooler_box_items` with the same `queue_item_id`.
+
+Pass `picked_unboxed_count` to `templates/cooler/route_picking.html`.
+
+Use it to decide whether to show the box planning card.
+
+Do not use `not boxes` as the condition.
+
+Reason:
+Boxes may already exist while some picked items remain unboxed.
+
+---
+
+## A8. Add Box Plan UI section
+
+In `templates/cooler/route_picking.html`, add a main card shown when:
+
+`picked_unboxed_count > 0`
+
+Card title:
+`Pack into Cooler Boxes`
+
+Subtext:
+`Picked cooler items are ready to be assigned to boxes.`
+
+Controls:
+
+* Box type dropdown using existing `box_types`
+* `Generate Box Plan` button
+* Plan preview area
+* `Confirm Box Plan` form
+
+The preview should call:
+
+`url_for('cooler.box_plan_view', route_id=route_id, delivery_date=delivery_date)`
+
+with optional query parameter:
+
+`box_type_id`
+
+The confirm form should POST to:
+
+`url_for('cooler.confirm_box_plan', route_id=route_id, delivery_date=delivery_date)`
+
+The preview should show:
+
+* box number;
+* `stop_display`, e.g. `Stops 10 → 8`;
+* box type name;
+* item count;
+* estimated fill percentage;
+* estimated weight;
+* missing dimension warning;
+* item code;
+* quantity;
+* invoice number.
+
+Warning text:
+`Some items are missing dimensions. Box fill estimate may be incomplete.`
+
+---
+
+## A9. Move manual box controls under Advanced box management
+
+In `templates/cooler/route_picking.html`, move manual controls into a collapsed section:
+
+`Advanced box management`
+
+Include the existing controls for:
+
+* New box
+* Assign item to box
+* Close box
+* Delete/cancel box
+* Label
+* Manifest
+
+The main screen should focus on:
+Prepare Route → Pick → Generate Box Plan → Confirm Box Plan → Close boxes.
+
+---
+
+## A10. Strict rule: box assignment only for physically picked items
+
+Update `box_assign_item(box_id)`.
+
+Current behavior allows queue rows with status `pending` or `picked`, then updates `batch_pick_queue` to picked.
+
+Change this.
+
+Required behavior:
+
+* If queue row status is not `picked`, reject assignment.
+* Do not change `batch_pick_queue.status` from pending to picked inside box assignment.
+* Box assignment must not be used as physical picking confirmation.
+
+Error message:
+
+`Item has not been physically picked yet. Pick the item first, then assign to a box.`
+
+HTTP status:
+`400`
+
+Update `queue_assign_box(queue_item_id)` with the same rule.
+
+Also update `box_remove_item(box_id)` and `box_cancel(box_id)` carefully:
+
+* They currently revert assigned queue rows to pending.
+* Do not change this behavior unless needed for consistency with the new rule.
+* Keep existing v11 cancel/delete behavior intact.
+
+---
+
+## A11. Fix cooler route completion logic
+
+Current `box_close(box_id)` marks all cooler_route sessions for the route as Completed when no open boxes remain.
+
+Replace this rule.
+
+Add helper in `blueprints/cooler_picking.py`:
+
+`_is_cooler_route_pack_complete(route_id, delivery_date)`
+
+Return true only when all are true:
+
+1. No cooler queue rows for this route/date have `delivery_sequence IS NULL`.
+2. No cooler queue rows for this route/date have `status = 'pending'`.
+3. Every picked cooler queue row for this route/date has a row in `cooler_box_items.queue_item_id`.
+4. No `cooler_boxes` row for this route/date with assigned items has `status = 'open'`.
+5. No duplicate `queue_item_id` exists in `cooler_box_items`.
+
+In `box_close(box_id)`:
+
+* close the box as it already does;
+* run the existing invoice promotion logic;
+* only mark the cooler session Completed if `_is_cooler_route_pack_complete()` returns true.
+
+When marking sessions complete:
+
+* scope by `session_type = 'cooler_route'`;
+* scope by `route_id`;
+* do not complete `Cancelled` or `Archived` sessions;
+* keep existing `last_activity_at` update pattern.
+
+---
+
+## A12. Add duplicate assignment protection
+
+Add this database index in the cooler migration area:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cooler_box_items_queue_item
+ON cooler_box_items(queue_item_id)
+WHERE queue_item_id IS NOT NULL;
+```
+
+Add it in the existing schema update flow, keeping migration idempotent.
+
+Also keep the existing application-level duplicate check.
+
+---
+
+# PART B — MANUAL BATCH INVOICE GROUPING BY ROUTE
+
+Problem:
+When manually creating or editing a standard batch, invoice search/filter results are shown as a flat list. This makes it easy to select invoices from the wrong route.
+
+Required behavior:
+Invoice results should be grouped by delivery route.
+
+Confirmed existing templates to review/update:
+
+* `templates/batch_add_invoices.html`
+* `templates/batch_picking_create.html`
+* `templates/batch_picking_create_with_filter.html`
+* `templates/batch_picking_filter.html`
+* `templates/batch_picking_filter_simple.html`
+
+Backend file:
+
+* `routes_batch.py`
+
+Use existing route tables:
+
+* `route_stop_invoice`
+* `route_stop`
+* `shipments`
+
+Grouping rules:
+
+1. Group invoices by shipment/route.
+2. Route group header should show:
+
+   * route name;
+   * shipment id / route id;
+   * delivery date;
+   * driver name;
+   * invoice count;
+   * stop count.
+3. Inside each route group:
+
+   * group or sort by stop sequence;
+   * show invoice rows under the correct stop;
+   * sort by stop sequence, then invoice number.
+4. Add checkbox:
+
+   * `Select all invoices in this route`
+5. If selected invoices are from multiple routes, show warning:
+   `Invoices from multiple routes selected. Confirm this is intentional.`
+6. Do not block mixed-route selection.
+
+Performance rule:
+Do not perform one route lookup per invoice.
+Fetch route mapping for all displayed invoice numbers in one joined query.
+
+Required joined data:
+
+* invoice number;
+* route stop id;
+* stop sequence;
+* shipment id;
+* route name;
+* delivery date;
+* driver name.
+
+Keep existing invoice filters/search behavior. After filtering, group the remaining displayed results by route.
+
+Do not redesign unrelated batch picking screens.
+
+============================================================
+TESTS
+=====
+
+Add or update tests in the existing test structure.
+
+Existing relevant test files include:
+
+* `tests/test_phase5_cooler_picking.py`
+* `tests/test_phase6_cooler_estimator.py`
+* `tests/test_phase6_cooler_extraction.py`
+* `tests/test_phase6_cooler_lock_sequencing.py`
+* `tests/test_phase4_batch_picking.py`
+
+Required test scenarios:
+
+1. Box planner groups Stops 10, 9, 8 into one box when capacity allows.
+2. Box planner creates more than one box when capacity is exceeded.
+3. Box planner includes items with missing dimensions but returns a warning.
+4. Empty picked-unboxed list returns empty plan without error.
+5. Confirm Box Plan creates `cooler_boxes`.
+6. Confirm Box Plan creates `cooler_box_items` using `queue_item_id`.
+7. Pending item cannot be assigned to a cooler box.
+8. Box assignment does not change pending item to picked.
+9. Duplicate `queue_item_id` cannot be assigned twice.
+10. `box_close()` does not complete route while picked items remain unboxed.
+11. `box_close()` completes route only when all cooler items are picked, boxed, and boxes are closed.
+12. Manual batch invoice results are grouped by route.
+13. Selecting invoices from more than one route shows warning.
+
+============================================================
+DO NOT CHANGE
+=============
+
+Do not change:
+
+* v11 send-to-batch stale lock fix;
+* v11 cooler cancel/delete teardown;
+* existing normal picker batch picking interface;
+* driver app cooler overlay;
+* unrelated deferred batch logic;
+* unrelated route batch logic;
+* unrelated ERP/PS365 sync logic.

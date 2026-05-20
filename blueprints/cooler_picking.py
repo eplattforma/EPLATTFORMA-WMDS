@@ -737,6 +737,90 @@ def box_create():
                     "created": True}), 201
 
 
+@cooler_bp.route("/route/<route_id>/<delivery_date>/box-plan", methods=["GET"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def box_plan_preview(route_id, delivery_date):
+    box_type_id = request.args.get("box_type_id") or None
+    plan = generate_box_plan(route_id, delivery_date, box_type_id)
+    return jsonify({"ok": True, "plan": plan})
+
+
+@cooler_bp.route("/route/<route_id>/<delivery_date>/confirm-box-plan", methods=["POST"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def confirm_box_plan(route_id, delivery_date):
+    try:
+        route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        abort(400)
+    box_type_id = request.form.get("box_type_id") or None
+    plan = generate_box_plan(route_id_int, delivery_date, box_type_id)
+    if not plan:
+        flash("No picked unboxed cooler items found.", "warning")
+        return redirect(url_for("cooler.route_picking", route_id=route_id_int, delivery_date=delivery_date))
+    max_box_no = db.session.execute(
+        text("SELECT COALESCE(MAX(box_no), 0) FROM cooler_boxes WHERE route_id = :rid AND delivery_date = :dd"),
+        {"rid": route_id_int, "dd": str(delivery_date)},
+    ).scalar() or 0
+    now = get_utc_now()
+    created = 0
+    for idx, box in enumerate(plan, start=1):
+        result = db.session.execute(
+            text(
+                "INSERT INTO cooler_boxes "
+                "(route_id, delivery_date, box_no, status, first_stop_sequence, last_stop_sequence, created_by, created_at, box_type_id, fill_cm3, fill_weight_kg, cooler_session_id) "
+                "VALUES (:rid, :dd, :box_no, 'open', :fs, :ls, :who, :now, :btid, :fill, :weight, :sid) "
+                "RETURNING id"
+            ),
+            {
+                "rid": route_id_int,
+                "dd": str(delivery_date),
+                "box_no": int(max_box_no) + idx,
+                "fs": box["stop_min"],
+                "ls": box["stop_max"],
+                "who": _username(),
+                "now": now,
+                "btid": box["box_type_id"],
+                "fill": box["estimated_fill_cm3"],
+                "weight": box["estimated_weight_kg"],
+                "sid": None,
+            },
+        ).fetchone()
+        box_id = result[0]
+        for item in box["item_summaries"]:
+            db.session.execute(
+                text(
+                    "INSERT INTO cooler_box_items "
+                    "(cooler_box_id, invoice_no, customer_code, customer_name, route_stop_id, delivery_sequence, item_code, item_name, expected_qty, picked_qty, picked_by, picked_at, queue_item_id, status, created_at, updated_at) "
+                    "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+                ),
+                {
+                    "bid": box_id,
+                    "inv": item["invoice_no"],
+                    "cc": item["customer_code"],
+                    "cn": item["customer_name"],
+                    "rsid": item["route_stop_id"],
+                    "seq": item["delivery_sequence"],
+                    "ic": item["item_code"],
+                    "iname": item["item_name"],
+                    "exp": item["qty"],
+                    "pq": item["qty"],
+                    "who": _username(),
+                    "now": now,
+                    "qid": item["queue_item_id"],
+                },
+            )
+        created += 1
+    db.session.commit()
+    flash(f"Box plan confirmed — {created} box(es) created.", "success")
+    return redirect(url_for("cooler.route_picking", route_id=route_id_int, delivery_date=delivery_date))
+
+
 @cooler_bp.route("/box/<int:box_id>/assign-item", methods=["POST"])
 @login_required
 @require_permission("cooler.pick")
