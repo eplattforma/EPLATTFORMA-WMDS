@@ -3334,7 +3334,12 @@ def picker_dashboard():
     if current_user.role in ('warehouse_manager', 'admin'):
         try:
             from services.deferred_batch_service import list_open_deferred_batches
-            deferred_batches = list_open_deferred_batches()
+            all_deferred = list_open_deferred_batches()
+            # Non-admin users only see batches assigned to themselves
+            if current_user.role == 'admin':
+                deferred_batches = all_deferred
+            else:
+                deferred_batches = [b for b in all_deferred if b.get('assigned_to') == current_user.username]
         except Exception as exc:
             current_app.logger.warning(
                 "Could not load deferred batches for dashboard: %s", exc
