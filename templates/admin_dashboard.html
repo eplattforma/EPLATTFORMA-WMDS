@@ -154,7 +154,8 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="6" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
@@ -162,7 +163,8 @@
                             {% endif %}
                         {% else %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
-                                <td colspan="6" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
+                                <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
                                 <td colspan="2"></td>
@@ -173,7 +175,8 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="6" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
@@ -181,14 +184,15 @@
                             {% endif %}
                         {% elif not invoice.route_id and loop.previtem.route_id %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
-                                <td colspan="6" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-box me-2"></i>Unassigned</td>
+                                <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
                                 <td colspan="2"></td>
                             </tr>
                         {% endif %}
                     {% endif %}
-                    <tr data-route-group="{{ invoice.route_id or 'unassigned' }}" data-weight="{{ invoice.total_weight or 0 }}" data-est-time="{{ invoice.total_exp_time or 0 }}">
+                    <tr data-route-group="{{ invoice.route_id or 'unassigned' }}" data-lines="{{ total_lines_count.get(invoice.invoice_no, invoice.total_lines or 0) }}" data-weight="{{ invoice.total_weight or 0 }}" data-est-time="{{ invoice.total_exp_time or 0 }}">
                         <td class="text-center"><input type="checkbox" class="order-checkbox" value="{{ invoice.invoice_no }}" onchange="updateSelectedCount()"></td>
                         <td>{% set invoice_display = invoice.invoice_no[-5:] if invoice.invoice_no else '' %}{% if stop_sequences.get(invoice.invoice_no) %}<div class="d-flex align-items-center"><span id="seq-display-{{ invoice.invoice_no }}" class="badge bg-primary me-1" style="cursor: pointer;" onclick="editSequence('{{ invoice.invoice_no }}', {{ stop_sequences[invoice.invoice_no] }})" title="Stop sequence - click to edit">{{ stop_sequences[invoice.invoice_no]|format_seq }}</span><strong>{{ invoice_display }}</strong><span style="font-size:0.7rem;color:#8a9bb5;margin-left:4px;">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '' }}</span></div>{% else %}<strong>{{ invoice_display }}</strong><span style="font-size:0.7rem;color:#8a9bb5;margin-left:5px;">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '' }}</span>{% endif %}</td>
                         <td class="customer-cell">
@@ -272,7 +276,7 @@
                 </thead>
                 <tbody>
                     {% for invoice in invoices %}
-                    <tr data-route-group="{{ invoice.route_id or 'unassigned' }}" data-weight="{{ invoice.total_weight or 0 }}" data-est-time="{{ invoice.total_exp_time or 0 }}">
+                    <tr data-route-group="{{ invoice.route_id or 'unassigned' }}" data-lines="{{ total_lines_count.get(invoice.invoice_no, invoice.total_lines or 0) }}" data-weight="{{ invoice.total_weight or 0 }}" data-est-time="{{ invoice.total_exp_time or 0 }}">
                         <td class="text-center"><input type="checkbox" class="order-checkbox-focus" value="{{ invoice.invoice_no }}"></td>
                         <td><strong>{{ invoice.invoice_no[-5:] if invoice.invoice_no else '' }}</strong></td>
                         <td><small class="text-muted">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '-' }}</small></td>
@@ -581,6 +585,31 @@
                     parseInt(btn.getAttribute('data-batch-id'), 10),
                     btn.getAttribute('data-batch-label')
                 );
+            });
+        });
+
+        // Compute and fill route totals: lines, weight, est-time
+        var routeTotals = {};
+        document.querySelectorAll('tr[data-route-group]').forEach(function(row) {
+            var rg = row.getAttribute('data-route-group');
+            if (!routeTotals[rg]) { routeTotals[rg] = {lines: 0, weight: 0, est: 0}; }
+            routeTotals[rg].lines  += parseInt(row.getAttribute('data-lines')    || '0', 10);
+            routeTotals[rg].weight += parseFloat(row.getAttribute('data-weight') || '0');
+            routeTotals[rg].est    += parseFloat(row.getAttribute('data-est-time') || '0');
+        });
+        Object.keys(routeTotals).forEach(function(rg) {
+            var t = routeTotals[rg];
+            document.querySelectorAll('.route-total-lines[data-route-id="' + rg + '"]').forEach(function(el) {
+                el.textContent = t.lines + (t.lines === 1 ? ' line' : ' lines');
+            });
+            document.querySelectorAll('.route-total-weight[data-route-id="' + rg + '"]').forEach(function(el) {
+                el.textContent = Math.round(t.weight) + ' kg';
+            });
+            document.querySelectorAll('.route-total-est[data-route-id="' + rg + '"]').forEach(function(el) {
+                var mins = Math.round(t.est);
+                el.textContent = mins >= 60
+                    ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm'
+                    : mins + ' min';
             });
         });
 
