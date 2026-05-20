@@ -51,7 +51,7 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="btn-group">
-                {% if invoice.status in ['picking', 'not_started', 'ready_for_dispatch'] %}
+                {% if invoice.status not in ['shipped', 'cancelled', 'Completed'] %}
                 <a href="{{ url_for('admin_reset_invoice_progress', invoice_no=invoice.invoice_no) }}" 
                    class="btn btn-warning" onclick="return confirm('Are you sure you want to reset the progress of this invoice? This will set all items back to Not Picked.')">
                     <i class="fas fa-undo me-1"></i> Reset Progress
