@@ -15,7 +15,7 @@
             </nav>
             <h2 class="h4 mb-3">
                 <i class="fas fa-edit me-2"></i>Edit Invoice #{{ invoice.invoice_no }}
-                {{ invoice.status|status_badge|safe }}
+                {{ invoice.status|status_badge|safe }}{{ invoice.invoice_no|batch_badge|safe }}
             </h2>
         </div>
     </div>

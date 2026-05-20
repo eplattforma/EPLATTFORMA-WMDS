@@ -114,7 +114,7 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {{ invoice.status|status_badge|safe }}
+                                    {{ invoice.status|status_badge|safe }}{{ invoice.invoice_no|batch_badge|safe }}
                                 </td>
                                 <td>
                                     <div class="progress" style="height: 10px;">

@@ -151,7 +151,7 @@
                                     </div>
                                     <div class="col-md-2 text-center">
                                         <div class="text-muted small mb-2">Status</div>
-                                        {{ invoice.status|status_badge|safe }}
+                                        {{ invoice.status|status_badge|safe }}{{ invoice.invoice_no|batch_badge|safe }}
                                     </div>
                                     <div class="col-md-3 text-end">
                                         {% if invoice.status == 'shipped' %}

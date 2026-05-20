@@ -205,6 +205,41 @@ def status_badge_filter(status_value):
     label = status_info['label']
     return f'<span class="badge {badge_class}"><i class="{icon} me-1"></i>{label}</span>'
 
+@app.template_filter('batch_badge')
+def batch_badge_filter(invoice_no):
+    """Return a badge HTML string for any active batch that contains this invoice."""
+    if not invoice_no:
+        return ''
+    try:
+        from models import BatchSessionInvoice, BatchPickingSession
+        from flask import url_for
+        rows = (
+            db.session.query(BatchPickingSession)
+            .join(BatchSessionInvoice,
+                  BatchSessionInvoice.batch_session_id == BatchPickingSession.id)
+            .filter(
+                BatchSessionInvoice.invoice_no == invoice_no,
+                BatchPickingSession.status.in_(['Created', 'In Progress', 'Assigned']),
+                BatchPickingSession.deleted_at.is_(None),
+            )
+            .all()
+        )
+        if not rows:
+            return ''
+        parts = []
+        for b in rows:
+            label = b.batch_number or f'BATCH-{b.id}'
+            colour = 'bg-info' if b.status == 'In Progress' else 'bg-secondary'
+            link = url_for('batch.batch_picking_view', batch_id=b.id)
+            parts.append(
+                f'<a href="{link}" class="badge {colour} ms-1 text-decoration-none" '
+                f'title="In batch: {b.name}">'
+                f'<i class="fas fa-layer-group me-1"></i>{label}</a>'
+            )
+        return ''.join(parts)
+    except Exception:
+        return ''
+
 from update_schema_skipped_items import update_database_schema
 from routes_batch import batch_bp
 from routes_help import help_bp
