@@ -1077,11 +1077,13 @@ def batch_picking_filter():
                           corridors=allowed_corridors, 
                           unit_types=available_unit_types)
 
-@batch_bp.route('/admin/batch/filter-invoices', methods=['POST'])
+@batch_bp.route('/admin/batch/filter-invoices', methods=['GET', 'POST'])
 @login_required
 @require_permission('picking.manage_batches')
 def filter_invoices_for_batch():
     """Filter invoices for batch picking and show selection interface"""
+    if request.method == 'GET':
+        return redirect(url_for('batch.batch_picking_filter'))
     # Only admin users can access this page
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
