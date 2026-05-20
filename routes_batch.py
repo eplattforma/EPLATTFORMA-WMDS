@@ -101,6 +101,63 @@ def clear_batch_cache(batch_id):
         session.pop(fixed_batch_key, None)
         current_app.logger.info(f"🧹 Cleared batch cache for batch {batch_id}")
 
+
+def _enqueue_locked_items(batch_id):
+    """Insert batch_pick_queue rows for every item currently locked to
+    *batch_id* that does not already have a queue row.  Called after
+    ``lock_items_for_batch`` in the admin create / add-invoices paths which
+    lock items but historically never created the queue rows the picker UI
+    needs.  Safe to call more than once — the NOT EXISTS guard prevents
+    duplicates.
+
+    Returns the number of rows inserted.
+    """
+    try:
+        result = db.session.execute(
+            text("""
+                INSERT INTO batch_pick_queue (
+                    batch_session_id, invoice_no, item_code, pick_zone_type,
+                    sequence_no, status, qty_required, wms_zone
+                )
+                SELECT
+                    ii.locked_by_batch_id,
+                    ii.invoice_no,
+                    ii.item_code,
+                    'normal',
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ii.locked_by_batch_id
+                        ORDER BY ii.invoice_no, ii.item_code
+                    ) + COALESCE(
+                        (SELECT MAX(sequence_no) FROM batch_pick_queue
+                         WHERE batch_session_id = ii.locked_by_batch_id), 0
+                    ),
+                    'pending',
+                    COALESCE(NULLIF(ii.expected_pick_pieces::text,'')::numeric,
+                             NULLIF(ii.qty::text,'')::numeric),
+                    ii.zone
+                FROM invoice_items ii
+                WHERE ii.locked_by_batch_id = :bid
+                  AND NOT EXISTS (
+                      SELECT 1 FROM batch_pick_queue bpq
+                      WHERE bpq.batch_session_id = :bid
+                        AND bpq.invoice_no   = ii.invoice_no
+                        AND bpq.item_code    = ii.item_code
+                  )
+            """),
+            {"bid": batch_id},
+        )
+        inserted = result.rowcount
+        current_app.logger.info(
+            "_enqueue_locked_items: inserted %d queue rows for batch %d",
+            inserted, batch_id,
+        )
+        return inserted
+    except Exception as exc:
+        current_app.logger.error(
+            "_enqueue_locked_items: failed for batch %d: %s", batch_id, exc
+        )
+        raise
+
 @batch_bp.route('/admin/batch/quick-view/<int:batch_id>', methods=['GET'])
 @login_required
 @require_permission('picking.manage_batches')
@@ -547,7 +604,17 @@ def add_invoices_to_batch(batch_id):
                     unit_types_list=unit_types_list if unit_types_list else None,
                     invoice_nos=sorted_invoice_nos
                 )
-                
+
+                # Populate batch_pick_queue so the picker UI has rows to show.
+                # lock_items_for_batch only stamps locked_by_batch_id; without
+                # queue rows the batch appears empty to the picker.
+                enqueued = _enqueue_locked_items(batch_id)
+                db.session.commit()
+                current_app.logger.info(
+                    "add_invoices_to_batch: %d queue rows created for batch %d",
+                    enqueued, batch_id,
+                )
+
                 # Clear cache to force regeneration when adding invoices to existing batch
                 if batch.picking_mode == 'Sequential':
                     from flask import session
@@ -821,8 +888,15 @@ def batch_picking_create_simple():
                     invoice_numbers
                 )
                 current_app.logger.info(f"Locked {locked_count} items for batch {batch_session.id}")
+
+                # Populate batch_pick_queue so the picker UI has rows to show.
+                enqueued = _enqueue_locked_items(batch_session.id)
+                current_app.logger.info(
+                    "batch_picking_create_simple: %d queue rows created for batch %d",
+                    enqueued, batch_session.id,
+                )
             except Exception as lock_error:
-                current_app.logger.error(f"Failed to lock items for batch {batch_session.id}: {str(lock_error)}")
+                current_app.logger.error(f"Failed to lock/enqueue items for batch {batch_session.id}: {str(lock_error)}")
                 # Continue with batch creation even if locking fails, but log the error
             
             # Commit changes
