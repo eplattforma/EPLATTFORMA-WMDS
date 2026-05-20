@@ -3051,9 +3051,7 @@ def delete_batch_comprehensive(batch_id, batch_name, admin_username):
     from batch_locking_utils import unlock_items_for_batch
     deletion_counts['unlocked_items'] = unlock_items_for_batch(batch_id, preserve_picked=False)
 
-    # 1b. Cooler-specific teardown: cancel open boxes and recompute invoice
-    # statuses so they resolve back to not_started / picking /
-    # ready_for_dispatch rather than staying stuck.
+    # 1b. Cooler-specific teardown: cancel any open boxes.
     _batch_obj = BatchPickingSession.query.get(batch_id)
     if _batch_obj and getattr(_batch_obj, 'session_type', None) == 'cooler_route':
         db.session.execute(
@@ -3065,20 +3063,24 @@ def delete_batch_comprehensive(batch_id, batch_name, admin_username):
             """),
             {"sid": batch_id},
         )
-        _affected = db.session.execute(
-            text("""
-                SELECT DISTINCT invoice_no
-                FROM batch_session_invoices
-                WHERE batch_session_id = :sid
-            """),
-            {"sid": batch_id},
-        ).fetchall()
-        from batch_aware_order_status import update_order_status_batch_aware
-        for _row in _affected:
-            try:
-                update_order_status_batch_aware(_row[0])
-            except Exception as _e:
-                current_app.logger.warning("delete_batch_comprehensive: status recompute failed for %s: %s", _row[0], _e)
+
+    # 1c. Recompute invoice statuses for ALL batch types — without this,
+    # items sent to a batch and then deleted leave the invoice stuck in
+    # 'awaiting_batch_items' even though its locks have been released.
+    _affected = db.session.execute(
+        text("""
+            SELECT DISTINCT invoice_no
+            FROM batch_session_invoices
+            WHERE batch_session_id = :sid
+        """),
+        {"sid": batch_id},
+    ).fetchall()
+    from batch_aware_order_status import update_order_status_batch_aware
+    for _row in _affected:
+        try:
+            update_order_status_batch_aware(_row[0])
+        except Exception as _e:
+            current_app.logger.warning("delete_batch_comprehensive: status recompute failed for %s: %s", _row[0], _e)
 
     # 2. Delete batch picked items
     deletion_counts['batch_picked_items'] = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
