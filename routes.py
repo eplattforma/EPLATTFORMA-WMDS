@@ -3837,7 +3837,9 @@ def pick_item(invoice_no):
                 else:
                     current_item.pick_status = 'exception'
 
-                if getattr(batch, 'session_type', None) == 'cooler_route':
+                _cooler_batch = (BatchPickingSession.query.get(current_item.locked_by_batch_id)
+                                if current_item.locked_by_batch_id else None)
+                if getattr(_cooler_batch, 'session_type', None) == 'cooler_route':
                     current_item.is_picked = True
                     current_item.pick_status = 'picked'
                 
