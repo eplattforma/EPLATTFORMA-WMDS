@@ -600,7 +600,7 @@
         Object.keys(routeTotals).forEach(function(rg) {
             var t = routeTotals[rg];
             document.querySelectorAll('.route-total-lines[data-route-id="' + rg + '"]').forEach(function(el) {
-                el.textContent = t.lines + (t.lines === 1 ? ' line' : ' lines');
+                el.textContent = t.lines;
             });
             document.querySelectorAll('.route-total-weight[data-route-id="' + rg + '"]').forEach(function(el) {
                 el.textContent = Math.round(t.weight) + ' kg';
