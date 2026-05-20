@@ -190,6 +190,25 @@ def batch_picking_manage():
         status='Completed'
     ).order_by(BatchPickingSession.created_at.desc()).limit(10).all()
 
+    # Filter out batches whose linked route is closed (COMPLETED / CANCELLED)
+    # or already reconciled. Batches not linked to any route are kept.
+    # Those hidden batches are still reachable via the Find Invoice/Route page.
+    from models import Shipment
+    _route_ids = [s.route_id for s in (list(active_sessions) + list(completed_sessions)) if s.route_id]
+    _closed_route_ids = set()
+    if _route_ids:
+        _closed_rows = Shipment.query.filter(
+            Shipment.id.in_(list(set(_route_ids))),
+            db.or_(
+                Shipment.status.in_(['COMPLETED', 'CANCELLED']),
+                Shipment.reconciliation_status == 'RECONCILED',
+            ),
+        ).with_entities(Shipment.id).all()
+        _closed_route_ids = {r.id for r in _closed_rows}
+
+    active_sessions = [s for s in active_sessions if not s.route_id or s.route_id not in _closed_route_ids]
+    completed_sessions = [s for s in completed_sessions if not s.route_id or s.route_id not in _closed_route_ids]
+
     # Get pickers for the assign dropdown
     pickers = get_picking_eligible_users()
 
