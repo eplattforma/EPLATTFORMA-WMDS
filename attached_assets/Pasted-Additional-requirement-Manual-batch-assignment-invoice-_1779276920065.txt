@@ -1,0 +1,70 @@
+Additional requirement — Manual batch assignment invoice filter must group invoices by route
+
+In the manual batch assignment screen, when the user filters/searches invoices to manually add products/invoices into a picking batch, the invoice results should be grouped by delivery route so the warehouse user can select the correct invoices more safely.
+
+Current issue:
+The invoice list is shown as a flat list. This makes it easy to select invoices from the wrong route, especially when multiple routes or delivery dates are visible.
+
+Required change:
+When the manual assignment/filter screen displays invoices, group the results by route.
+
+Each route group should show a clear header with:
+- Route name / route id
+- Shipment id if available
+- Delivery date
+- Driver name if available
+- Number of stops
+- Number of invoices
+- Total lines / total quantity if easy to calculate
+
+Inside each route group, show the invoices sorted by route stop sequence.
+
+Recommended layout:
+
+Route: Nicosia 1 | Delivery date: 2026-05-20 | Driver: Andreas
+--------------------------------------------------------------
+[ ] Select all invoices in this route
+
+Stop 1 — Customer A
+    [ ] INV00123 — 8 lines — 24 qty
+    [ ] INV00124 — 3 lines — 6 qty
+
+Stop 2 — Customer B
+    [ ] INV00125 — 5 lines — 10 qty
+
+Route: Limassol 2 | Delivery date: 2026-05-20 | Driver: Marios
+--------------------------------------------------------------
+[ ] Select all invoices in this route
+
+Stop 1 — Customer C
+    [ ] INV00130 — 4 lines — 12 qty
+
+Data logic:
+- Use route_stop_invoice to connect invoice_no to route_stop.
+- Use route_stop to get shipment_id, seq_no, customer_code, and stop details.
+- Use shipments to get route_name, driver_name, delivery_date, and route/shipment status.
+- Group first by shipment_id / route.
+- Sort groups by delivery_date and route_name.
+- Sort invoices inside each group by route_stop.seq_no, then invoice_no.
+
+Selection logic:
+- Add a “Select all invoices in this route” checkbox for each route group.
+- If the user selects invoices from more than one route, show a warning:
+  “You selected invoices from multiple routes. This may be intentional, but please confirm.”
+- Do not block mixed-route selection completely, because there may be exception cases.
+- But make same-route selection the default and easiest path.
+
+Filtering:
+- Keep the existing filters/search.
+- After filtering, still group the remaining matching invoices by route.
+- Add optional route filter if not already available:
+  - delivery date
+  - route name
+  - driver
+  - shipment id
+
+UI goal:
+The warehouse user should immediately see which invoices belong to the same route before assigning them to a batch. This reduces wrong batch grouping and makes manual assignment safer.
+
+Important:
+Do not redesign unrelated batch picking functionality. Only improve the manual invoice assignment/filter result display and selection safety.

@@ -3,211 +3,306 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add Invoices to Batch {{ batch.id }} - EPLATTFORMA WMDS System</title>
+    <title>Add Invoices to Batch {{ batch.id }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .route-card { border-left: 4px solid #0d6efd; margin-bottom: 1.25rem; }
+        .route-card .route-header {
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            color: #fff; padding: .75rem 1rem; border-radius: 0;
+        }
+        .route-header .badge { font-size: .75rem; }
+        .stop-block { border-left: 3px solid #dee2e6; margin: .5rem 0 .5rem 1rem; padding-left: .75rem; }
+        .stop-label { font-size: .8rem; font-weight: 600; color: #495057; text-transform: uppercase;
+                      letter-spacing: .05em; margin-bottom: .35rem; }
+        .invoice-row { display: flex; align-items: center; gap: .75rem;
+                       padding: .3rem .5rem; border-radius: 4px; transition: background .15s; }
+        .invoice-row:hover { background: #f0f4ff; }
+        .invoice-row .inv-no { font-family: monospace; font-weight: 600; min-width: 130px; }
+        .invoice-row .inv-customer { flex: 1; color: #495057; font-size: .9rem; }
+        .invoice-row .inv-meta { white-space: nowrap; font-size: .8rem; color: #6c757d; }
+        .unrouted-card { border-left: 4px solid #ffc107; }
+        .unrouted-header { background: #fff3cd; color: #856404; padding: .75rem 1rem; }
+        #multiRouteWarning { display: none; }
+        .filter-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+        .select-all-route { font-size: .85rem; color: #0d6efd; cursor: pointer; }
+        .route-stats span { font-size: .78rem; }
+    </style>
 </head>
 <body>
-    <div class="container-fluid mt-4">
-        <div class="row">
-            <div class="col-12">
-                <!-- Header -->
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <div>
-                        <h2><i class="fas fa-plus-circle text-success me-2"></i>Add Invoices to Batch</h2>
-                        <h5 class="text-muted">Batch {{ batch.id }}: {{ batch.name }}</h5>
-                    </div>
-                    <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left me-2"></i>Back to Batch Management
-                    </a>
-                </div>
+<div class="container-fluid mt-4 pb-5">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-0"><i class="fas fa-plus-circle text-success me-2"></i>Add Invoices to Batch</h4>
+            <small class="text-muted">Batch #{{ batch.id }}: {{ batch.name }} &nbsp;|&nbsp;
+                Zones: {{ zones|join(', ') }}{% if corridors %} &nbsp;|&nbsp; Corridors: {{ corridors|join(', ') }}{% endif %}
+            </small>
+        </div>
+        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back
+        </a>
+    </div>
 
-                <!-- Batch Info -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0"><i class="fas fa-info-circle me-2"></i>Batch Information</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <strong>Batch ID:</strong> {{ batch.id }}
-                            </div>
-                            <div class="col-md-3">
-                                <strong>Status:</strong> 
-                                <span class="badge bg-primary">{{ batch.status }}</span>
-                            </div>
-                            <div class="col-md-3">
-                                <strong>Zones:</strong> {{ zones|join(', ') }}
-                            </div>
-                            <div class="col-md-3">
-                                <strong>Corridors:</strong> {{ corridors|join(', ') if corridors else 'All' }}
-                            </div>
-                        </div>
-                        <div class="row mt-2">
-                            <div class="col-md-3">
-                                <strong>Picking Mode:</strong> {{ batch.picking_mode }}
-                            </div>
-                            <div class="col-md-3">
-                                <strong>Assigned To:</strong> {{ batch.assigned_to or 'Unassigned' }}
-                            </div>
-                            <div class="col-md-6">
-                                <strong>Current Invoices:</strong> {{ batch.invoices|length }} invoices
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Available Invoices Form -->
-                {% if available_invoices %}
-                <form method="POST">
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-0">
-                                <i class="fas fa-file-invoice me-2"></i>
-                                Available Invoices ({{ available_invoices|length }})
-                            </h5>
-                            <div>
-                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="selectAll()">
-                                    <i class="fas fa-check-square me-1"></i>Select All
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAll()">
-                                    <i class="fas fa-square me-1"></i>Clear All
-                                </button>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted mb-3">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Showing invoices that match the batch zones/corridors and are not already in this batch.
-                                Invoices are sorted by routing number (descending) for optimal picking sequence.
-                            </p>
-                            
-                            <div class="table-responsive">
-                                <table class="table table-striped table-hover">
-                                    <thead class="table-dark">
-                                        <tr>
-                                            <th width="5%">
-                                                <input type="checkbox" id="selectAllCheckbox" onclick="toggleAll()">
-                                            </th>
-                                            <th width="15%">Invoice No</th>
-                                            <th width="45%">Customer</th>
-                                            <th width="15%">Routing</th>
-                                            <th width="15%">Items</th>
-                                            <th width="5%"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for invoice in available_invoices %}
-                                        <tr>
-                                            <td>
-                                                <input type="checkbox" 
-                                                       name="selected_invoices" 
-                                                       value="{{ invoice.invoice_no }}"
-                                                       class="invoice-checkbox">
-                                            </td>
-                                            <td>
-                                                <strong>{{ invoice.invoice_no }}</strong>
-                                            </td>
-                                            <td>{{ invoice.customer_name or 'Unknown Customer' }}</td>
-                                            <td>
-                                                {% if invoice.routing %}
-                                                    <span class="badge bg-info">{{ invoice.routing }}</span>
-                                                {% else %}
-                                                    <span class="badge bg-secondary">No Routing</span>
-                                                {% endif %}
-                                            </td>
-                                            <td>
-                                                <span class="badge bg-success">{{ invoice.item_count }} items</span>
-                                            </td>
-                                            <td>
-                                                <i class="fas fa-plus-circle text-success" title="Add to batch"></i>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="card-footer">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="text-muted">
-                                    <i class="fas fa-info-circle me-1"></i>
-                                    Selected invoices will be added to the batch in routing number descending order for optimal picking sequence.
-                                </div>
-                                <div>
-                                    <button type="submit" class="btn btn-success">
-                                        <i class="fas fa-plus me-2"></i>Add Selected Invoices to Batch
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </form>
-                {% else %}
-                <div class="card">
-                    <div class="card-body text-center py-5">
-                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
-                        <h4 class="text-muted">No Available Invoices</h4>
-                        <p class="text-muted">
-                            All invoices matching the batch criteria (zones: {{ zones|join(', ') }}{% if corridors %}, corridors: {{ corridors|join(', ') }}{% endif %}) 
-                            are either already in this batch or locked by other active batches.
-                        </p>
-                        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-primary">
-                            <i class="fas fa-arrow-left me-2"></i>Back to Batch Management
-                        </a>
-                    </div>
-                </div>
-                {% endif %}
+    <!-- Filter bar -->
+    <div class="filter-card">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label form-label-sm mb-1">Search</label>
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="Invoice / Customer" value="{{ search_filter }}">
             </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm mb-1">Delivery Date</label>
+                <input type="date" name="date_filter" class="form-control form-control-sm"
+                       value="{{ date_filter }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm mb-1">Route Name</label>
+                <input type="text" name="route_filter" class="form-control form-control-sm"
+                       placeholder="Contains…" value="{{ route_filter }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm mb-1">Driver</label>
+                <input type="text" name="driver_filter" class="form-control form-control-sm"
+                       placeholder="Contains…" value="{{ driver_filter }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm mb-1">Shipment ID</label>
+                <input type="number" name="shipment_filter" class="form-control form-control-sm"
+                       placeholder="Exact ID" value="{{ shipment_filter }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill">
+                    <i class="fas fa-filter me-1"></i>Filter
+                </button>
+                <a href="{{ url_for('batch.add_invoices_to_batch', batch_id=batch.id) }}"
+                   class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-times"></i>
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Multi-route warning -->
+    <div id="multiRouteWarning" class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
+        <i class="fas fa-exclamation-triangle fa-lg"></i>
+        <div>
+            <strong>You have selected invoices from multiple routes.</strong>
+            This may be intentional, but please confirm before adding.
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function selectAll() {
-            const checkboxes = document.querySelectorAll('.invoice-checkbox');
-            checkboxes.forEach(checkbox => checkbox.checked = true);
-            updateSelectAllCheckbox();
-        }
+    {% set total_groups = route_groups|length %}
+    {% set has_unrouted = unrouted_invoices|length > 0 %}
 
-        function clearAll() {
-            const checkboxes = document.querySelectorAll('.invoice-checkbox');
-            checkboxes.forEach(checkbox => checkbox.checked = false);
-            updateSelectAllCheckbox();
-        }
+    {% if total_groups == 0 and not has_unrouted %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">No Available Invoices</h5>
+            <p class="text-muted mb-0">
+                All invoices matching zones <strong>{{ zones|join(', ') }}</strong>
+                {% if corridors %}and corridors <strong>{{ corridors|join(', ') }}</strong>{% endif %}
+                are either already in this batch, locked by another batch, or don't match the current filters.
+            </p>
+        </div>
+    </div>
+    {% else %}
 
-        function toggleAll() {
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            if (!selectAllCheckbox) return;
-            const checkboxes = document.querySelectorAll('.invoice-checkbox');
-            checkboxes.forEach(checkbox => checkbox.checked = selectAllCheckbox.checked);
-        }
+    <form method="POST" id="addForm">
+        <!-- Sticky submit bar -->
+        <div class="position-sticky top-0 bg-white py-2 px-1 border-bottom mb-3" style="z-index:100;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted small">
+                    <span id="selectedCount">0</span> invoice(s) selected
+                    &nbsp;|&nbsp; {{ total_available }} available
+                </span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAll()">
+                        <i class="fas fa-square me-1"></i>Clear All
+                    </button>
+                    <button type="submit" class="btn btn-success btn-sm" id="submitBtn" disabled>
+                        <i class="fas fa-plus me-1"></i>Add Selected to Batch
+                    </button>
+                </div>
+            </div>
+        </div>
 
-        function updateSelectAllCheckbox() {
-            const checkboxes = document.querySelectorAll('.invoice-checkbox');
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            if (!selectAllCheckbox) return;
-            const checkedCount = document.querySelectorAll('.invoice-checkbox:checked').length;
+        <!-- Route groups -->
+        {% for grp in route_groups %}
+        <div class="card route-card shadow-sm">
+            <div class="route-header">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <i class="fas fa-truck me-1"></i>
+                        <strong>{{ grp.route_name }}</strong>
+                        <span class="badge bg-light text-dark ms-2">Shipment #{{ grp.shipment_id }}</span>
+                        {% if grp.route_status %}
+                        <span class="badge
+                            {% if grp.route_status in ['COMPLETED','CANCELLED'] %}bg-secondary
+                            {% elif grp.route_status == 'DISPATCHED' %}bg-warning text-dark
+                            {% else %}bg-info text-dark{% endif %} ms-1">
+                            {{ grp.route_status }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="route-stats d-flex flex-wrap gap-3">
+                        {% if grp.delivery_date %}
+                        <span><i class="fas fa-calendar-alt me-1 opacity-75"></i>{{ grp.delivery_date.strftime('%d/%m/%Y') }}</span>
+                        {% endif %}
+                        <span><i class="fas fa-user me-1 opacity-75"></i>{{ grp.driver_name }}</span>
+                        <span><i class="fas fa-map-marker-alt me-1 opacity-75"></i>{{ grp.stop_count }} stop(s)</span>
+                        <span><i class="fas fa-file-invoice me-1 opacity-75"></i>{{ grp.total_invoices }} invoice(s)</span>
+                        <span><i class="fas fa-boxes me-1 opacity-75"></i>{{ grp.total_lines }} lines / {{ grp.total_qty|int }} qty</span>
+                    </div>
+                </div>
+                <!-- Select all in this route -->
+                <div class="mt-2">
+                    <label class="form-check-label select-all-route d-inline-flex align-items-center gap-2" style="cursor:pointer;">
+                        <input type="checkbox" class="form-check-input route-select-all"
+                               data-route="{{ grp.shipment_id }}" style="cursor:pointer;">
+                        <span>Select all invoices in this route</span>
+                    </label>
+                </div>
+            </div>
+            <div class="card-body py-2">
+                {% for stop_id, stop in grp.stops.items() %}
+                <div class="stop-block">
+                    <div class="stop-label">
+                        <i class="fas fa-map-pin me-1 text-primary"></i>
+                        Stop {{ stop.seq_no|int }} — {{ stop.stop_name }}
+                        {% if stop.customer_code %}
+                        <span class="badge bg-light text-dark fw-normal ms-1">{{ stop.customer_code }}</span>
+                        {% endif %}
+                    </div>
+                    {% for inv in stop.invoices %}
+                    <div class="invoice-row">
+                        <input type="checkbox" name="selected_invoices" value="{{ inv.invoice_no }}"
+                               class="form-check-input invoice-checkbox flex-shrink-0"
+                               data-route="{{ grp.shipment_id }}">
+                        <span class="inv-no">{{ inv.invoice_no }}</span>
+                        <span class="inv-customer">{{ inv.customer_name }}</span>
+                        <span class="inv-meta">
+                            <span class="badge bg-success">{{ inv.item_count }} lines</span>
+                            <span class="badge bg-secondary ms-1">{{ inv.total_qty|int }} qty</span>
+                            {% if inv.routing %}
+                            <span class="badge bg-info text-dark ms-1">R{{ inv.routing }}</span>
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
 
-            if (checkedCount === 0) {
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.checked = false;
-            } else if (checkedCount === checkboxes.length) {
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.checked = true;
-            } else {
-                selectAllCheckbox.indeterminate = true;
-            }
-        }
+        <!-- Unrouted invoices -->
+        {% if unrouted_invoices %}
+        <div class="card unrouted-card shadow-sm mb-3">
+            <div class="unrouted-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-question-circle me-1"></i>
+                    <strong>No Route Assigned</strong>
+                    <span class="badge bg-warning text-dark ms-2">{{ unrouted_invoices|length }} invoice(s)</span>
+                </div>
+                <label class="form-check-label select-all-route d-inline-flex align-items-center gap-2" style="cursor:pointer;">
+                    <input type="checkbox" class="form-check-input route-select-all"
+                           data-route="__unrouted__" style="cursor:pointer;">
+                    <span class="small">Select all unrouted</span>
+                </label>
+            </div>
+            <div class="card-body py-2">
+                <p class="text-muted small mb-2">
+                    These invoices match the batch criteria but are not linked to any route stop.
+                </p>
+                {% for inv in unrouted_invoices %}
+                <div class="invoice-row">
+                    <input type="checkbox" name="selected_invoices" value="{{ inv.invoice_no }}"
+                           class="form-check-input invoice-checkbox flex-shrink-0"
+                           data-route="__unrouted__">
+                    <span class="inv-no">{{ inv.invoice_no }}</span>
+                    <span class="inv-customer">{{ inv.customer_name }}</span>
+                    <span class="inv-meta">
+                        <span class="badge bg-success">{{ inv.item_count }} lines</span>
+                        <span class="badge bg-secondary ms-1">{{ inv.total_qty|int }} qty</span>
+                        {% if inv.routing %}
+                        <span class="badge bg-info text-dark ms-1">R{{ inv.routing }}</span>
+                        {% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
 
-        // Add event listeners to individual checkboxes
-        document.addEventListener('DOMContentLoaded', function() {
-            const checkboxes = document.querySelectorAll('.invoice-checkbox');
-            checkboxes.forEach(checkbox => {
-                checkbox.addEventListener('change', updateSelectAllCheckbox);
-            });
-            updateSelectAllCheckbox();
+    </form>
+    {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function () {
+    function getChecked() {
+        return Array.from(document.querySelectorAll('.invoice-checkbox:checked'));
+    }
+
+    function getRoutes(checked) {
+        return new Set(checked.map(cb => cb.dataset.route));
+    }
+
+    function update() {
+        const checked = getChecked();
+        const routes  = getRoutes(checked);
+        document.getElementById('selectedCount').textContent = checked.length;
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = checked.length === 0;
+
+        const warn = document.getElementById('multiRouteWarning');
+        // Show warning if >1 distinct non-unrouted route is selected
+        const routedRoutes = new Set([...routes].filter(r => r !== '__unrouted__'));
+        warn.style.display = routedRoutes.size > 1 ? 'flex' : 'none';
+
+        // Sync "select all" checkboxes for each route
+        document.querySelectorAll('.route-select-all').forEach(sa => {
+            const rid = sa.dataset.route;
+            const all = document.querySelectorAll(`.invoice-checkbox[data-route="${CSS.escape(rid)}"]`);
+            const chk = document.querySelectorAll(`.invoice-checkbox[data-route="${CSS.escape(rid)}"]:checked`);
+            sa.indeterminate = chk.length > 0 && chk.length < all.length;
+            sa.checked = all.length > 0 && chk.length === all.length;
         });
-    </script>
+    }
+
+    // Route-level "select all" toggle
+    document.querySelectorAll('.route-select-all').forEach(sa => {
+        sa.addEventListener('change', function () {
+            const rid = this.dataset.route;
+            document.querySelectorAll(`.invoice-checkbox[data-route="${CSS.escape(rid)}"]`)
+                .forEach(cb => { cb.checked = this.checked; });
+            update();
+        });
+    });
+
+    // Individual checkboxes
+    document.querySelectorAll('.invoice-checkbox').forEach(cb => {
+        cb.addEventListener('change', update);
+    });
+
+    function clearAll() {
+        document.querySelectorAll('.invoice-checkbox').forEach(cb => cb.checked = false);
+        document.querySelectorAll('.route-select-all').forEach(sa => {
+            sa.checked = false;
+            sa.indeterminate = false;
+        });
+        update();
+    }
+    window.clearAll = clearAll;
+
+    update();
+})();
+</script>
 </body>
 </html>

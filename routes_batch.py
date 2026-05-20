@@ -635,42 +635,165 @@ def add_invoices_to_batch(batch_id):
     
     # GET request - show invoice selection interface
     # Get current batch zones and corridors
+    from models import RouteStop, RouteStopInvoice, Shipment as _Shipment
+    from datetime import date as _date
+
     zones_list = batch.zones.split(',') if batch.zones else []
     corridors_list = batch.corridors.split(',') if batch.corridors else []
-    
-    # Get invoices already in this batch
     existing_invoices = [bi.invoice_no for bi in batch.invoices]
-    
-    # Find available invoices that match batch criteria but aren't already in the batch
-    filter_conditions = [
+
+    # Filters from query-string
+    date_filter     = request.args.get('date_filter', '').strip()
+    route_filter    = request.args.get('route_filter', '').strip()
+    driver_filter   = request.args.get('driver_filter', '').strip()
+    shipment_filter = request.args.get('shipment_filter', '').strip()
+    search_filter   = request.args.get('search', '').strip()
+
+    # Step 1 — available invoices matching batch zone / corridor criteria
+    base_conds = [
         InvoiceItem.zone.in_(zones_list),
         InvoiceItem.is_picked == False,
         func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING']),
-        InvoiceItem.locked_by_batch_id == None,  # Only unlocked items
-        ~Invoice.invoice_no.in_(existing_invoices)  # Exclude invoices already in batch
+        InvoiceItem.locked_by_batch_id == None,
     ]
-    
+    if existing_invoices:
+        base_conds.append(~Invoice.invoice_no.in_(existing_invoices))
     if corridors_list:
-        filter_conditions.append(InvoiceItem.corridor.in_(corridors_list))
-    
-    # Get available invoices with item counts and total quantities
+        base_conds.append(InvoiceItem.corridor.in_(corridors_list))
+    if search_filter:
+        base_conds.append(or_(
+            Invoice.customer_name.ilike(f'%{search_filter}%'),
+            Invoice.invoice_no.ilike(f'%{search_filter}%'),
+        ))
+
     available_invoices = db.session.query(
         Invoice.invoice_no,
         Invoice.customer_name,
         Invoice.routing,
-        func.count(InvoiceItem.item_code).label('item_count'),
-        func.sum(InvoiceItem.qty).label('total_qty')
-    ).join(InvoiceItem).filter(
-        and_(*filter_conditions)
-    ).group_by(
-        Invoice.invoice_no, Invoice.customer_name, Invoice.routing
-    ).order_by(func.cast(Invoice.routing, db.Numeric).desc().nulls_last()).all()
-    
+        func.count(func.distinct(InvoiceItem.item_code)).label('item_count'),
+        func.coalesce(func.sum(InvoiceItem.qty), 0).label('total_qty'),
+    ).join(InvoiceItem, InvoiceItem.invoice_no == Invoice.invoice_no).filter(
+        and_(*base_conds)
+    ).group_by(Invoice.invoice_no, Invoice.customer_name, Invoice.routing).all()
+
+    # Step 2 — route / stop data for those invoices
+    route_lookup = {}
+    shipment_stop_counts = {}
+    if available_invoices:
+        inv_nos = [r.invoice_no for r in available_invoices]
+        rd_rows = db.session.query(
+            RouteStopInvoice.invoice_no,
+            RouteStop.route_stop_id,
+            RouteStop.seq_no,
+            RouteStop.stop_name,
+            RouteStop.customer_code,
+            _Shipment.id.label('shipment_id'),
+            _Shipment.route_name,
+            _Shipment.driver_name,
+            _Shipment.delivery_date,
+            _Shipment.status.label('route_status'),
+        ).join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
+        ).join(_Shipment, _Shipment.id == RouteStop.shipment_id
+        ).filter(
+            RouteStopInvoice.invoice_no.in_(inv_nos),
+            RouteStopInvoice.is_active == True,
+        ).all()
+        route_lookup = {r.invoice_no: r for r in rd_rows}
+
+        all_sids = list({r.shipment_id for r in rd_rows})
+        if all_sids:
+            for sc in db.session.query(
+                RouteStop.shipment_id,
+                func.count(RouteStop.route_stop_id).label('cnt'),
+            ).filter(RouteStop.shipment_id.in_(all_sids)).group_by(RouteStop.shipment_id).all():
+                shipment_stop_counts[sc.shipment_id] = sc.cnt
+
+    # Step 3 — group into route_groups
+    route_groups = {}
+    unrouted = []
+
+    for inv in available_invoices:
+        inv_dict = {
+            'invoice_no': inv.invoice_no,
+            'customer_name': inv.customer_name or '',
+            'routing': inv.routing,
+            'item_count': inv.item_count or 0,
+            'total_qty': float(inv.total_qty or 0),
+        }
+        rd = route_lookup.get(inv.invoice_no)
+        if rd is None:
+            unrouted.append(inv_dict)
+            continue
+
+        # Apply route-based filters
+        if date_filter:
+            try:
+                from datetime import datetime as _dt
+                df = _dt.strptime(date_filter, '%Y-%m-%d').date()
+                if rd.delivery_date != df:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        if route_filter and route_filter.lower() not in (rd.route_name or '').lower():
+            continue
+        if driver_filter and driver_filter.lower() not in (rd.driver_name or '').lower():
+            continue
+        if shipment_filter:
+            try:
+                if int(shipment_filter) != rd.shipment_id:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        sid = rd.shipment_id
+        if sid not in route_groups:
+            route_groups[sid] = {
+                'shipment_id': sid,
+                'route_name': rd.route_name or f'Route #{sid}',
+                'driver_name': rd.driver_name or 'N/A',
+                'delivery_date': rd.delivery_date,
+                'route_status': rd.route_status or '',
+                'stop_count': shipment_stop_counts.get(sid, 0),
+                'stops': {},
+                'total_invoices': 0,
+                'total_lines': 0,
+                'total_qty': 0.0,
+            }
+        stop_id = rd.route_stop_id
+        if stop_id not in route_groups[sid]['stops']:
+            route_groups[sid]['stops'][stop_id] = {
+                'route_stop_id': stop_id,
+                'seq_no': float(rd.seq_no),
+                'stop_name': rd.stop_name or f'Stop {float(rd.seq_no):.0f}',
+                'customer_code': rd.customer_code or '',
+                'invoices': [],
+            }
+        route_groups[sid]['stops'][stop_id]['invoices'].append(inv_dict)
+        route_groups[sid]['total_invoices'] += 1
+        route_groups[sid]['total_lines'] += inv.item_count or 0
+        route_groups[sid]['total_qty'] += float(inv.total_qty or 0)
+
+    # Sort stops by seq_no; sort groups by delivery_date then route_name
+    for grp in route_groups.values():
+        grp['stops'] = dict(sorted(grp['stops'].items(), key=lambda kv: kv[1]['seq_no']))
+    route_groups_list = sorted(
+        route_groups.values(),
+        key=lambda g: (g['delivery_date'] or _date(1900, 1, 1), g['route_name']),
+    )
+
     return render_template('batch_add_invoices.html',
-                         batch=batch,
-                         available_invoices=available_invoices,
-                         zones=zones_list,
-                         corridors=corridors_list)
+        batch=batch,
+        route_groups=route_groups_list,
+        unrouted_invoices=unrouted,
+        zones=zones_list,
+        corridors=corridors_list,
+        total_available=len(available_invoices),
+        date_filter=date_filter,
+        route_filter=route_filter,
+        driver_filter=driver_filter,
+        shipment_filter=shipment_filter,
+        search_filter=search_filter,
+    )
 
 @batch_bp.route('/admin/batch/delete/<int:batch_id>', methods=['POST'])
 @login_required
