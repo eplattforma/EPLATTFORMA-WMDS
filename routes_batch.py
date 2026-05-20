@@ -1526,7 +1526,7 @@ def picker_batch_list():
     from services.batch_picking import is_claim_required as _is_claim_required
     from sqlalchemy import or_ as _or_
 
-    is_admin_like = current_user.role in ('admin', 'warehouse_manager')
+    is_admin_like = current_user.role == 'admin'
     claim_on = _is_claim_required()
 
     base_q = BatchPickingSession.query.filter(
