@@ -1235,7 +1235,64 @@ def filter_invoices_for_batch():
         else:
             flash(f'No invoices found with items in the selected zones {", ".join(zones)}.', 'warning')
         return redirect(url_for('batch.batch_picking_filter'))
-    
+
+    # --- Build route groups ---
+    from models import Shipment
+    invoice_nos = [inv.invoice_no for inv in invoices]
+    inv_map = {inv.invoice_no: inv for inv in invoices}
+
+    # Fetch active route-stop links for these invoices
+    rsi_rows = (
+        db.session.query(RouteStopInvoice, RouteStop, Shipment)
+        .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+        .join(Shipment, Shipment.id == RouteStop.shipment_id)
+        .filter(
+            RouteStopInvoice.invoice_no.in_(invoice_nos),
+            RouteStopInvoice.is_active.is_(True),
+            RouteStop.deleted_at.is_(None),
+        )
+        .all()
+    )
+
+    # Map invoice_no → (RouteStop, Shipment); keep first hit per invoice
+    inv_to_stop = {}
+    for rsi, stop, shipment in rsi_rows:
+        if rsi.invoice_no not in inv_to_stop:
+            inv_to_stop[rsi.invoice_no] = (stop, shipment)
+
+    # Build route_groups: shipment_id → {shipment, stops: {route_stop_id → {stop, invoices[]}}}
+    shipment_map = {}
+    for inv_no, (stop, shipment) in inv_to_stop.items():
+        sid = shipment.id
+        if sid not in shipment_map:
+            shipment_map[sid] = {'shipment': shipment, 'stops': {}}
+        stops_dict = shipment_map[sid]['stops']
+        rsid = stop.route_stop_id
+        if rsid not in stops_dict:
+            stops_dict[rsid] = {'stop': stop, 'invoices': []}
+        stops_dict[rsid]['invoices'].append(inv_map[inv_no])
+
+    # Sort groups by delivery_date then route_name; stops by seq_no
+    route_groups = []
+    for sid, gdata in shipment_map.items():
+        ship = gdata['shipment']
+        sorted_stops = sorted(gdata['stops'].values(), key=lambda s: s['stop'].seq_no or 0)
+        all_inv = [i for s in sorted_stops for i in s['invoices']]
+        route_groups.append({
+            'shipment': ship,
+            'stops': sorted_stops,
+            'invoice_count': len(all_inv),
+            'total_lines': sum(getattr(i, 'total_lines', 0) or 0 for i in all_inv),
+            'eligible_items': sum(getattr(i, 'eligible_item_count', 0) or 0 for i in all_inv),
+        })
+    route_groups.sort(key=lambda g: (
+        g['shipment'].delivery_date or '',
+        g['shipment'].route_name or '',
+    ))
+
+    unrouted_invoices = [inv for inv in invoices if inv.invoice_no not in inv_to_stop]
+    # --- End route groups ---
+
     # Get picker list for assignment
     pickers = get_picking_eligible_users()
     
@@ -1247,6 +1304,8 @@ def filter_invoices_for_batch():
     # Pass invoices to the create batch page for selection
     return render_template('batch_picking_create.html',
                           invoices=invoices,
+                          route_groups=route_groups,
+                          unrouted_invoices=unrouted_invoices,
                           selected_zones=zones,
                           selected_corridors=corridors,
                           selected_unit_types=unit_types,
