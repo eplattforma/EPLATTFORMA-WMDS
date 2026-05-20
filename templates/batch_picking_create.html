@@ -145,52 +145,46 @@
                 <span class="badge bg-info text-dark ms-1">{{ group.total_lines }} lines</span>
             </span>
         </div>
-        <div class="card-body p-0">
-            {% for stop_data in group.stops %}
-            {% set stop = stop_data.stop %}
-            <div class="border-bottom px-3 py-2 bg-light bg-opacity-50">
-                <small class="fw-bold text-muted">
-                    <i class="fas fa-map-marker-alt me-1"></i>
-                    Stop {{ stop.seq_no }}{% if stop.stop_name %} — {{ stop.stop_name }}{% endif %}
-                    {% if stop.customer_code %}<span class="text-secondary ms-1">({{ stop.customer_code }})</span>{% endif %}
-                </small>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-sm table-hover mb-0">
-                    <tbody>
-                        {% for invoice in stop_data.invoices %}
-                        <tr class="invoice-row" data-shipment="{{ ship.id }}">
-                            <td style="width:44px;" class="text-center">
-                                <input class="form-check-input invoice-checkbox" type="checkbox"
-                                       name="selected_invoices" value="{{ invoice.invoice_no }}"
-                                       id="inv_{{ invoice.invoice_no }}"
-                                       data-shipment="{{ ship.id }}">
-                            </td>
-                            <td>
-                                <label for="inv_{{ invoice.invoice_no }}" class="mb-0 fw-semibold">
-                                    {{ invoice.invoice_no }}
-                                </label>
-                            </td>
-                            <td>{{ invoice.customer_name }}</td>
-                            <td>
-                                <span class="badge bg-{{ 'warning text-dark' if invoice.status == 'picking' else 'secondary' }}">
-                                    {{ invoice.status }}
-                                </span>
-                            </td>
-                            <td>
-                                <span class="badge bg-primary rounded-pill">
-                                    {{ invoice.eligible_item_count or 0 }}
-                                    {% if invoice.eligible_total_qty %} ({{ invoice.eligible_total_qty }} qty){% endif %}
-                                </span>
-                            </td>
-                            <td class="text-muted">{{ invoice.total_lines }} lines</td>
-                            <td class="text-muted small">{{ invoice.upload_date }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% endfor %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <tbody>
+                    {% for stop_data in group.stops %}
+                    {% set stop = stop_data.stop %}
+                    {% for invoice in stop_data.invoices %}
+                    <tr class="invoice-row" data-shipment="{{ ship.id }}">
+                        <td style="width:44px;" class="text-center">
+                            <input class="form-check-input invoice-checkbox" type="checkbox"
+                                   name="selected_invoices" value="{{ invoice.invoice_no }}"
+                                   id="inv_{{ invoice.invoice_no }}"
+                                   data-shipment="{{ ship.id }}">
+                        </td>
+                        <td style="width:70px;" class="text-muted small text-nowrap">
+                            Stop {{ stop.seq_no }}
+                        </td>
+                        <td>
+                            <label for="inv_{{ invoice.invoice_no }}" class="mb-0 fw-semibold">
+                                {{ invoice.invoice_no }}
+                            </label>
+                        </td>
+                        <td>{{ invoice.customer_name }}</td>
+                        <td>
+                            <span class="badge bg-{{ 'warning text-dark' if invoice.status == 'picking' else 'secondary' }}">
+                                {{ invoice.status }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge bg-primary rounded-pill">
+                                {{ invoice.eligible_item_count or 0 }}
+                                {% if invoice.eligible_total_qty %} ({{ invoice.eligible_total_qty }} qty){% endif %}
+                            </span>
+                        </td>
+                        <td class="text-muted">{{ invoice.total_lines }} lines</td>
+                        <td class="text-muted small">{{ invoice.upload_date }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
     {% endfor %}
