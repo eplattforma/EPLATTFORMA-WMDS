@@ -658,7 +658,7 @@ def admin_dashboard():
                 import logging as _log
                 _log.warning(f"admin_dashboard: cooler fully-picked query failed: {_e}")
     
-    open_batch_statuses = ['Created', 'In Progress', 'Active', 'Paused']
+    open_batch_statuses = ['Created', 'In Progress', 'Active', 'Paused', 'picking']
     open_batch_sessions = BatchPickingSession.query.filter(
         BatchPickingSession.status.in_(open_batch_statuses),
         BatchPickingSession.archived_at.is_(None),
