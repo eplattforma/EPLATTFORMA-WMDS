@@ -3252,22 +3252,6 @@ def picker_dashboard():
         BatchPickingSession.status.in_(['Created', 'Active', 'Paused', 'picking'])
     ).all()
 
-    # Build route_id → delivery_date map for cooler-route batches so the
-    # correct /cooler/route/<id>/<date> URL can be constructed below.
-    _cooler_route_ids = [
-        s.route_id for s in batch_sessions
-        if getattr(s, 'session_type', None) == 'cooler_route' and s.route_id
-    ]
-    _route_date_map = {}
-    if _cooler_route_ids:
-        from models import Shipment as _Shipment
-        _rd_rows = _Shipment.query.filter(
-            _Shipment.id.in_(list(set(_cooler_route_ids)))
-        ).with_entities(_Shipment.id, _Shipment.delivery_date).all()
-        _route_date_map = {
-            r.id: r.delivery_date.strftime('%Y-%m-%d') for r in _rd_rows
-        }
-    
     # Process batch sessions to include summary information
     batch_data = []
     for batch in batch_sessions:
@@ -3340,16 +3324,10 @@ def picker_dashboard():
         # found in this batch' because cooler items are excluded from the
         # regular zone-based pick list).
         if getattr(batch, 'session_type', None) == 'cooler_route':
-            # Cooler-route batches must go to the cooler picking UI so the picker
-            # sees the batch_pick_queue items (not InvoiceItem locks used by the
-            # standard flow, which would return 0 items for cooler batches).
-            _date = _route_date_map.get(batch.route_id) if batch.route_id else None
-            if _date:
-                pick_url = url_for('cooler.route_picking',
-                                   route_id=batch.route_id,
-                                   delivery_date=_date)
+            if batch.status in ('Created',):
+                pick_url = url_for('batch.start_batch_picking', batch_id=batch.id)
             else:
-                pick_url = url_for('batch.picker_batch_list')
+                pick_url = url_for('batch.batch_picking_item', batch_id=batch.id)
         else:
             pick_url = url_for('batch.batch_picking_item', batch_id=batch.id)
 
