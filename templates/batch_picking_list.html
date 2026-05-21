@@ -98,10 +98,17 @@
                                     </button>
                                   </form>
                                 {% elif batch.status == 'Created' %}
-                                    <a href="{{ url_for('batch.start_batch_picking', batch_id=batch.id) }}"
-                                       class="btn btn-success btn-sm">
-                                        <i class="fas fa-play me-1"></i>Start Picking
-                                    </a>
+                                    {% if batch.session_type == 'cooler_route' and batch.route_id and batch.route_id in route_date_map %}
+                                        <a href="{{ url_for('cooler.route_picking', route_id=batch.route_id, delivery_date=route_date_map[batch.route_id]) }}"
+                                           class="btn btn-primary btn-sm">
+                                            <i class="fas fa-snowflake me-1"></i>Start Cooler Picking
+                                        </a>
+                                    {% else %}
+                                        <a href="{{ url_for('batch.start_batch_picking', batch_id=batch.id) }}"
+                                           class="btn btn-success btn-sm">
+                                            <i class="fas fa-play me-1"></i>Start Picking
+                                        </a>
+                                    {% endif %}
                                     {% if has_permission('settings.manage_users') %}
                                         <button type="button" class="btn btn-outline-danger btn-sm ms-1"
                                                 onclick="deleteBatch({{ batch.id }}, '{{ batch.batch_number or 'BATCH-' ~ batch.id }}')">

@@ -1826,11 +1826,29 @@ def picker_batch_list():
             BatchPickingSession.assigned_to == current_user.username
         ).order_by(BatchPickingSession.created_at.desc()).all()
 
+    # Build route_id → delivery_date map for cooler_route sessions so the
+    # template can link directly to /cooler/route/<id>/<date> instead of
+    # the standard batch-start flow (which doesn't read batch_pick_queue).
+    cooler_route_ids = [
+        s.route_id for s in batch_sessions
+        if getattr(s, 'session_type', None) == 'cooler_route' and s.route_id
+    ]
+    route_date_map = {}
+    if cooler_route_ids:
+        from models import Shipment as _Shipment
+        _rows = _Shipment.query.filter(
+            _Shipment.id.in_(list(set(cooler_route_ids)))
+        ).with_entities(_Shipment.id, _Shipment.delivery_date).all()
+        route_date_map = {
+            r.id: r.delivery_date.strftime('%Y-%m-%d') for r in _rows
+        }
+
     return render_template(
         'batch_picking_list.html',
         batch_sessions=batch_sessions,
         claim_required=claim_on,
         current_username=current_user.username,
+        route_date_map=route_date_map,
     )
 
 @batch_bp.route('/picker/batch/clear_cache/<int:batch_id>')
