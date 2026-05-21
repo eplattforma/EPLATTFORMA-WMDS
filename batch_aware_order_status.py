@@ -32,23 +32,28 @@ def update_order_status_batch_aware(invoice_no):
     unpicked_items = 0
     batch_locked_items = 0
     
+    # Items with these pick_status values count as "done" for routing/dispatch
+    # purposes (mirrors services.order_readiness.QUEUE_TERMINAL_STATUSES so the
+    # batch flow agrees with the non-batch flow on what "finished" means).
+    TERMINAL_PICK_STATUSES = ('picked', 'exception', 'skipped', 'cancelled')
+
     # PERFORMANCE FIX: Batch query all batch sessions at once to avoid N+1 queries
     # Collect all unique batch IDs first
     batch_ids = set()
     for item in all_items:
-        if not (item.is_picked and item.pick_status == 'picked') and item.locked_by_batch_id is not None:
+        if not (item.is_picked and item.pick_status in TERMINAL_PICK_STATUSES) and item.locked_by_batch_id is not None:
             batch_ids.add(item.locked_by_batch_id)
-    
+
     # Single query to get all batch statuses
     batch_status_map = {}
     if batch_ids:
         from models import BatchPickingSession
         batches = BatchPickingSession.query.filter(BatchPickingSession.id.in_(batch_ids)).all()
         batch_status_map = {b.id: b.status for b in batches}
-    
+
     # Now iterate items with cached batch statuses
     for item in all_items:
-        if item.is_picked and item.pick_status == 'picked':
+        if item.is_picked and item.pick_status in TERMINAL_PICK_STATUSES:
             picked_items += 1
         else:
             unpicked_items += 1
@@ -169,8 +174,9 @@ def get_order_status_summary(invoice_no):
     
     all_items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
     
+    TERMINAL_PICK_STATUSES = ('picked', 'exception', 'skipped', 'cancelled')
     total_items = len(all_items)
-    picked_items = sum(1 for item in all_items if item.is_picked and item.pick_status == 'picked')
+    picked_items = sum(1 for item in all_items if item.is_picked and item.pick_status in TERMINAL_PICK_STATUSES)
     batch_locked_items = sum(1 for item in all_items if not item.is_picked and item.locked_by_batch_id is not None)
     unpicked_free_items = total_items - picked_items - batch_locked_items
     
