@@ -134,6 +134,49 @@ def update_order_status_batch_aware(invoice_no):
         return {'error': f'Failed to update status: {str(e)}'}
 
 
+def sync_cooler_invoice_items(batch_id):
+    """For a completed cooler_route batch, ensure every InvoiceItem that was
+    picked via ``batch_pick_queue`` (queue_pick endpoint) has its
+    ``is_picked`` flag set to True.
+
+    When items are picked from the cooler route page the
+    ``queue_pick`` endpoint only writes to ``batch_pick_queue``; it
+    bypasses the normal ``batch_picking_item`` code-path that also sets
+    ``invoice_items.is_picked = True``.  This leaves the InvoiceItem in
+    an inconsistent state and causes ``update_order_status_batch_aware``
+    to see the item as still unpicked, keeping the invoice at 'picking'.
+    """
+    from sqlalchemy import text as _text
+    try:
+        rows = db.session.execute(
+            _text(
+                "UPDATE invoice_items ii "
+                "SET is_picked = TRUE, "
+                "    pick_status = CASE "
+                "        WHEN bpq.exception_reason IS NOT NULL THEN 'exception' "
+                "        ELSE 'picked' END "
+                "FROM batch_pick_queue bpq "
+                "WHERE bpq.batch_session_id = :bid "
+                "  AND bpq.status IN ('picked', 'exception') "
+                "  AND bpq.pick_zone_type = 'cooler' "
+                "  AND ii.invoice_no = bpq.invoice_no "
+                "  AND ii.item_code  = bpq.item_code "
+                "  AND ii.is_picked  = FALSE"
+            ),
+            {"bid": batch_id},
+        )
+        synced = rows.rowcount if rows.rowcount is not None else 0
+        if synced:
+            current_app.logger.info(
+                "sync_cooler_invoice_items: batch %s — synced %d invoice_item row(s)",
+                batch_id, synced,
+            )
+    except Exception as exc:
+        current_app.logger.warning(
+            "sync_cooler_invoice_items: batch %s failed: %s", batch_id, exc
+        )
+
+
 def update_all_orders_after_batch_completion(batch_id):
     """
     Update order statuses after a batch is completed
@@ -144,8 +187,21 @@ def update_all_orders_after_batch_completion(batch_id):
     Returns:
         list: Summary of updated orders
     """
-    from models import BatchSessionInvoice
-    
+    from models import BatchSessionInvoice, BatchPickingSession
+
+    # For cooler_route sessions items may have been picked via the cooler
+    # route page (queue_pick), which only writes to batch_pick_queue and
+    # never sets InvoiceItem.is_picked.  Sync the gap before running the
+    # status logic so invoice statuses advance correctly.
+    try:
+        batch = BatchPickingSession.query.get(batch_id)
+        if batch and getattr(batch, 'session_type', None) == 'cooler_route':
+            sync_cooler_invoice_items(batch_id)
+    except Exception as _se:
+        current_app.logger.warning(
+            "update_all_orders_after_batch_completion: cooler sync check failed: %s", _se
+        )
+
     # Get all invoices that were in this batch
     batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).all()
     

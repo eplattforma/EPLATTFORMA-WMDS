@@ -628,6 +628,63 @@ def route_picking(route_id, delivery_date):
         {"rid": _route_id_int, "dd": str(delivery_date)},
     ).scalar() or 0
 
+    # ── Self-healing sync ─────────────────────────────────────────────────
+    # When items were picked via the cooler route page (queue_pick), only
+    # batch_pick_queue is updated — InvoiceItem.is_picked is never set.
+    # This leaves invoices stuck at 'picking' after the batch completes.
+    # Fix it silently the next time someone visits the packing page.
+    if cooler_session and cooler_session.get("status") == "Completed":
+        try:
+            _stuck = db.session.execute(
+                text(
+                    "SELECT COUNT(*) "
+                    "FROM batch_pick_queue bpq "
+                    "JOIN invoice_items ii "
+                    "  ON ii.invoice_no = bpq.invoice_no "
+                    " AND ii.item_code  = bpq.item_code "
+                    "WHERE bpq.batch_session_id = :sid "
+                    "  AND bpq.status = 'picked' "
+                    "  AND ii.is_picked = FALSE"
+                ),
+                {"sid": cooler_session["id"]},
+            ).scalar() or 0
+            if _stuck:
+                from batch_aware_order_status import (
+                    sync_cooler_invoice_items,
+                    update_order_status_batch_aware,
+                )
+                from models import BatchSessionInvoice as _BSI
+                sync_cooler_invoice_items(cooler_session["id"])
+                for _si in _BSI.query.filter_by(
+                    batch_session_id=cooler_session["id"]
+                ).all():
+                    try:
+                        update_order_status_batch_aware(_si.invoice_no)
+                    except Exception:
+                        pass
+                db.session.commit()
+                try:
+                    from services.route_warehouse_readiness import (
+                        recalculate_route_warehouse_status,
+                    )
+                    recalculate_route_warehouse_status(_route_id_int)
+                except Exception:
+                    pass
+                current_app.logger.info(
+                    "route_picking self-heal: fixed %d stuck item(s) for "
+                    "cooler session %s route %s",
+                    _stuck, cooler_session["id"], _route_id_int,
+                )
+        except Exception as _heal_err:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            current_app.logger.warning(
+                "route_picking self-heal failed for session %s: %s",
+                cooler_session.get("id"), _heal_err,
+            )
+
     _TERMINAL_COOLER = ("Completed", "Cancelled", "Archived")
     # batch_in_progress is True only when sequencing has been locked AND the
     # batch is not yet finished. Before locking, pickers can use direct Pick
