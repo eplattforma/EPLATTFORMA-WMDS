@@ -2220,7 +2220,8 @@ def batch_picking_item(batch_id):
         batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).all()
         invoice_nos = [bi.invoice_no for bi in batch_invoices]
 
-        if getattr(batch_session, 'picking_mode', None) == 'Cooler':
+        if (getattr(batch_session, 'picking_mode', None) == 'Cooler'
+                or getattr(batch_session, 'session_type', None) == 'cooler_route'):
             skipped_items = InvoiceItem.query.filter(
                 InvoiceItem.locked_by_batch_id == batch_id,
                 InvoiceItem.pick_status == 'skipped_pending',

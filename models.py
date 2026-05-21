@@ -302,9 +302,27 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
 
     def get_filtered_item_count(self):
         """Get the actual count of items that will be processed based on corridor filtering"""
-        from sqlalchemy import and_
+        from sqlalchemy import and_, text as _sql_text
 
-        # Cooler batches: items are identified by locked_by_batch_id, not by zone.
+        # cooler_route batches track work via batch_pick_queue, not InvoiceItem locks.
+        # Count pending queue rows so the completion check in batch_picking_item uses
+        # the correct remaining count (otherwise zone-based filter returns 0 and the
+        # batch is incorrectly marked complete on first visit).
+        if getattr(self, 'session_type', None) == 'cooler_route':
+            try:
+                n = db.session.execute(
+                    _sql_text(
+                        "SELECT COUNT(*) FROM batch_pick_queue "
+                        "WHERE batch_session_id = :sid AND status = 'pending' "
+                        "  AND pick_zone_type = 'cooler'"
+                    ),
+                    {"sid": self.id},
+                ).scalar()
+                return int(n or 0)
+            except Exception:
+                return 0
+
+        # Legacy Cooler picking_mode: items are identified by locked_by_batch_id.
         # InvoiceItem.zone stores the warehouse aisle zone (A1, A2, …), not the DW
         # classification ("SENSITIVE"), so the standard zone filter always returns 0.
         if self.picking_mode == 'Cooler':
