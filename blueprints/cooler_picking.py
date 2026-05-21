@@ -30,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app import db
-from models import ActivityLog, Setting
+from models import ActivityLog, BatchPickingSession, Setting
 from services.permissions import require_permission
 from services.cooler_pdf import (
     render_cooler_label, render_cooler_manifest, render_route_manifest,
