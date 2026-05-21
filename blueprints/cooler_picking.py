@@ -530,23 +530,60 @@ def route_picking(route_id, delivery_date):
     # other routes on the same day into this picker's view, breaking
     # the (route_id, delivery_date, box_no) box-numbering invariant.
     # (``_route_id_int`` was already computed above for the queue query.)
-    boxes = db.session.execute(
+    _boxes_raw = db.session.execute(
         text(
-            "SELECT id, route_id, delivery_date, box_no, status, "
-            "       first_stop_sequence, last_stop_sequence, "
+            "SELECT cb.id, cb.route_id, cb.delivery_date, cb.box_no, cb.status, "
+            "       cb.first_stop_sequence, cb.last_stop_sequence, "
             "       (SELECT COUNT(*) FROM cooler_box_items cbi "
-            "        WHERE cbi.cooler_box_id = cooler_boxes.id) AS item_count "
-            "FROM cooler_boxes "
-            "WHERE delivery_date = :delivery_date "
-            "  AND route_id = :route_id "
-            "ORDER BY box_no"
+            "        WHERE cbi.cooler_box_id = cb.id) AS item_count, "
+            "       cb.fill_cm3, cb.fill_weight_kg, cb.closed_by, cb.closed_at, "
+            "       cbt.name AS box_type_name, "
+            "       CASE WHEN cbt.internal_volume_cm3 > 0 AND cbt.fill_efficiency > 0 "
+            "            THEN ROUND(cb.fill_cm3 / (cbt.internal_volume_cm3 * cbt.fill_efficiency) * 100) "
+            "            ELSE NULL END AS fill_pct "
+            "FROM cooler_boxes cb "
+            "LEFT JOIN cooler_box_types cbt ON cbt.id = cb.box_type_id "
+            "WHERE cb.delivery_date = :delivery_date "
+            "  AND cb.route_id = :route_id "
+            "ORDER BY cb.box_no"
         ),
         {"delivery_date": str(delivery_date), "route_id": _route_id_int},
     ).fetchall()
-    boxes = [
-        dict(_box_dict(b), item_count=int(b[7] or 0))
-        for b in boxes
-    ]
+    boxes = []
+    for _b in _boxes_raw:
+        _box = dict(_box_dict(_b), item_count=int(_b[7] or 0))
+        _box["fill_cm3"] = float(_b[8]) if _b[8] is not None else None
+        _box["fill_weight_kg"] = float(_b[9]) if _b[9] is not None else None
+        _box["closed_by"] = _b[10]
+        _box["closed_at"] = _b[11]
+        _box["box_type_name"] = _b[12] or ""
+        _box["fill_pct"] = int(_b[13]) if _b[13] is not None else None
+        boxes.append(_box)
+
+    # Pre-fetch box items for the card display so the template can show
+    # a collapsible item list without extra AJAX calls.
+    box_items_by_box = {}
+    if boxes:
+        _box_ids = [_bx["id"] for _bx in boxes]
+        _item_rows = db.session.execute(
+            text(
+                "SELECT cbi.cooler_box_id, cbi.invoice_no, cbi.item_code, cbi.item_name, "
+                "       cbi.expected_qty, cbi.customer_name, cbi.delivery_sequence "
+                "FROM cooler_box_items cbi "
+                "WHERE cbi.cooler_box_id = ANY(:bids) "
+                "ORDER BY cbi.cooler_box_id, cbi.delivery_sequence NULLS LAST, cbi.invoice_no"
+            ),
+            {"bids": _box_ids},
+        ).fetchall()
+        for _r in _item_rows:
+            box_items_by_box.setdefault(int(_r[0]), []).append({
+                "invoice_no": _r[1],
+                "item_code": _r[2],
+                "item_name": _r[3] or "",
+                "qty": float(_r[4]) if _r[4] is not None else 0,
+                "customer_name": _r[5] or "",
+                "delivery_sequence": _r[6],
+            })
 
     # Phase 6 — surface estimator on the picking screen so the
     # warehouse manager sees the suggested box mix before locking.
@@ -622,6 +659,7 @@ def route_picking(route_id, delivery_date):
         cooler_session=cooler_session, estimate=estimate,
         boxes=boxes, open_boxes=open_boxes,
         box_types=box_types,
+        box_items_by_box=box_items_by_box,
         picking_phase=picking_phase,
         batch_in_progress=batch_in_progress,
         assigned_to_box=assigned_to_box,

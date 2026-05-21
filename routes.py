@@ -658,6 +658,30 @@ def admin_dashboard():
                 import logging as _log
                 _log.warning(f"admin_dashboard: cooler fully-picked query failed: {_e}")
     
+    # Routes with picked-but-unboxed cooler items — used to show the
+    # "Pack Cooler Boxes" button on the dashboard route group rows.
+    cooler_pack_needed_by_route = {}
+    try:
+        _pack_rows = db.session.execute(
+            db.text(
+                "SELECT i.route_id, COUNT(*) "
+                "FROM batch_pick_queue bpq "
+                "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+                "WHERE bpq.pick_zone_type = 'cooler' "
+                "  AND bpq.status = 'picked' "
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM cooler_box_items cbi WHERE cbi.queue_item_id = bpq.id"
+                "  ) "
+                "  AND i.route_id IS NOT NULL "
+                "GROUP BY i.route_id"
+            )
+        ).fetchall()
+        for _pr in _pack_rows:
+            cooler_pack_needed_by_route[_pr[0]] = int(_pr[1])
+    except Exception as _cpe:
+        import logging as _cplog
+        _cplog.getLogger(__name__).warning("admin_dashboard: cooler_pack_needed query failed: %s", _cpe)
+
     open_batch_statuses = ['Created', 'In Progress', 'Active', 'Paused', 'picking']
     open_batch_sessions = BatchPickingSession.query.filter(
         BatchPickingSession.status.in_(open_batch_statuses),
@@ -869,7 +893,8 @@ def admin_dashboard():
                               unassigned_route_batch=unassigned_route_batch,
                               active_batches_by_route=active_batches_by_route,
                               unassigned_active_sessions=unassigned_active_sessions,
-                              route_warehouse_status=route_warehouse_status)
+                              route_warehouse_status=route_warehouse_status,
+                              cooler_pack_needed_by_route=cooler_pack_needed_by_route)
     except Exception as _admin_dash_err:
         import traceback as _tb
         # Log a short one-liner FIRST so the exception type/message is visible

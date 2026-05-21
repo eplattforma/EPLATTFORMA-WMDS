@@ -1,0 +1,183 @@
+Task — Create Simple Cooler Packing UI After Picking Completed and Bypass Manage Cooler Routes
+
+We want the normal warehouse workflow to bypass `/cooler/route-list`.
+
+`/cooler/route-list` can remain as an admin fallback/overview page, but it should not be part of the normal daily cooler process.
+
+Normal flow should be:
+
+/admin/dashboard
+→ route group
+→ cooler batch inside route group
+→ picker completes picking
+→ manager clicks Pack Cooler Boxes
+→ cooler packing section
+→ generate box plan
+→ confirm boxes
+→ close boxes
+→ print labels/manifest
+
+## 1. Dashboard route group action
+
+On `/admin/dashboard`, inside each route group, show the related cooler batch.
+
+If the cooler picking batch is completed and picked items are unboxed, show a clear action:
+
+`Pack Cooler Boxes`
+
+This button should link directly to the cooler route packing screen/section:
+
+`/cooler/route/<route_id>/<delivery_date>#packing`
+
+Do not send the user to:
+
+`/cooler/route-list`
+
+## 2. Cooler Route page should focus on packing after picking is complete
+
+On `templates/cooler/route_picking.html`, when picking is complete and picked_unboxed_count > 0, show a clear packing workflow at the top.
+
+Header example:
+
+`❄️ Cooler Packing — Route 420 / Pafos test`
+`Driver: Ricardo | Delivery date: 21/05/2026`
+
+Show a step indicator:
+
+`Route Prepared ✅ → Picking Completed ✅ → Assign to Boxes 🔵 → Close Boxes ⏳ → Ready for Dispatch ⏳`
+
+## 3. Add a simple status summary card
+
+Show:
+
+- picked count
+- unboxed count
+- number of open boxes
+- number of closed boxes
+- next required action
+
+Example:
+
+`Picked: 19 / 19`
+`Unboxed: 19`
+`Open boxes: 0`
+`Closed boxes: 0`
+`Next step: Generate Box Plan`
+
+## 4. Box Planning card
+
+When picked_unboxed_count > 0, show:
+
+Title:
+`Assign Picked Items to Cooler Boxes`
+
+Text:
+`19 picked cooler items are not yet assigned to boxes.`
+
+Controls:
+- box type dropdown;
+- Generate Box Plan button;
+- box plan preview;
+- Confirm Box Plan button.
+
+The user should see the plan before confirming.
+
+## 5. Box Plan preview design
+
+Use box cards, not a complicated table.
+
+Each proposed box card should show:
+
+- Box number
+- Stop direction, e.g. `Stops 10 → 8`
+- Box type
+- item count
+- estimated fill %
+- estimated weight
+- missing dimension warning if applicable
+- item rows:
+  - invoice
+  - item code
+  - item description/name
+  - quantity
+  - customer/stop if helpful
+
+Example:
+
+Box 1 — Stops 10 → 8
+7 items · 82% full · 12.4 kg
+
+IN10055315 · CHO-0027 · Product name · x2
+IN10055315 · CHO-0031 · Product name · x1
+
+Button:
+`Confirm Box Plan`
+
+## 6. After confirming box plan
+
+After boxes are created, show a `Cooler Boxes` section.
+
+Each box should be a card:
+
+Box 1 — Stops 10 → 8
+Status: Open
+7 items · 82% full · 12.4 kg
+
+Actions:
+- View Items
+- Close Box
+- Print Label
+
+When a box is closed:
+- show status `Closed`
+- show closed by / closed time if available
+- keep Print Label available
+
+When all boxes are closed and no picked/unboxed items remain:
+show:
+
+`✅ Cooler packing completed`
+`All picked cooler items are boxed and all boxes are closed.`
+
+Actions:
+- Print All Labels
+- Print Cooler Manifest
+
+## 7. Advanced box management
+
+Move manual tools into a collapsed section:
+
+`Advanced box adjustments`
+
+Inside this section keep:
+- create extra box;
+- move item to another box;
+- remove item from box;
+- cancel box;
+- reopen box.
+
+These should not be the main workflow.
+
+## 8. Do not use Manage Cooler Routes in the normal workflow
+
+Keep `/cooler/route-list` only for admin fallback/overview.
+
+Do not use it as:
+- picker entry point;
+- manager’s daily packing entry point;
+- dashboard route action.
+
+Daily operations should come from `/admin/dashboard`.
+
+## Acceptance criteria
+
+1. After cooler picking is completed, dashboard shows `Pack Cooler Boxes` inside the route group.
+2. Clicking `Pack Cooler Boxes` opens the cooler route packing section directly.
+3. User does not need `/cooler/route-list`.
+4. Cooler packing page shows a clear status summary.
+5. User can generate a box plan from picked/unboxed items.
+6. User can preview suggested boxes before confirming.
+7. After confirmation, boxes appear as cards.
+8. User can close each box from the box card.
+9. When all boxes are closed, page clearly says cooler packing is completed.
+10. Manual box editing is available only under Advanced box adjustments.

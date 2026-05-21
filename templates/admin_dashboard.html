@@ -186,6 +186,21 @@
                                 </td>
                             </tr>
                             {% endfor %}
+                            {% if cooler_pack_needed_by_route.get(route.id, 0) > 0 and route.delivery_date %}
+                            <tr style="font-size:0.85rem;border-left:3px solid #0dcaf0;background:#e8f7fb;">
+                                <td colspan="2" class="py-1 ps-5">
+                                    <i class="fas fa-snowflake me-1 text-info"></i>
+                                    <strong class="text-info">Cooler picking complete</strong>
+                                    <span class="badge bg-info ms-2">{{ cooler_pack_needed_by_route[route.id] }} item(s) ready to box</span>
+                                </td>
+                                <td colspan="7" class="py-1 text-end pe-2">
+                                    <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date.strftime('%Y-%m-%d')) }}#packing"
+                                       class="btn btn-info btn-sm text-white">
+                                        <i class="fas fa-box me-1"></i>Pack Cooler Boxes
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endif %}
                             {% endif %}
                         {% else %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
@@ -233,6 +248,21 @@
                                 </td>
                             </tr>
                             {% endfor %}
+                            {% if cooler_pack_needed_by_route.get(route.id, 0) > 0 and route.delivery_date %}
+                            <tr style="font-size:0.85rem;border-left:3px solid #0dcaf0;background:#e8f7fb;">
+                                <td colspan="2" class="py-1 ps-5">
+                                    <i class="fas fa-snowflake me-1 text-info"></i>
+                                    <strong class="text-info">Cooler picking complete</strong>
+                                    <span class="badge bg-info ms-2">{{ cooler_pack_needed_by_route[route.id] }} item(s) ready to box</span>
+                                </td>
+                                <td colspan="7" class="py-1 text-end pe-2">
+                                    <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date.strftime('%Y-%m-%d')) }}#packing"
+                                       class="btn btn-info btn-sm text-white">
+                                        <i class="fas fa-box me-1"></i>Pack Cooler Boxes
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endif %}
                             {% endif %}
                         {% elif not invoice.route_id and loop.previtem.route_id %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
