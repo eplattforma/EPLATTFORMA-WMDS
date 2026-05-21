@@ -1,9 +1,10 @@
 """Cooler box plan generator.
 
 Groups picked, unboxed cooler queue rows into physical boxes based on
-capacity.  Stops are processed last-stop-first (highest seq_no first) so
-that the first loaded box holds the last stops — matching truck loading
-order.
+capacity.  Stop order is controlled by STOP_ORDER below:
+  'last_first'  (default) — highest seq_no first, so Box 1 = last stops
+                            (LIFO truck loading: load first, deliver last)
+  'first_first' — lowest seq_no first, so Box 1 = earliest stops
 
 Returns a list of box dicts, each with:
   box_no, box_type_id, box_type_name, stop_min, stop_max, stop_display,
@@ -19,6 +20,9 @@ from sqlalchemy import text
 from app import db
 
 logger = logging.getLogger(__name__)
+
+# Change this to 'first_first' to make Box 1 hold the earliest stops instead.
+STOP_ORDER = "last_first"   # 'last_first' | 'first_first'
 
 
 def _num(value):
@@ -103,7 +107,9 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
             "        SELECT 1 FROM cooler_box_items cbi "
             "        WHERE cbi.queue_item_id = bpq.id"
             "  ) "
-            "ORDER BY COALESCE(rs.seq_no, 0) DESC, bpq.invoice_no, bpq.item_code"
+            "ORDER BY COALESCE(rs.seq_no, 0) {order}, bpq.invoice_no, bpq.item_code".format(
+                order="DESC" if STOP_ORDER == "last_first" else "ASC"
+            )
         ),
         {"rid": route_id, "dd": delivery_date, "truthy": True},
     ).fetchall()
@@ -158,7 +164,8 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
         stop_seq = _num(r[7])
         by_stop[stop_seq].append(r)
 
-    stops = sorted(by_stop.keys(), key=lambda x: x if x is not None else -1, reverse=True)
+    stops = sorted(by_stop.keys(), key=lambda x: x if x is not None else -1,
+                   reverse=(STOP_ORDER == "last_first"))
 
     plan = []
     box_no = 1
