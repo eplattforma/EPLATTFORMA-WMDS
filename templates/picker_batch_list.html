@@ -29,8 +29,8 @@
                 <thead>
                     <tr>
                         <th>ID</th>
-                        <th>Name</th>
-                        <th>Zones</th>
+                        <th>Task</th>
+                        <th>Details</th>
                         <th>Mode</th>
                         <th>Created</th>
                         <th>Status</th>
@@ -41,8 +41,28 @@
                     {% for session in assigned_batches %}
                     <tr>
                         <td>{{ session.id }}</td>
-                        <td>{{ session.name }}</td>
-                        <td>{{ session.zones }}</td>
+                        <td>
+                            {% if session.is_cooler_job %}
+                            <div class="fw-semibold">
+                                <i class="fas fa-snowflake text-info me-1"></i>
+                                Cooler Picking{% if session.cooler_route_label %} — Route {{ session.cooler_route_label }}{% endif %}
+                            </div>
+                            {% else %}
+                            <div class="fw-semibold">{{ session.name }}</div>
+                            {% endif %}
+                            <div class="text-muted small">{{ session.name }}</div>
+                        </td>
+                        <td>
+                            {% if session.is_cooler_job %}
+                            <div class="small">
+                                <div><strong>Batch:</strong> {{ session.name }}</div>
+                                <div><strong>Delivery date:</strong> {{ session.delivery_date.strftime('%d/%m/%y') if session.delivery_date else session.created_at.strftime('%d/%m/%y') }}</div>
+                                <div><strong>Progress:</strong> {{ session.cooler_total_items or 0 }} items remaining</div>
+                            </div>
+                            {% else %}
+                            {{ session.zones }}
+                            {% endif %}
+                        </td>
                         <td>
                             {% if session.picking_mode == 'Consolidated' %}
                             <span class="badge bg-info">Consolidated</span>
@@ -52,15 +72,30 @@
                         </td>
                         <td>{{ session.created_at.strftime('%d/%m/%y %H:%M') }}</td>
                         <td>
+                            {% if session.is_cooler_job %}
+                            <span class="badge bg-info text-dark"><i class="fas fa-snowflake me-1"></i>COOLER / SENSITIVE</span>
+                            {% endif %}
                             {% if session.status == 'Created' %}
                             <span class="badge bg-secondary">Not Started</span>
                             {% elif session.status == 'In Progress' %}
                             <span class="badge bg-warning text-dark">In Progress</span>
+                            {% elif session.status == 'Active' or session.status == 'picking' %}
+                            <span class="badge bg-warning text-dark">{{ session.status }}</span>
                             {% endif %}
                         </td>
                         <td>
                             <div class="btn-group">
-                                {% if session.status == 'Created' %}
+                                {% if session.is_cooler_job %}
+                                {% if session.status in ['Created', 'Active'] %}
+                                <a href="{{ url_for('batch.start_batch_picking', batch_id=session.id) }}" class="btn btn-success">
+                                    <i class="fas fa-snowflake me-1"></i>Start Cooler Picking
+                                </a>
+                                {% else %}
+                                <a href="{{ url_for('batch.batch_picking_item', batch_id=session.id) }}" class="btn btn-warning">
+                                    <i class="fas fa-snowflake me-1"></i>Continue Cooler Picking
+                                </a>
+                                {% endif %}
+                                {% elif session.status == 'Created' %}
                                 <a href="{{ url_for('batch.start_batch_picking', batch_id=session.id) }}" class="btn btn-success">
                                     <i class="fas fa-play me-1"></i>Start Picking
                                 </a>

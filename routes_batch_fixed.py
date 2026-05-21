@@ -432,10 +432,43 @@ def picker_batch_list():
         BatchPickingSession.assigned_to == current_user.username,
         BatchPickingSession.status == 'Completed'
     ).order_by(BatchPickingSession.created_at.desc()).limit(5).all()
+
+    for session_obj in batch_sessions:
+        session_obj.is_cooler_job = _is_cooler_batch_session(session_obj)
+        session_obj.cooler_route_label = _cooler_batch_route_label(session_obj)
+        session_obj.cooler_total_items = _cooler_batch_total_items(session_obj) if session_obj.is_cooler_job else None
     
     return render_template('batch_picking_list.html',
                           batch_sessions=batch_sessions,
                           completed_sessions=completed_sessions)
+
+
+def _is_cooler_batch_session(session_obj):
+    name = (getattr(session_obj, 'name', '') or '').upper()
+    zones = (getattr(session_obj, 'zones', '') or '').upper()
+    return 'COOLER-ROUTE-' in name or 'SENSITIVE' in zones or getattr(session_obj, 'is_cooler', False)
+
+
+def _cooler_batch_route_label(session_obj):
+    name = getattr(session_obj, 'name', '') or ''
+    if 'COOLER-ROUTE-' in name.upper():
+        suffix = name.upper().split('COOLER-ROUTE-', 1)[1]
+        route_part = suffix.split('-', 1)[0].strip()
+        if route_part.isdigit():
+            return route_part
+    return None
+
+
+def _cooler_batch_total_items(session_obj):
+    batch_items = BatchSessionInvoice.query.filter_by(batch_session_id=session_obj.id).all()
+    invoice_nos = [row.invoice_no for row in batch_items]
+    if not invoice_nos:
+        return 0
+    return db.session.query(func.count(InvoiceItem.id)).filter(
+        InvoiceItem.invoice_no.in_(invoice_nos),
+        InvoiceItem.is_picked == False,
+        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+    ).scalar() or 0
 
 @batch_bp.route('/picker/batch/start/<int:batch_id>')
 @login_required

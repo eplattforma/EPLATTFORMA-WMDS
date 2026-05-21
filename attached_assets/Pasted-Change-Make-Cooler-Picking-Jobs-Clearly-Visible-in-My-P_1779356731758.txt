@@ -1,0 +1,151 @@
+Change — Make Cooler Picking Jobs Clearly Visible in “My Picking Tasks”
+
+On the picker’s **My Picking Tasks** page, cooler route batches must be clearly shown as **Cooler Picking Jobs**, not just generic batch sessions.
+
+Current issue:
+The picker sees:
+
+`Batch #661`
+
+with a small `SENSITIVE` badge, but it is not obvious that this is a cooler picking job for a route. The picker should immediately understand:
+
+* this is a cooler/sensitive job;
+* it belongs to a specific route;
+* it has a delivery date;
+* it contains cooler items;
+* the action is to pick cooler items, not pack boxes.
+
+## Required UI change
+
+For cooler route batches, replace the generic batch title with a clearer title.
+
+Instead of:
+
+`Batch #661`
+
+Show something like:
+
+`❄️ Cooler Picking — Route 420`
+
+If route name is available, show:
+
+`❄️ Cooler Picking — Route 420 / Pafos test`
+
+Under the title, show key details:
+
+```text
+Batch: COOLER-ROUTE-420
+Driver: Ricardo
+Delivery date: 21/05/2026
+Items: 0/19 picked
+Status: Active
+```
+
+The card should make it visually clear that it is a cooler job.
+
+## Badge changes
+
+Currently it only shows:
+
+`SENSITIVE`
+
+Change or add a more explicit badge:
+
+`❄️ COOLER`
+
+or:
+
+`COOLER / SENSITIVE`
+
+Use a cold/snowflake icon where possible.
+
+Keep `SENSITIVE` if it is used internally, but the picker-facing label should clearly say `COOLER`.
+
+## Button wording
+
+For cooler route batches, change the action button text from:
+
+`Continue`
+
+to:
+
+`Continue Cooler Picking`
+
+or:
+
+`Start Cooler Picking`
+
+depending on whether the batch has already started.
+
+Suggested logic:
+
+* If 0 items picked: `Start Cooler Picking`
+* If some items picked: `Continue Cooler Picking`
+
+## Card layout suggestion
+
+For a cooler route batch, the picker should see:
+
+```text
+❄️ Cooler Picking — Route 420 / Pafos test
+
+Batch: COOLER-ROUTE-420
+Driver: Ricardo
+Delivery date: 21/05/2026
+Progress: 0 / 19 items picked
+
+[❄️ COOLER] [Active]
+
+[Start Cooler Picking]
+```
+
+## Data source
+
+Use the existing batch/session data already used on this page.
+
+If the batch/session is linked to a route, show:
+
+* route id
+* route name
+* driver name
+* delivery date
+
+If route name or driver is not already available in the current query, update the backend query for “My Picking Tasks” to join/fetch the route/shipment data for route-related cooler batches.
+
+Do not hardcode route names or driver names.
+
+## Identification rule
+
+A batch should be treated as a cooler picking job if it is a cooler/sensitive route batch using the existing system indicators, for example:
+
+* batch name like `COOLER-ROUTE-420`;
+* zone/type is `SENSITIVE`;
+* existing cooler route/session relationship.
+
+Use the most reliable existing field first. Only use the batch name pattern as fallback if needed.
+
+## Important process clarification
+
+The picker should only perform physical picking from this screen.
+
+The picker should not:
+
+* generate box plan;
+* confirm box plan;
+* close boxes;
+* manage cooler boxes.
+
+Those remain supervisor/manager steps on the Cooler Route page.
+
+## Acceptance criteria
+
+1. Picker can clearly identify a cooler job on “My Picking Tasks”.
+2. The card title says `Cooler Picking`, not only `Batch #...`.
+3. The route number is visible.
+4. The route name is visible if available.
+5. The driver name is visible if available.
+6. Delivery date is visible.
+7. The badge says `COOLER` or `COOLER / SENSITIVE`.
+8. The action button says `Start Cooler Picking` or `Continue Cooler Picking`.
+9. Existing normal batch task cards are not broken.
+10. Cooler box planning remains outside the picker task screen.
