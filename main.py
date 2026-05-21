@@ -615,6 +615,20 @@ if _db_available:
         logging.error(f"Error adding warehouse_status column: {str(e)}")
 
     try:
+        from sqlalchemy import text as _pe_text
+        from app import db as _pe_db
+        _pe_db.session.execute(
+            _pe_text(
+                "ALTER TABLE picking_exceptions "
+                "ADD COLUMN IF NOT EXISTS is_resolved BOOLEAN DEFAULT FALSE"
+            )
+        )
+        _pe_db.session.commit()
+        logging.info("is_resolved column ensured on picking_exceptions table")
+    except Exception as e:
+        logging.error(f"Error adding is_resolved column: {str(e)}")
+
+    try:
         from update_sms_schema import update_sms_schema
         update_sms_schema()
     except Exception as e:

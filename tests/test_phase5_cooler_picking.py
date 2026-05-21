@@ -346,6 +346,11 @@ class TestBoxLifecycle:
         qrow = db.session.execute(text(
             "SELECT id FROM batch_pick_queue WHERE batch_session_id = :s"
         ), {"s": batch.id}).scalar()
+        # Simulate physical pick so box_assign_item accepts the item
+        db.session.execute(text(
+            "UPDATE batch_pick_queue SET status='picked', qty_picked=10 WHERE id=:i"
+        ), {"i": qrow})
+        db.session.commit()
 
         _login(client, "admin")
         rb = client.post("/cooler/box/create", json={
@@ -377,6 +382,11 @@ class TestBoxLifecycle:
         qrow = db.session.execute(text(
             "SELECT id FROM batch_pick_queue WHERE batch_session_id = :s"
         ), {"s": batch.id}).scalar()
+        # Simulate physical pick so box_assign_item accepts the item
+        db.session.execute(text(
+            "UPDATE batch_pick_queue SET status='picked', qty_picked=10 WHERE id=:i"
+        ), {"i": qrow})
+        db.session.commit()
 
         _login(client, "admin")
         rb = client.post("/cooler/box/create", json={
@@ -409,6 +419,12 @@ class TestBoxLifecycle:
             "SELECT id, invoice_no FROM batch_pick_queue "
             "WHERE batch_session_id = :s ORDER BY invoice_no"
         ), {"s": batch.id}).fetchall()
+        # Simulate physical pick so box_assign_item accepts each item
+        for q in qrows:
+            db.session.execute(text(
+                "UPDATE batch_pick_queue SET status='picked', qty_picked=5 WHERE id=:i"
+            ), {"i": q[0]})
+        db.session.commit()
 
         _login(client, "admin")
         rb = client.post("/cooler/box/create", json={
@@ -441,6 +457,11 @@ class TestCancelAndGuards:
         qid = db.session.execute(text(
             "SELECT id FROM batch_pick_queue WHERE batch_session_id = :s"
         ), {"s": batch.id}).scalar()
+        # Simulate physical pick so box_assign_item accepts the item
+        db.session.execute(text(
+            "UPDATE batch_pick_queue SET status='picked', qty_picked=10 WHERE id=:i"
+        ), {"i": qid})
+        db.session.commit()
         _login(client, "admin")
         rb = client.post("/cooler/box/create", json={
             "route_id": 900, "delivery_date": "2026-05-03", "box_no": 11,
@@ -665,6 +686,11 @@ class TestOrderReadiness:
         qid = db.session.execute(text(
             "SELECT id FROM batch_pick_queue WHERE batch_session_id = :s"
         ), {"s": batch.id}).scalar()
+        # Simulate physical pick so box_assign_item accepts the item
+        db.session.execute(text(
+            "UPDATE batch_pick_queue SET status='picked', qty_picked=1 WHERE id=:i"
+        ), {"i": qid})
+        db.session.commit()
         _login(client, "admin")
         rb = client.post("/cooler/box/create", json={
             "route_id": 900, "delivery_date": "2026-05-03", "box_no": 22,
@@ -672,7 +698,7 @@ class TestOrderReadiness:
         bid = rb.get_json()["cooler_box_id"]
         client.post(f"/cooler/box/{bid}/assign-item",
                     json={"queue_item_id": qid, "picked_qty": 1})
-        # Queue row is now 'picked' but box is still 'open' -> not ready.
+        # Queue row is 'picked' and in an open box -> not ready.
         assert is_order_ready("INV-RD3") is False
         client.post(f"/cooler/box/{bid}/close")
         assert is_order_ready("INV-RD3") is True
@@ -1336,9 +1362,9 @@ class TestArchitectFixupRegressions:
         db.session.execute(text("""
             INSERT INTO batch_pick_queue (
                 batch_session_id, invoice_no, item_code, pick_zone_type,
-                sequence_no, status, qty_required
+                sequence_no, status, qty_required, qty_picked
             ) VALUES (9007, 'INV-FIX7A', 'IT-INV-FIX7A-0', 'cooler',
-                      1, 'pending', 1)
+                      1, 'picked', 1, 1)
         """))
         # Open cooler box on a DIFFERENT route (931) / date (5-4).
         db.session.execute(text("""
@@ -1365,11 +1391,11 @@ class TestArchitectFixupRegressions:
         body = resp.get_json() or {}
         msg = (body.get("error") or "").lower()
         assert ("cross-route" in msg) or ("cross-date" in msg), body
-        # And the queue row must NOT have been flipped to picked.
+        # Queue row was already 'picked'; rejection must not change it.
         st = db.session.execute(text(
             "SELECT status FROM batch_pick_queue WHERE id = :q"
         ), {"q": bad_qid}).scalar()
-        assert st == "pending"
+        assert st == "picked"
         # And no cooler_box_items row was created.
         cnt = db.session.execute(text(
             "SELECT COUNT(*) FROM cooler_box_items WHERE cooler_box_id = :b"

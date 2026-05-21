@@ -635,6 +635,8 @@ def route_picking(route_id, delivery_date):
 @cooler_bp.route("/route/<route_id>/assign-picker", methods=["POST"])
 @login_required
 @require_permission("cooler.lock_sequencing")
+@_require_cooler_manage
+@_require_picking_flag
 def assign_cooler_picker(route_id):
     """Assign (or re-assign) a picker to the cooler-route batch session."""
     try:
