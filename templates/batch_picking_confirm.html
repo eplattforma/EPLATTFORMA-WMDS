@@ -168,6 +168,7 @@
     <div class="col-12">
         <form method="post" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" id="confirmForm">
             <input type="hidden" name="picked_qty" value="{{ picked_qty }}">
+            <input type="hidden" name="is_exception" value="{% if picked_qty|int <= 0 %}1{% else %}0{% endif %}">
             <input type="hidden" name="confirmed" value="true">
             
             <div class="d-flex" style="gap: 10px;">

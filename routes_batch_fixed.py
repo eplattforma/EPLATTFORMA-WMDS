@@ -817,7 +817,8 @@ def confirm_batch_item(batch_id):
     except ValueError:
         picked_qty = 0
     
-    if picked_qty <= 0:
+    is_exception = request.form.get('is_exception') == '1'
+    if picked_qty <= 0 and not is_exception:
         flash('Please enter a valid picked quantity.', 'danger')
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
     
