@@ -1,0 +1,61 @@
+The cooler implementation is much better now, but please fix these remaining issues before deployment.
+
+1. Critical: `box_remove_item()` and `box_cancel()` still revert assigned queue rows to pending.
+
+Current behavior:
+
+* deletes/removes cooler box assignment;
+* then sets `batch_pick_queue.status = 'pending'`;
+* clears `picked_by`, `picked_at`;
+* sets `qty_picked = 0`.
+
+This is wrong for the new process.
+
+Correct behavior:
+If an item was physically picked and is removed from a cooler box, it should remain physically picked. It should become picked/unboxed, not pending.
+
+Please change:
+
+* `box_remove_item()`
+* `box_cancel()`
+
+So they remove/delete the `cooler_box_items` rows but leave the related `batch_pick_queue` rows as:
+
+* `status = 'picked'`
+* keep `picked_by`
+* keep `picked_at`
+* keep `qty_picked`
+
+Do not turn physically picked items back into pending just because a box is deleted or corrected.
+
+2. In `routes_batch.py`, replace the old cooler completion message:
+
+`Now use Pack by Stop below to assign items to boxes.`
+
+with:
+
+`Now use Generate Box Plan to assign picked items into cooler boxes.`
+
+There must be no user-facing Pack by Stop language.
+
+3. In `lock_sequencing()`, do not allow `sequential_stop` from posted form data. The UI hides it, but the backend still accepts it. For now force:
+
+`pack_mode = 'location_order'`
+
+or only allow `sequential_stop` behind an explicit disabled feature flag. Sequential Stop is not production-ready.
+
+4. In `services/cooler_box_planner.py`, do not include picked items with missing route/delivery sequence in the box plan. If any picked cooler items are missing delivery sequence, return a warning telling the user to Refresh Route Order first.
+
+5. In `confirm_box_plan()`, before inserting each `cooler_box_items` row, re-check that the queue item:
+
+* still exists;
+* still has `status = 'picked'`;
+* is still not already assigned to a cooler box.
+
+Also catch `IntegrityError` from the unique index on `cooler_box_items.queue_item_id` and show a friendly warning instead of crashing.
+
+6. In `box_plan_preview()`, if the plan is empty, return:
+
+`{"ok": true, "plan": [], "message": "No picked unboxed cooler items found."}`
+
+7. Please run the full test suite in Replit. I could not run it in the review sandbox because `werkzeug` is missing here.

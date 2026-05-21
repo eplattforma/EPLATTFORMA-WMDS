@@ -2356,10 +2356,7 @@ def batch_picking_item(batch_id):
                     route = Shipment.query.get(batch_session.route_id)
                     if route and route.delivery_date:
                         pack_mode = getattr(batch_session, 'cooler_pack_mode', 'location_order')
-                        if pack_mode == 'sequential_stop':
-                            msg = "✅ Cooler picking complete. All items have been auto-assigned to boxes. Seal each box and print labels below."
-                        else:
-                            msg = "✅ Cooler picking complete. Now use Pack by Stop below to assign items to boxes."
+                        msg = "✅ Cooler picking complete. Now use Generate Box Plan to assign picked items into cooler boxes."
                         flash(msg, "success")
                         return redirect(url_for(
                             "cooler.route_picking",

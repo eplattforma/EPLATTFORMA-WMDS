@@ -653,18 +653,16 @@ def lock_sequencing(route_id):
                      "Attach SENSITIVE invoices first.",
         }), 404
     session_id = session_row[0]
-    pack_mode = request.form.get("cooler_pack_mode", "location_order")
+    # Sequential Stop is not production-ready — always force location_order
+    # regardless of what the form posts.  If it is ever enabled it must be
+    # gated by a feature flag; accepting it from raw POST data is a footgun.
+    pack_mode = "location_order"
     box_type_id = request.form.get("cooler_box_type_id") or None
     if box_type_id:
         try:
             box_type_id = int(box_type_id)
         except ValueError:
             box_type_id = None
-    if pack_mode == "sequential_stop" and not box_type_id:
-        flash("Please select a box type for Sequential Stop mode.", "danger")
-        return redirect(url_for("cooler.route_picking",
-                                route_id=route_id_int,
-                                delivery_date=request.form.get("delivery_date", "")))
 
     rows = db.session.execute(text(
         "SELECT bpq.id, bpq.invoice_no, rs.seq_no "
@@ -865,7 +863,16 @@ def box_create():
 @_require_picking_flag
 def box_plan_preview(route_id, delivery_date):
     box_type_id = request.args.get("box_type_id") or None
-    plan = generate_box_plan(route_id, delivery_date, box_type_id)
+    result = generate_box_plan(route_id, delivery_date, box_type_id)
+    if isinstance(result, dict) and not result.get("ok", True):
+        return jsonify(result)
+    plan = result if isinstance(result, list) else result.get("plan", [])
+    if not plan:
+        return jsonify({
+            "ok": True,
+            "plan": [],
+            "message": "No picked unboxed cooler items found.",
+        })
     return jsonify({"ok": True, "plan": plan})
 
 
@@ -875,71 +882,152 @@ def box_plan_preview(route_id, delivery_date):
 @_require_cooler_manage
 @_require_picking_flag
 def confirm_box_plan(route_id, delivery_date):
+    from sqlalchemy.exc import IntegrityError
+
     try:
         route_id_int = int(route_id)
     except (TypeError, ValueError):
         abort(400)
+
+    def _redirect_back():
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id_int,
+                                delivery_date=delivery_date))
+
     box_type_id = request.form.get("box_type_id") or None
-    plan = generate_box_plan(route_id_int, delivery_date, box_type_id)
+    result = generate_box_plan(route_id_int, delivery_date, box_type_id)
+
+    # Planner may return a dict with ok=False (e.g. missing delivery sequence)
+    if isinstance(result, dict):
+        if not result.get("ok", True):
+            flash(result.get("message", "Cannot generate box plan."), "warning")
+            return _redirect_back()
+        plan = result.get("plan", [])
+    else:
+        plan = result
+
     if not plan:
         flash("No picked unboxed cooler items found.", "warning")
-        return redirect(url_for("cooler.route_picking", route_id=route_id_int, delivery_date=delivery_date))
+        return _redirect_back()
+
     max_box_no = db.session.execute(
-        text("SELECT COALESCE(MAX(box_no), 0) FROM cooler_boxes WHERE route_id = :rid AND delivery_date = :dd"),
+        text("SELECT COALESCE(MAX(box_no), 0) FROM cooler_boxes "
+             "WHERE route_id = :rid AND delivery_date = :dd"),
         {"rid": route_id_int, "dd": str(delivery_date)},
     ).scalar() or 0
+
     now = get_utc_now()
     created = 0
-    for idx, box in enumerate(plan, start=1):
-        result = db.session.execute(
-            text(
-                "INSERT INTO cooler_boxes "
-                "(route_id, delivery_date, box_no, status, first_stop_sequence, last_stop_sequence, created_by, created_at, box_type_id, fill_cm3, fill_weight_kg, cooler_session_id) "
-                "VALUES (:rid, :dd, :box_no, 'open', :fs, :ls, :who, :now, :btid, :fill, :weight, :sid) "
-                "RETURNING id"
-            ),
-            {
-                "rid": route_id_int,
-                "dd": str(delivery_date),
-                "box_no": int(max_box_no) + idx,
-                "fs": box["stop_min"],
-                "ls": box["stop_max"],
-                "who": _username(),
-                "now": now,
-                "btid": box["box_type_id"],
-                "fill": box["estimated_fill_cm3"],
-                "weight": box["estimated_weight_kg"],
-                "sid": None,
-            },
-        ).fetchone()
-        box_id = result[0]
-        for item in box["item_summaries"]:
-            db.session.execute(
+    skipped = 0
+
+    try:
+        for idx, box in enumerate(plan, start=1):
+            result_row = db.session.execute(
                 text(
-                    "INSERT INTO cooler_box_items "
-                    "(cooler_box_id, invoice_no, customer_code, customer_name, route_stop_id, delivery_sequence, item_code, item_name, expected_qty, picked_qty, picked_by, picked_at, queue_item_id, status, created_at, updated_at) "
-                    "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+                    "INSERT INTO cooler_boxes "
+                    "(route_id, delivery_date, box_no, status, first_stop_sequence, "
+                    " last_stop_sequence, created_by, created_at, box_type_id, "
+                    " fill_cm3, fill_weight_kg, cooler_session_id) "
+                    "VALUES (:rid, :dd, :box_no, 'open', :fs, :ls, :who, :now, "
+                    "        :btid, :fill, :weight, :sid) "
+                    "RETURNING id"
                 ),
                 {
-                    "bid": box_id,
-                    "inv": item["invoice_no"],
-                    "cc": item["customer_code"],
-                    "cn": item["customer_name"],
-                    "rsid": item["route_stop_id"],
-                    "seq": item["delivery_sequence"],
-                    "ic": item["item_code"],
-                    "iname": item["item_name"],
-                    "exp": item["qty"],
-                    "pq": item["qty"],
+                    "rid": route_id_int,
+                    "dd": str(delivery_date),
+                    "box_no": int(max_box_no) + idx,
+                    "fs": box["stop_min"],
+                    "ls": box["stop_max"],
                     "who": _username(),
                     "now": now,
-                    "qid": item["queue_item_id"],
+                    "btid": box["box_type_id"],
+                    "fill": box["estimated_fill_cm3"],
+                    "weight": box["estimated_weight_kg"],
+                    "sid": None,
                 },
-            )
-        created += 1
-    db.session.commit()
-    flash(f"Box plan confirmed — {created} box(es) created.", "success")
-    return redirect(url_for("cooler.route_picking", route_id=route_id_int, delivery_date=delivery_date))
+            ).fetchone()
+            box_id = result_row[0]
+
+            for item in box["item_summaries"]:
+                qid = item["queue_item_id"]
+
+                # Pre-flight: verify the queue row still exists, is still
+                # picked, and is not already assigned to a box.
+                qcheck = db.session.execute(
+                    text(
+                        "SELECT bpq.status, "
+                        "       (SELECT COUNT(*) FROM cooler_box_items cbi "
+                        "        WHERE cbi.queue_item_id = bpq.id) AS already_boxed "
+                        "FROM batch_pick_queue bpq WHERE bpq.id = :qid"
+                    ),
+                    {"qid": qid},
+                ).fetchone()
+
+                if qcheck is None:
+                    _audit("cooler.confirm_plan_skip",
+                           f"queue #{qid} no longer exists — skipped",
+                           invoice_no=item.get("invoice_no"))
+                    skipped += 1
+                    continue
+                if qcheck[0] != "picked":
+                    _audit("cooler.confirm_plan_skip",
+                           f"queue #{qid} status={qcheck[0]} (not picked) — skipped",
+                           invoice_no=item.get("invoice_no"))
+                    skipped += 1
+                    continue
+                if qcheck[1] > 0:
+                    _audit("cooler.confirm_plan_skip",
+                           f"queue #{qid} already boxed ({qcheck[1]} row(s)) — skipped",
+                           invoice_no=item.get("invoice_no"))
+                    skipped += 1
+                    continue
+
+                db.session.execute(
+                    text(
+                        "INSERT INTO cooler_box_items "
+                        "(cooler_box_id, invoice_no, customer_code, customer_name, "
+                        " route_stop_id, delivery_sequence, item_code, item_name, "
+                        " expected_qty, picked_qty, picked_by, picked_at, "
+                        " queue_item_id, status, created_at, updated_at) "
+                        "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+                        "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+                    ),
+                    {
+                        "bid": box_id,
+                        "inv": item["invoice_no"],
+                        "cc": item["customer_code"],
+                        "cn": item["customer_name"],
+                        "rsid": item["route_stop_id"],
+                        "seq": item["delivery_sequence"],
+                        "ic": item["item_code"],
+                        "iname": item["item_name"],
+                        "exp": item["qty"],
+                        "pq": item["qty"],
+                        "who": _username(),
+                        "now": now,
+                        "qid": qid,
+                    },
+                )
+            created += 1
+
+        db.session.commit()
+
+    except IntegrityError as exc:
+        db.session.rollback()
+        import logging as _log
+        _log.getLogger(__name__).warning("confirm_box_plan IntegrityError: %s", exc)
+        flash(
+            "Box plan could not be saved — one or more items were already assigned "
+            "to a box (possibly by another user). Please refresh and try again.",
+            "warning",
+        )
+        return _redirect_back()
+
+    msg = f"Box plan confirmed — {created} box(es) created."
+    if skipped:
+        msg += f" {skipped} item(s) skipped (already boxed or status changed)."
+    flash(msg, "success")
+    return _redirect_back()
 
 
 @cooler_bp.route("/box/<int:box_id>/assign-item", methods=["POST"])
@@ -1117,25 +1205,19 @@ def box_remove_item(box_id):
         text("DELETE FROM cooler_box_items WHERE id = :id"),
         {"id": cb_row[0]},
     )
-    now = get_utc_now()
-    db.session.execute(
-        text(
-            "UPDATE batch_pick_queue "
-            "SET status = 'pending', picked_by = NULL, picked_at = NULL, "
-            "    qty_picked = 0, updated_at = :now "
-            "WHERE id = :qid"
-        ),
-        {"now": now, "qid": queue_item_id},
-    )
+    # The item was physically picked before being boxed.  Removing it from
+    # a box does NOT undo the physical pick — the item is now picked/unboxed
+    # and will reappear in the Generate Box Plan list.  Do not touch
+    # batch_pick_queue status, picked_by, picked_at, or qty_picked.
     _audit(
         "cooler.item_removed",
-        f"Cooler box #{box_id} -> reverted queue #{queue_item_id} "
-        f"invoice={cb_row[1]} item={cb_row[2]} by {_username()}",
+        f"Cooler box #{box_id} -> unboxed queue #{queue_item_id} "
+        f"invoice={cb_row[1]} item={cb_row[2]} (remains picked) by {_username()}",
         invoice_no=cb_row[1], item_code=cb_row[2],
     )
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "queue_item_id": queue_item_id,
-                    "status": "pending"}), 200
+                    "status": "picked"}), 200
 
 
 @cooler_bp.route("/box/<int:box_id>/close", methods=["POST"])
@@ -1322,17 +1404,10 @@ def box_cancel(box_id):
         ),
         {"bid": box_id},
     ).fetchall()
-    now = get_utc_now()
-    for r in rows:
-        db.session.execute(
-            text(
-                "UPDATE batch_pick_queue "
-                "SET status = 'pending', picked_by = NULL, picked_at = NULL, "
-                "    qty_picked = 0, updated_at = :now "
-                "WHERE id = :qid"
-            ),
-            {"now": now, "qid": r[0]},
-        )
+    # Delete box-item assignments only.  The underlying queue rows stay as
+    # 'picked' — they were physically picked before being boxed and cancelling
+    # a box does not undo the physical pick.  They will reappear as
+    # picked/unboxed and show up in the Generate Box Plan list.
     db.session.execute(
         text("DELETE FROM cooler_box_items WHERE cooler_box_id = :bid"),
         {"bid": box_id},
@@ -1347,7 +1422,7 @@ def box_cancel(box_id):
     _audit(
         "cooler.box_cancelled",
         f"Cooler box #{box_id} cancelled by {_username()}; "
-        f"reverted {len(rows)} queue row(s)",
+        f"unboxed {len(rows)} queue row(s) (remain picked)",
     )
     db.session.commit()
 

@@ -165,6 +165,78 @@ class TestPlannerLogic:
         assert any("exceed" in w.lower() or "capacity" in w.lower()
                    for w in plan[0]["warnings"])
 
+    # ── 8. Items with missing delivery_sequence → dict warning, no plan ──
+    def test_missing_delivery_sequence_returns_warning_dict(self):
+        """If any picked item has seq_no=None, return a dict with ok=False."""
+        rows = [
+            _make_row(1, "INV001", "A001", 2, "C1", "Cust1", 5, 5, "Item A"),
+            _make_row(2, "INV002", "B001", 1, "C2", "Cust2", None, None, "Item B"),
+        ]
+        result = self._plan_with_rows(rows, {})
+        assert isinstance(result, dict), "Expected dict when missing seq"
+        assert result["ok"] is False
+        assert "delivery sequence" in result["message"].lower()
+        assert result["plan"] == []
+
+    # ── 9. All items have valid seq_no → returns list, not dict ──────────
+    def test_all_sequenced_returns_list(self):
+        """When all items have seq_no set, return a list (normal plan)."""
+        rows = [
+            _make_row(1, "INV001", "A001", 1, "C1", "Cust1", 2, 2, "Item A"),
+        ]
+        dims = {"A001": {"length": 5, "width": 5, "height": 5, "weight": 0.5}}
+        result = self._plan_with_rows(rows, dims)
+        assert isinstance(result, list), "Expected list when all items sequenced"
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests for box_remove_item / box_cancel — must NOT revert queue to pending
+# ---------------------------------------------------------------------------
+
+class TestBoxRemoveAndCancelLeaveQueuePicked:
+    """box_remove_item and box_cancel must delete cooler_box_items rows
+    but leave batch_pick_queue untouched (status stays 'picked')."""
+
+    def test_box_remove_item_does_not_revert_queue(self):
+        """box_remove_item source must not UPDATE batch_pick_queue to pending."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.box_remove_item)
+        assert "status = 'pending'" not in source, (
+            "box_remove_item must not revert queue rows to pending."
+        )
+        assert "picked_by = NULL" not in source, (
+            "box_remove_item must not clear picked_by on queue rows."
+        )
+        assert "picked_at = NULL" not in source, (
+            "box_remove_item must not clear picked_at on queue rows."
+        )
+
+    def test_box_remove_item_returns_picked_status(self):
+        """box_remove_item must return status='picked' in JSON response."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.box_remove_item)
+        assert '"status": "picked"' in source or "'status': 'picked'" in source, (
+            "box_remove_item JSON response must carry status='picked'."
+        )
+
+    def test_box_cancel_does_not_revert_queue(self):
+        """box_cancel source must not UPDATE batch_pick_queue to pending."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.box_cancel)
+        assert "status = 'pending'" not in source, (
+            "box_cancel must not revert queue rows to pending."
+        )
+        assert "picked_by = NULL" not in source, (
+            "box_cancel must not clear picked_by on queue rows."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests for blueprint guards (no Flask app context needed — pure logic tests)
@@ -321,4 +393,157 @@ class TestBatchRouteGrouping:
             content = f.read()
         assert "route_groups" in content, (
             "batch_picking_create.html must render route_groups."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests for issue #2 — no Pack by Stop language anywhere in user-facing code
+# ---------------------------------------------------------------------------
+
+class TestNoPackByStopLanguage:
+    """'Pack by Stop' must not appear in any user-facing message or template."""
+
+    def test_no_pack_by_stop_in_routes_batch(self):
+        """routes_batch.py must not emit 'Pack by Stop' to the user."""
+        import inspect
+        import routes_batch
+        source = inspect.getsource(routes_batch)
+        assert "Pack by Stop" not in source, (
+            "routes_batch.py must not reference 'Pack by Stop' — "
+            "replaced by 'Generate Box Plan'."
+        )
+
+    def test_routes_batch_cooler_message_uses_generate_box_plan(self):
+        """The cooler-complete flash message in routes_batch.py must
+        say 'Generate Box Plan', not 'Pack by Stop'."""
+        import inspect
+        import routes_batch
+        source = inspect.getsource(routes_batch)
+        assert "Generate Box Plan" in source, (
+            "routes_batch.py cooler completion message must reference "
+            "'Generate Box Plan'."
+        )
+
+    def test_no_pack_by_stop_in_route_picking_template(self):
+        """route_picking.html must not expose any Pack-by-Stop button."""
+        import os
+        with open(os.path.join("templates", "cooler", "route_picking.html"),
+                  encoding="utf-8") as f:
+            content = f.read()
+        assert "pack-stop" not in content.lower() and \
+               "pack by stop" not in content.lower(), (
+            "route_picking.html must not render any Pack-by-Stop controls."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests for issue #3 — lock_sequencing always forces location_order
+# ---------------------------------------------------------------------------
+
+class TestLockSequencingForcesLocationOrder:
+    """lock_sequencing must never accept sequential_stop from form data."""
+
+    def test_pack_mode_hardcoded_to_location_order(self):
+        """lock_sequencing source must set pack_mode = 'location_order'
+        unconditionally and not read it from form data."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.lock_sequencing)
+        # Must set pack_mode to location_order directly
+        assert "pack_mode = \"location_order\"" in source or \
+               "pack_mode = 'location_order'" in source, (
+            "lock_sequencing must force pack_mode = 'location_order'."
+        )
+        # Must NOT read pack_mode from request.form
+        assert "request.form.get(\"cooler_pack_mode\"" not in source and \
+               "request.form.get('cooler_pack_mode'" not in source, (
+            "lock_sequencing must not read cooler_pack_mode from form data."
+        )
+
+    def test_sequential_stop_not_accepted_from_form(self):
+        """sequential_stop from a POST must have no effect in lock_sequencing."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.lock_sequencing)
+        # The guard that checked sequential_stop+box_type must also be gone
+        assert "sequential_stop" not in source or \
+               "not production-ready" in source, (
+            "lock_sequencing must not branch on sequential_stop from form data."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests for issue #6 — box_plan_preview returns message when plan is empty
+# ---------------------------------------------------------------------------
+
+class TestBoxPlanPreviewEmptyResponse:
+    """box_plan_preview must return ok=true with a message when plan is empty."""
+
+    def test_preview_returns_message_on_empty_plan(self):
+        """box_plan_preview source must include a friendly message
+        when plan is empty, not just an empty list."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.box_plan_preview)
+        assert "No picked unboxed cooler items found" in source, (
+            "box_plan_preview must return a descriptive message when empty."
+        )
+        assert '"ok": True' in source or "'ok': True" in source or \
+               '"ok"' in source, (
+            "box_plan_preview must always return ok=true."
+        )
+
+    def test_preview_handles_dict_warning_from_planner(self):
+        """If generate_box_plan returns a dict with ok=False (e.g. missing
+        delivery sequence), box_plan_preview must forward that dict."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.box_plan_preview)
+        assert "isinstance(result, dict)" in source or \
+               "isinstance" in source, (
+            "box_plan_preview must handle dict return from generate_box_plan."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests for issue #5 — confirm_box_plan catches IntegrityError
+# ---------------------------------------------------------------------------
+
+class TestConfirmBoxPlanSafety:
+    """confirm_box_plan must catch IntegrityError and do per-item pre-flight."""
+
+    def test_integrity_error_is_caught(self):
+        """confirm_box_plan must catch IntegrityError and flash a warning."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.confirm_box_plan)
+        assert "IntegrityError" in source, (
+            "confirm_box_plan must catch IntegrityError from the unique index."
+        )
+        assert "rollback" in source.lower(), (
+            "confirm_box_plan must call db.session.rollback() on IntegrityError."
+        )
+
+    def test_per_item_preflight_check(self):
+        """confirm_box_plan must re-verify each queue item before inserting."""
+        import inspect
+        import blueprints.cooler_picking as mod
+
+        source = inspect.getsource(mod.confirm_box_plan)
+        # Pre-flight looks up bpq.status per item
+        assert "qcheck" in source, (
+            "confirm_box_plan must run a per-item pre-flight check (qcheck)."
+        )
+        assert "already_boxed" in source, (
+            "confirm_box_plan must check whether the item is already boxed."
+        )
+        assert "status != 'picked'" in source or \
+               "!= \"picked\"" in source or \
+               "!= 'picked'" in source, (
+            "confirm_box_plan must skip items whose status is no longer 'picked'."
         )

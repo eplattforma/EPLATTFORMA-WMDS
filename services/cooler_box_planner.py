@@ -111,6 +111,24 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
     if not rows:
         return []
 
+    # ── Guard: reject plan if any picked item has no delivery sequence ───
+    # Items without a delivery_sequence cannot be placed into a stop-ordered
+    # box plan.  The user must run "Prepare Cooler Route" (lock_sequencing)
+    # first so every row gets a seq_no stamped from route_stop.
+    missing_seq = [r for r in rows if r[7] is None]
+    if missing_seq:
+        invoice_samples = list({r[1] for r in missing_seq})[:5]
+        return {
+            "ok": False,
+            "plan": [],
+            "message": (
+                f"{len(missing_seq)} picked item(s) have no delivery sequence "
+                f"(e.g. invoice(s): {', '.join(invoice_samples)}). "
+                "Please run Refresh Route Order / Prepare Cooler Route first, "
+                "then generate the box plan again."
+            ),
+        }
+
     # ── Bulk-fetch item dimensions to avoid N+1 queries ────────────────────
     item_codes = list({r[2] for r in rows})
     dim_map = {}
