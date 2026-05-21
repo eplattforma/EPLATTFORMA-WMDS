@@ -1,0 +1,64 @@
+The latest cooler version is much better and the main blockers are mostly fixed. Please fix these remaining items before deployment.
+
+1. Update old tests that still expect the old wrong behavior.
+
+In `tests/test_phase5_cooler_picking.py`, some tests still expect removed/cancelled cooler box items to revert queue rows to `pending`.
+
+This is no longer correct.
+
+Correct rule:
+
+* removing an item from a cooler box keeps the queue row as `picked`;
+* cancelling a cooler box keeps its queue rows as `picked`;
+* the items become picked/unboxed and should reappear in Generate Box Plan.
+
+Please update tests such as:
+
+* `test_p5_09_remove_item_reverts_queue_to_pending`
+* `test_p5_11_box_cancel_reverts_all_items`
+
+They should now expect `status = 'picked'`, not `pending`.
+
+2. Add duplicate handling in `box_assign_item()`.
+
+`queue_assign_box()` checks whether the queue item is already assigned, but `box_assign_item()` should also check this before inserting into `cooler_box_items`.
+
+If a duplicate insert still happens because of a race/double-click, catch `IntegrityError` and return a friendly 400 warning instead of allowing a 500 crash.
+
+3. Make `confirm_box_plan()` avoid empty boxes.
+
+Currently `confirm_box_plan()` creates the cooler box first, then skips any queue items that are no longer valid/already boxed.
+
+If all items in a planned box are skipped, this can leave an empty open box.
+
+Please change the logic so that:
+
+* a box is only kept if at least one item was inserted; or
+* if zero items are inserted, delete/cancel the newly created empty box.
+
+Also, if some items are skipped, the box stop range/fill values should reflect the actual inserted items, not the original full plan.
+
+4. Tighten cooler session completion update in `box_close()`.
+
+The completion helper is good, but the final update should not complete cancelled or archived sessions.
+
+Change the session update to include:
+
+`AND status NOT IN ('Completed', 'Cancelled', 'Archived')`
+
+Ideally update only the relevant active/latest cooler route session for that route.
+
+5. Disable the legacy `pack_stop()` route.
+
+The UI no longer exposes Pack by Stop, but the backend route still exists and still creates one box per stop.
+
+Since the business does not want Pack by Stop, please either:
+
+* return a disabled/410 response from `pack_stop()`, or
+* guard it behind a disabled legacy feature flag.
+
+Do not leave it callable as a normal working route.
+
+6. Run the full test suite in Replit after these fixes.
+
+The key files compile, but the review sandbox cannot run pytest because `werkzeug` is missing here. Please run the full tests in the Replit environment.

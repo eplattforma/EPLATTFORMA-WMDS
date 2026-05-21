@@ -391,7 +391,7 @@ class TestBoxLifecycle:
         st = db.session.execute(text(
             "SELECT status FROM batch_pick_queue WHERE id = :i"
         ), {"i": qrow}).scalar()
-        assert st == "pending"
+        assert st == "picked"
 
     def test_p5_10_box_close_stamps_stop_range(self, setup, client):
         app, db = setup
@@ -453,7 +453,7 @@ class TestCancelAndGuards:
         st = db.session.execute(text(
             "SELECT status FROM batch_pick_queue WHERE id = :i"
         ), {"i": qid}).scalar()
-        assert st == "pending"
+        assert st == "picked"
         bs = db.session.execute(text(
             "SELECT status FROM cooler_boxes WHERE id = :b"
         ), {"b": bid}).scalar()

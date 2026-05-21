@@ -1,0 +1,195 @@
+Task — Show Route-Related Active Batch Sessions Inside Their Route Group on `/admin/dashboard`
+
+On `/admin/dashboard`, route-related active batch sessions are currently displayed at the bottom under **Active Batch Sessions**.
+
+This is confusing because a batch such as:
+
+`COOLER-ROUTE-420`
+
+belongs to route:
+
+`#420 - Route: Ricardo - 21/05/2026 (Pafos test)`
+
+but it is shown separately at the bottom of the page instead of visually inside the Route 420 group.
+
+Required change:
+Display each active batch session that is related to a route inside that route’s group.
+
+Example:
+If the dashboard has this route group:
+
+`#420 - Route: Ricardo - 21/05/2026 (Pafos test)`
+
+and there is an active batch:
+
+`COOLER-ROUTE-420`
+
+then that batch should appear inside the Route 420 section, directly under the route header or directly under the route’s invoice rows.
+
+It should look like it is part of the route group, not a separate unrelated session.
+
+## UI behavior required
+
+Inside each route group, show a small nested section:
+
+`Active batches for this route`
+
+Example layout:
+
+Route header:
+`#420 - Route: Ricardo - 21/05/2026 (Pafos test)`
+
+Then invoice rows as normal.
+
+Then show related active batch rows:
+
+`Active batches for this route`
+
+* Batch ID
+* Batch name
+* Zone
+* Mode
+* Items
+* Created by
+* Created time
+* Status
+* Assigned to
+* Actions
+
+The row should use the same action buttons currently used in the bottom **Active Batch Sessions** table.
+
+Important:
+The user must be able to manage the batch from inside the route group using the same buttons/actions as today.
+
+## Placement
+
+Preferred placement:
+Show the related batch session row immediately below the route’s invoices, before the next route group starts.
+
+Alternative acceptable placement:
+Show it immediately below the route header, before the route’s invoices.
+
+The important requirement is that it visually belongs to the route group.
+
+## Bottom Active Batch Sessions table
+
+After moving route-related batches into their route groups:
+
+* Do not duplicate those same route batches again at the bottom.
+* The bottom **Active Batch Sessions** section should show only batches that are not related to a route.
+* If all active batches are route-related, either hide the bottom section or show:
+  `No unassigned active batch sessions.`
+
+## Backend logic
+
+In the `/admin/dashboard` backend route, build a mapping of active batch sessions by route.
+
+Use the existing route relationship if the batch/session already has a route id field.
+
+Do not rely on parsing the batch name if a proper route id/session relation already exists.
+
+Only if there is no direct route id field available, use the existing naming pattern as a fallback for legacy sessions, for example:
+
+`COOLER-ROUTE-420`
+
+This should map to route id:
+
+`420`
+
+Create something like:
+
+`active_batches_by_route`
+
+Example structure:
+
+```python
+active_batches_by_route = {
+    420: [batch_session_1, batch_session_2],
+    419: [batch_session_3],
+}
+```
+
+Also create:
+
+`unassigned_active_batches`
+
+This should contain active batches that cannot be linked to any route.
+
+Pass both to the dashboard template.
+
+## Template logic
+
+In the route group rendering loop:
+
+1. Render route header as today.
+2. Render route invoices as today.
+3. Check whether this route has active batches:
+
+```jinja2
+{% if active_batches_by_route.get(route_id) %}
+```
+
+4. Render a nested batch table/card inside the route group.
+
+Use styling that clearly makes the batch part of the route group.
+
+Suggested styling:
+
+* slightly indented from invoice rows;
+* small title row: `Active batches for this route`;
+* use a subtle background color;
+* keep dark dashboard styling consistent;
+* do not make it look like a completely separate page section.
+
+## Visual requirement
+
+The nested batch should look connected to the route group.
+
+For example:
+
+```text
+#420 - Route: Ricardo - 21/05/2026 (Pafos test)
+------------------------------------------------
+Invoice rows...
+Invoice rows...
+Invoice rows...
+
+  Active batches for this route
+  ------------------------------------------------
+  661 | COOLER-ROUTE-420 | Sensitive | Consolidated | 19 items | Polis | Created | Unassigned | Actions
+```
+
+## Route matching rule
+
+A batch belongs inside a route group when:
+
+* the batch is explicitly linked to that route in the database; or
+* for legacy cooler route batches, the batch name clearly follows the existing route naming pattern such as `COOLER-ROUTE-420`.
+
+Do not move a batch into a route group if the relationship is uncertain.
+
+If uncertain, leave it in the bottom unassigned active batch section.
+
+## Actions
+
+The nested route batch row must keep the same actions as the current Active Batch Sessions table.
+
+Do not remove:
+
+* assign/open action;
+* view action;
+* settings/manage action;
+* any existing permission checks.
+
+Reuse the existing action button rendering where possible to avoid duplicated logic.
+
+## Acceptance criteria
+
+1. A batch named `COOLER-ROUTE-420` appears inside the Route 420 group.
+2. The same batch does not also appear in the bottom Active Batch Sessions table.
+3. Batches not linked to a route still appear in the bottom section.
+4. Existing action buttons still work.
+5. Existing invoice grouping by route remains unchanged.
+6. Existing picking dashboard behavior remains unchanged.
+7. The route group visually shows that the batch is part of that route.
+8. No unrelated batch/session logic is changed.

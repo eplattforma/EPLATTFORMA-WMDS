@@ -795,7 +795,23 @@ def admin_dashboard():
 
     unassigned_route_batch = next((s for s in open_batch_sessions if getattr(s, 'session_type', None) == 'route_batch' and not s.route_id), None)
     unassigned_invoices = [inv for inv in invoices if not inv.route_id]
-    
+
+    # Build active_batches_by_route: route_id → list[BatchPickingSession].
+    # Uses session.route_id first; falls back to parsing "COOLER-ROUTE-{id}"
+    # from the session name so legacy named sessions are grouped correctly.
+    import re as _re
+    active_batches_by_route = {}
+    for _s in open_batch_sessions:
+        _rid = _s.route_id
+        if _rid is None and _s.name:
+            _m = _re.match(r'COOLER-ROUTE-(\d+)', _s.name)
+            if _m:
+                _rid = int(_m.group(1))
+        if _rid is not None:
+            active_batches_by_route.setdefault(_rid, []).append(_s)
+    _route_session_ids = {_ss.id for _sl in active_batches_by_route.values() for _ss in _sl}
+    unassigned_active_sessions = [_s for _s in open_batch_sessions if _s.id not in _route_session_ids]
+
     try:
         return render_template('admin_dashboard.html', 
                               invoices=invoices, 
@@ -831,7 +847,9 @@ def admin_dashboard():
                               in_progress_total=in_progress_total,
                               ready_total=ready_total,
                               unassigned_invoices=unassigned_invoices,
-                              unassigned_route_batch=unassigned_route_batch)
+                              unassigned_route_batch=unassigned_route_batch,
+                              active_batches_by_route=active_batches_by_route,
+                              unassigned_active_sessions=unassigned_active_sessions)
     except Exception as _admin_dash_err:
         import traceback as _tb
         # Log a short one-liner FIRST so the exception type/message is visible

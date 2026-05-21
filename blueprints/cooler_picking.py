@@ -948,6 +948,7 @@ def confirm_box_plan(route_id, delivery_date):
             ).fetchone()
             box_id = result_row[0]
 
+            items_inserted = 0
             for item in box["item_summaries"]:
                 qid = item["queue_item_id"]
 
@@ -1008,7 +1009,22 @@ def confirm_box_plan(route_id, delivery_date):
                         "qid": qid,
                     },
                 )
-            created += 1
+                items_inserted += 1
+
+            if items_inserted == 0:
+                # All items were skipped — delete the empty box rather than
+                # leaving a shell record that will confuse the manifest.
+                db.session.execute(
+                    text("DELETE FROM cooler_boxes WHERE id = :bid"),
+                    {"bid": box_id},
+                )
+                _audit(
+                    "cooler.confirm_plan_empty_box",
+                    f"Cooler box #{box_id} (plan slot {idx}) removed — "
+                    f"all items skipped during plan confirmation",
+                )
+            else:
+                created += 1
 
         db.session.commit()
 
@@ -1076,11 +1092,10 @@ def box_assign_item(box_id):
             "error": f"Queue item {queue_item_id} is not a cooler row "
                      f"(pick_zone_type={qrow[5]})."
         }), 400
-    if qrow[4] != "picked":
+    if qrow[4] not in ("pending", "picked"):
         return jsonify({
             "error": f"Queue item {queue_item_id} status={qrow[4]}; "
-                     f"only physically-picked rows can be assigned to a box. "
-                     f"Physical picking and box packing are separate steps."
+                     f"only pending or picked rows can be assigned to a box."
         }), 400
 
     # enforce that the queue item's invoice belongs to
@@ -1110,6 +1125,20 @@ def box_assign_item(box_id):
                      f"{box['delivery_date']}."
         }), 400
 
+    # Duplicate-assignment guard: reject if this queue item is already boxed
+    existing_box_row = db.session.execute(
+        text(
+            "SELECT cooler_box_id FROM cooler_box_items "
+            "WHERE queue_item_id = :qid LIMIT 1"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if existing_box_row is not None:
+        return jsonify({
+            "error": f"Queue item {queue_item_id} is already assigned "
+                     f"to cooler box #{existing_box_row[0]}."
+        }), 409
+
     invoice_no = qrow[1]
     item_code = qrow[2]
     expected_qty = float(qrow[3]) if qrow[3] is not None else 0.0
@@ -1137,25 +1166,45 @@ def box_assign_item(box_id):
     ).fetchone()
     item_name = item_name_row[0] if item_name_row else None
 
+    from sqlalchemy.exc import IntegrityError as _IntegrityError
     now = get_utc_now()
-    db.session.execute(
-        text(
-            "INSERT INTO cooler_box_items "
-            "(cooler_box_id, invoice_no, customer_code, customer_name, "
-            " route_stop_id, delivery_sequence, item_code, item_name, "
-            " expected_qty, picked_qty, picked_by, picked_at, "
-            " queue_item_id, status, created_at, updated_at) "
-            "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
-            "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
-        ),
-        {
-            "bid": box_id, "inv": invoice_no, "cc": qrow[6], "cn": qrow[7],
-            "rsid": route_stop_id, "seq": delivery_sequence,
-            "ic": item_code, "iname": item_name,
-            "exp": expected_qty, "pq": picked_qty, "who": _username(),
-            "now": now, "qid": queue_item_id,
-        },
-    )
+    # If the item is still pending, box assignment constitutes picking it.
+    if qrow[4] == "pending":
+        db.session.execute(
+            text(
+                "UPDATE batch_pick_queue "
+                "SET status = 'picked', picked_by = :who, picked_at = :now, "
+                "    qty_picked = qty_required "
+                "WHERE id = :qid AND status = 'pending'"
+            ),
+            {"who": _username(), "now": now, "qid": queue_item_id},
+        )
+    try:
+        db.session.execute(
+            text(
+                "INSERT INTO cooler_box_items "
+                "(cooler_box_id, invoice_no, customer_code, customer_name, "
+                " route_stop_id, delivery_sequence, item_code, item_name, "
+                " expected_qty, picked_qty, picked_by, picked_at, "
+                " queue_item_id, status, created_at, updated_at) "
+                "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+                "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+            ),
+            {
+                "bid": box_id, "inv": invoice_no, "cc": qrow[6], "cn": qrow[7],
+                "rsid": route_stop_id, "seq": delivery_sequence,
+                "ic": item_code, "iname": item_name,
+                "exp": expected_qty, "pq": picked_qty, "who": _username(),
+                "now": now, "qid": queue_item_id,
+            },
+        )
+    except _IntegrityError:
+        db.session.rollback()
+        return jsonify({
+            "error": f"Queue item {queue_item_id} was already assigned "
+                     f"to a cooler box (concurrent request). "
+                     f"Please refresh and try again."
+        }), 409
     # Physical picking (pending → picked) is a separate audit event done via
     # queue_pick. Box assignment never changes the queue status.
     _audit(
@@ -1166,7 +1215,7 @@ def box_assign_item(box_id):
     )
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "queue_item_id": queue_item_id,
-                    "status": "assigned"}), 200
+                    "status": "picked"}), 200
 
 
 @cooler_bp.route("/box/<int:box_id>/remove-item", methods=["POST"])
@@ -1323,7 +1372,8 @@ def box_close(box_id):
                 "UPDATE batch_picking_sessions "
                 "SET status = 'Completed', last_activity_at = :now "
                 "WHERE session_type = 'cooler_route' "
-                "  AND route_id = :rid"
+                "  AND route_id = :rid "
+                "  AND status NOT IN ('Completed', 'Cancelled', 'Archived')"
             ),
             {"rid": box["route_id"], "now": now},
         )
@@ -1709,26 +1759,8 @@ def queue_assign_box(queue_item_id):
 @_require_cooler_manage
 @_require_picking_flag
 def pack_stop(route_id):
-    """LEGACY — no longer exposed in the UI.
-
-    The route_picking template no longer renders a Pack-by-Stop button.
-    The automated box plan (box_plan_preview / confirm_box_plan) supersedes
-    this endpoint.  The route is kept so that any bookmarked or scripted
-    calls continue to work and do not 404, but new UI flows use the
-    generate-box-plan / confirm-box-plan pair instead.
-
-    Original docstring follows:
-    Create one cooler box for all picked, unassigned items at a delivery stop.
-
-    Intended for location_order mode: after all items are physically
-    picked by warehouse location, the manager packs them per-stop with
-    a single button click.  Each stop gets its own box so the driver
-    can work through the truck load in stop order.
-    """
-    try:
-        route_id_int = int(route_id)
-    except (TypeError, ValueError):
-        abort(400)
+    """DISABLED — superseded by generate-box-plan / confirm-box-plan."""
+    return jsonify({"error": "This endpoint has been disabled."}), 410
 
     delivery_date_str = (request.form.get("delivery_date") or "").strip()
     if not delivery_date_str:
