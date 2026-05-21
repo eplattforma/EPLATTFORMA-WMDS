@@ -417,7 +417,8 @@ def route_picking(route_id, delivery_date):
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
             "       bpq.qty_picked, bpq.status, bpq.wms_zone, "
             "       i.customer_name, i.customer_code, "
-            "       rs.seq_no, rs.route_stop_id, bpq.delivery_sequence "
+            "       rs.seq_no, rs.route_stop_id, bpq.delivery_sequence, "
+            "       ii.item_name "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
             "JOIN shipments s ON s.id = i.route_id "
@@ -426,6 +427,9 @@ def route_picking(route_id, delivery_date):
             "      AND rsi.is_active = :truthy "
             "LEFT JOIN route_stop rs "
             "       ON rs.route_stop_id = rsi.route_stop_id "
+            "LEFT JOIN invoice_items ii "
+            "       ON ii.invoice_no = bpq.invoice_no "
+            "      AND ii.item_code = bpq.item_code "
             "WHERE bpq.pick_zone_type = 'cooler' "
             "  AND i.route_id = :route_id "
             "  AND s.delivery_date = :delivery_date "
@@ -450,6 +454,7 @@ def route_picking(route_id, delivery_date):
             "stop_seq_no": float(r[9]) if r[9] is not None else None,
             "route_stop_id": r[10],
             "delivery_sequence": float(r[11]) if r[11] is not None else None,
+            "item_name": r[12] or "",
         }
         for r in rows
     ]
@@ -596,6 +601,13 @@ def route_picking(route_id, delivery_date):
         and (cooler_session.get("status") or "") not in _TERMINAL_COOLER
     )
 
+    _sinfo = db.session.execute(
+        text("SELECT driver_name, route_name FROM shipments WHERE id = :rid"),
+        {"rid": _route_id_int},
+    ).fetchone()
+    route_driver = _sinfo[0] if _sinfo else None
+    route_name_val = _sinfo[1] if _sinfo else None
+
     return render_template(
         "cooler/route_picking.html",
         route_id=route_id, delivery_date=delivery_date,
@@ -607,6 +619,8 @@ def route_picking(route_id, delivery_date):
         batch_in_progress=batch_in_progress,
         assigned_to_box=assigned_to_box,
         picked_unboxed_count=picked_unboxed_count,
+        route_driver=route_driver,
+        route_name=route_name_val,
     )
 
 

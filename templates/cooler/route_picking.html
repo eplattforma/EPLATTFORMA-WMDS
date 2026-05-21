@@ -2,8 +2,11 @@
 {% block title %}Cooler Route {{ route_id }} / {{ delivery_date }}{% endblock %}
 {% block content %}
 <div class="container-fluid my-4">
-  <h2><i class="fas fa-snowflake me-2"></i>Cooler Route {{ route_id }}</h2>
-  <p class="text-muted mb-4">Delivery date {{ delivery_date }}</p>
+  <h2><i class="fas fa-snowflake me-2"></i>Cooler Route {{ route_id }}{% if route_name %} — {{ route_name }}{% endif %}</h2>
+  <p class="text-muted mb-4">
+    {% if route_driver %}<strong>Driver:</strong> {{ route_driver }}{% if delivery_date %} | {% endif %}{% endif %}
+    {% if delivery_date %}<strong>Delivery date:</strong> {{ delivery_date }}{% endif %}
+  </p>
 
   {# ── Status / Prepare card ─────────────────────────────────────────── #}
   <div class="card mb-4 border-info">
@@ -84,14 +87,23 @@
             <small>{{ picking_phase.picked_count }} picked, {{ picking_phase.pending_count }} pending (out of {{ picking_phase.total_count }}).</small>
           </div>
           {% if cooler_session %}
-            {% if picking_phase.batch_status == 'Created' %}
-              <a href="{{ url_for('batch.start_batch_picking', batch_id=cooler_session.id) }}" class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
-                <i class="fas fa-warehouse me-1"></i>Start picking
-              </a>
+            {% if cooler_session.is_locked %}
+              {% if picking_phase.batch_status == 'Created' %}
+                <a href="{{ url_for('batch.start_batch_picking', batch_id=cooler_session.id) }}" class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
+                  <i class="fas fa-warehouse me-1"></i>Start picking
+                </a>
+              {% else %}
+                <a href="{{ url_for('batch.batch_picking_item', batch_id=cooler_session.id) }}" class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
+                  <i class="fas fa-warehouse me-1"></i>Continue picking
+                </a>
+              {% endif %}
             {% else %}
-              <a href="{{ url_for('batch.batch_picking_item', batch_id=cooler_session.id) }}" class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
-                <i class="fas fa-warehouse me-1"></i>Continue picking
-              </a>
+              <div class="flex-shrink-0 text-end">
+                <button class="btn btn-secondary btn-sm text-nowrap" disabled>
+                  <i class="fas fa-warehouse me-1"></i>Start picking
+                </button>
+                <div class="text-warning small mt-1"><i class="fas fa-lock-open me-1"></i>Prepare the cooler route before starting picking.</div>
+              </div>
             {% endif %}
           {% endif %}
         </div>
@@ -184,16 +196,28 @@
     </div>
     <table class="table table-sm table-bordered">
       <thead class="table-light">
-        <tr><th>Customer</th><th>Invoice</th><th>Item</th><th class="text-end">Qty</th><th>Stop</th></tr>
+        <tr><th>Invoice</th><th>Item Code</th><th>Item Description</th><th class="text-end">Qty</th></tr>
       </thead>
       <tbody>
+        {% set ns = namespace(prev_stop=none, prev_customer='__unset__') %}
         {% for q in unsequenced %}
+          {% set curr_stop = q.stop_seq_no %}
+          {% set curr_customer = q.customer_name or q.customer_code or '—' %}
+          {% if curr_stop != ns.prev_stop or curr_customer != ns.prev_customer %}
+          <tr class="table-warning">
+            <td colspan="4" class="fw-bold py-1 ps-2">
+              <span class="me-1">Stop {{ q.stop_seq_no|int if q.stop_seq_no is not none else '—' }}</span>
+              — {{ curr_customer }}
+            </td>
+          </tr>
+          {% set ns.prev_stop = curr_stop %}
+          {% set ns.prev_customer = curr_customer %}
+          {% endif %}
           <tr>
-            <td>{{ q.customer_name or q.customer_code or '-' }}</td>
-            <td>{{ q.invoice_no }}</td>
-            <td>{{ q.item_code }}</td>
+            <td class="ps-3">{{ q.invoice_no }}</td>
+            <td><strong>{{ q.item_code }}</strong></td>
+            <td class="text-muted">{{ q.item_name or '' }}</td>
             <td class="text-end">{{ q.expected_qty|int }}</td>
-            <td>{{ q.stop_seq_no|int if q.stop_seq_no is not none else '—' }}</td>
           </tr>
         {% endfor %}
       </tbody>

@@ -1,0 +1,98 @@
+Task — Improve Cooler Route Header and Block Picking Until Route Is Prepared
+
+On the Cooler Route page, improve the route information and prevent picking before the cooler route has been prepared.
+
+Current issue:
+The page shows:
+
+`Cooler Route 420`
+`Delivery date 2026-05-21`
+
+But it does not show the route name or driver. Also, the `Start picking` button is visible even when the route status is `Not prepared`.
+
+This is confusing. The user should first click `Prepare Cooler Route`, then start picking.
+
+## 1. Add route name and driver to the Cooler Route page
+
+On `templates/cooler/route_picking.html`, in the page header / route status area, show:
+
+* Route ID
+* Route name
+* Driver name
+* Delivery date
+
+Example display:
+
+`Cooler Route 420 — Ricardo`
+`Driver: Polis`
+`Delivery date: 2026-05-21`
+
+Use the actual route/shipment data already available in the page context. If the route name or driver is not currently passed to the template, update `route_picking(route_id, delivery_date)` in `blueprints/cooler_picking.py` to fetch and pass it.
+
+Do not hardcode route names or driver names.
+
+Suggested header layout:
+
+```text
+❄️ Cooler Route 420 — Ricardo
+Driver: Polis | Delivery date: 2026-05-21
+```
+
+## 2. Do not allow picking before Prepare Cooler Route
+
+Business rule:
+Picking should not start until the cooler route is prepared.
+
+Reason:
+`Prepare Cooler Route` confirms/refreshes the route stop sequence and moves items into the pickable state. If picking starts before preparation, items may be picked before the route order is properly locked, which can cause problems later during box planning.
+
+Required behavior:
+When route status is `Not prepared` or there are zero ready-to-pick items and items are still awaiting preparation:
+
+* Disable or hide the `Start picking` button.
+* Show an explanatory message instead.
+
+Suggested message:
+
+`Prepare the cooler route before starting picking.`
+
+The user flow should be:
+
+1. Prepare Cooler Route
+2. Start picking
+3. Pick cooler items
+4. Generate Box Plan
+5. Confirm Box Plan
+6. Close boxes / print labels
+
+## 3. UI behavior
+
+If the route is not prepared:
+
+Show:
+
+* `Prepare Cooler Route` button
+* disabled `Start picking` button, or hide it
+* message: `Prepare the cooler route before starting picking.`
+
+If the route is prepared and there are ready-to-pick items:
+
+Show:
+
+* active `Start picking` button
+
+If all items are picked:
+
+Do not show `Start picking` as the main action. Show the next step:
+
+* `Generate Box Plan`
+
+## 4. Acceptance criteria
+
+1. Cooler route page displays route name.
+2. Cooler route page displays driver name.
+3. Picking cannot be started while the route is `Not prepared`.
+4. `Start picking` becomes available only after `Prepare Cooler Route`.
+5. User sees a clear message explaining why picking is blocked.
+6. Existing Prepare Cooler Route logic is not changed except where needed to pass route/driver data to the template.
+7. Box planning flow remains unchanged.

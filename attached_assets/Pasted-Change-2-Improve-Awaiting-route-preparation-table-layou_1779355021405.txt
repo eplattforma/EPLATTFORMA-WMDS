@@ -1,0 +1,54 @@
+Change 2 — Improve “Awaiting route preparation” table layout
+
+On the Cooler Route page, the “Awaiting route preparation” table should be reorganized to make it easier to understand which customer/stop each item belongs to.
+
+Current issue:
+The table starts with Customer, then Invoice, Item, Qty, Stop. This is not ideal because the warehouse user needs to understand the route order first.
+
+Required layout:
+The table should be grouped by:
+
+1. Stop
+2. Customer
+
+Then under each stop/customer group, show the item lines.
+
+Suggested display:
+
+Stop 1 — NIHAMO LTD
+------------------------------------------------
+Invoice       Item Code     Item Description        Qty
+IN10055315    CHO-0027      Product description     1
+IN10055315    CHO-0031      Product description     2
+IN10055315    CHO-0037      Product description     1
+
+Stop 2 — CUSTOMER NAME
+------------------------------------------------
+Invoice       Item Code     Item Description        Qty
+IN10055320    CHO-0040      Product description     3
+
+Requirements:
+- Sort groups by stop sequence ascending.
+- Inside each stop/customer group, sort by invoice number, then item code.
+- Show Stop and Customer as the group header, not repeated on every item row.
+- Add item description between item code and quantity.
+- Keep the table compact and readable.
+- Keep dark dashboard styling consistent.
+- If item description is already available in the current query/context, use it.
+- Do not invent product descriptions.
+- If description is missing, show blank or the existing item name field if already available.
+
+Column order inside each group:
+1. Invoice
+2. Item Code
+3. Item Description
+4. Qty
+
+Acceptance criteria:
+1. Awaiting route preparation is grouped by Stop + Customer.
+2. Stop appears first visually.
+3. Customer appears in the group header.
+4. Invoice/item rows are displayed under the correct stop/customer.
+5. Item description is shown.
+6. Quantity remains clearly visible.
+7. Existing Prepare Cooler Route behavior is not changed.
