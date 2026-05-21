@@ -750,6 +750,25 @@ def admin_dashboard():
             'on_break': bool(on_break)
         })
     
+    # Compute per-route warehouse readiness live so the dashboard badge is always current
+    route_warehouse_status = {}
+    try:
+        from services.route_warehouse_readiness import check_route_warehouse_ready as _chk_wrs
+        for _rid in route_info:
+            _shipment = shipment_cache.get(_rid)
+            if _shipment and _shipment.status in ('PLANNED', 'created'):
+                try:
+                    _is_ready, _blockers = _chk_wrs(_rid)
+                    route_warehouse_status[_rid] = {
+                        'is_ready': _is_ready,
+                        'blockers': _blockers,
+                    }
+                except Exception:
+                    route_warehouse_status[_rid] = {'is_ready': False, 'blockers': []}
+    except Exception as _wrs_err:
+        import logging as _wlog
+        _wlog.getLogger(__name__).warning("admin_dashboard: route readiness check failed: %s", _wrs_err)
+
     routes_data = []
     not_started_total = 0
     in_progress_total = 0
@@ -849,7 +868,8 @@ def admin_dashboard():
                               unassigned_invoices=unassigned_invoices,
                               unassigned_route_batch=unassigned_route_batch,
                               active_batches_by_route=active_batches_by_route,
-                              unassigned_active_sessions=unassigned_active_sessions)
+                              unassigned_active_sessions=unassigned_active_sessions,
+                              route_warehouse_status=route_warehouse_status)
     except Exception as _admin_dash_err:
         import traceback as _tb
         # Log a short one-liner FIRST so the exception type/message is visible
@@ -3568,6 +3588,16 @@ def api_confirm_pick(invoice_no):
 
     db.session.commit()
 
+    # Recalculate warehouse readiness after exception may have been created
+    try:
+        _exc_inv = Invoice.query.filter_by(invoice_no=invoice_no).first()
+        if _exc_inv and _exc_inv.route_id:
+            from services.route_warehouse_readiness import recalculate_route_warehouse_status
+            recalculate_route_warehouse_status(_exc_inv.route_id)
+    except Exception as _wre:
+        import logging as _wlog
+        _wlog.getLogger(__name__).warning("warehouse readiness recalc failed after pick qty: %s", _wre)
+
     # Update order status
     from batch_aware_order_status import update_order_status_batch_aware
     update_order_status_batch_aware(invoice_no)
@@ -3907,6 +3937,14 @@ def pick_item(invoice_no):
                 
                 # Save to the database
                 db.session.commit()
+
+                # Recalculate warehouse readiness after exception may have been created
+                try:
+                    if invoice.route_id:
+                        from services.route_warehouse_readiness import recalculate_route_warehouse_status
+                        recalculate_route_warehouse_status(invoice.route_id)
+                except Exception as _wre:
+                    current_app.logger.warning("warehouse readiness recalc failed after pick_item: %s", _wre)
                 
                 # Update order status with batch-aware logic
                 from batch_aware_order_status import update_order_status_batch_aware

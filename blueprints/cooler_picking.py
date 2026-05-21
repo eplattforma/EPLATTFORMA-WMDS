@@ -1117,6 +1117,16 @@ def confirm_box_plan(route_id, delivery_date):
 
         db.session.commit()
 
+        # Recalculate warehouse readiness after box plan is confirmed
+        try:
+            from services.route_warehouse_readiness import recalculate_route_warehouse_status
+            recalculate_route_warehouse_status(route_id_int)
+        except Exception as _wre:
+            current_app.logger.warning(
+                "warehouse readiness recalc failed after confirm_box_plan route %s: %s",
+                route_id_int, _wre,
+            )
+
     except IntegrityError as exc:
         db.session.rollback()
         import logging as _log
@@ -1461,6 +1471,15 @@ def box_close(box_id):
 
     db.session.commit()
 
+    # Recalculate warehouse readiness after a box is closed
+    try:
+        from services.route_warehouse_readiness import recalculate_route_warehouse_status
+        recalculate_route_warehouse_status(box["route_id"])
+    except Exception as _wre:
+        current_app.logger.warning(
+            "warehouse readiness recalc failed after box_close %s: %s", box_id, _wre
+        )
+
     if request.form.get("_html_form"):
         flash(f"Box #{box_id} closed.", "success")
         box_data = _fetch_box(box_id)
@@ -1556,6 +1575,15 @@ def box_cancel(box_id):
         f"unboxed {len(rows)} queue row(s) (remain picked)",
     )
     db.session.commit()
+
+    # Recalculate warehouse readiness after a box is cancelled
+    try:
+        from services.route_warehouse_readiness import recalculate_route_warehouse_status
+        recalculate_route_warehouse_status(box["route_id"])
+    except Exception as _wre:
+        current_app.logger.warning(
+            "warehouse readiness recalc failed after box_cancel %s: %s", box_id, _wre
+        )
 
     if request.form.get("_html_form"):
         flash(f"Box #{box_id} deleted.", "success")

@@ -1088,6 +1088,7 @@ class Shipment(db.Model, SoftDeleteMixin):
     driver_name = db.Column(db.String(100), nullable=False)
     route_name = db.Column(db.String(100))
     status = db.Column(db.String(20), nullable=False, default='created')  # created, PLANNED, DISPATCHED, IN_TRANSIT, COMPLETED, CANCELLED
+    warehouse_status = db.Column(db.String(30), nullable=True)  # None=in-progress, WAREHOUSE_READY=all picking/boxing done
     delivery_date = db.Column(db.Date, nullable=False)
     created_at = db.Column(UTCDateTime(), default=get_utc_now)
     updated_at = db.Column(UTCDateTime(), default=get_utc_now, onupdate=get_utc_now)  # Last status update

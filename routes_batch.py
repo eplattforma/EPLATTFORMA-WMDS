@@ -2351,6 +2351,14 @@ def batch_picking_item(batch_id):
                 
                 db.session.commit()
                 current_app.logger.info(f"Batch {batch_id} completed: All items picked successfully")
+
+                # Recalculate warehouse readiness after batch completion
+                if batch_session.route_id:
+                    try:
+                        from services.route_warehouse_readiness import recalculate_route_warehouse_status
+                        recalculate_route_warehouse_status(batch_session.route_id)
+                    except Exception as _wre:
+                        current_app.logger.warning("warehouse readiness recalc failed after batch %s: %s", batch_id, _wre)
                 if getattr(batch_session, 'session_type', None) == 'cooler_route' and batch_session.route_id:
                     from models import Shipment
                     route = Shipment.query.get(batch_session.route_id)

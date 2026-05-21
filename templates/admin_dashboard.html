@@ -153,8 +153,9 @@
                         {% if invoice.route_id %}
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
+                            {% set _wrs = route_warehouse_status.get(route.id, {}) %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span>{% if route.status in ('PLANNED', 'created') %}{% if _wrs.get('is_ready') %}<span class="badge bg-success ms-2" title="All warehouse work complete — ready to dispatch"><i class="fas fa-check-circle me-1"></i>Ready to Dispatch</span>{% else %}<span class="badge bg-warning text-dark ms-2" data-bs-toggle="tooltip" data-bs-html="true" title="{{ (_wrs.get('blockers') or ['Picking in progress'])|join(' | ') }}"><i class="fas fa-warehouse me-1"></i>Picking in progress</span>{% endif %}{% endif %}</td>
                                 <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
@@ -199,8 +200,9 @@
                         {% if invoice.route_id and invoice.route_id != loop.previtem.route_id %}
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
+                            {% set _wrs = route_warehouse_status.get(route.id, {}) %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span>{% if route.status in ('PLANNED', 'created') %}{% if _wrs.get('is_ready') %}<span class="badge bg-success ms-2" title="All warehouse work complete — ready to dispatch"><i class="fas fa-check-circle me-1"></i>Ready to Dispatch</span>{% else %}<span class="badge bg-warning text-dark ms-2" data-bs-toggle="tooltip" data-bs-html="true" title="{{ (_wrs.get('blockers') or ['Picking in progress'])|join(' | ') }}"><i class="fas fa-warehouse me-1"></i>Picking in progress</span>{% endif %}{% endif %}</td>
                                 <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>

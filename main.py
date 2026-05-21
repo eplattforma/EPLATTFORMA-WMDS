@@ -601,6 +601,20 @@ if _db_available:
         logging.error(f"Error updating bank transactions schema: {str(e)}")
 
     try:
+        from sqlalchemy import text as _wrs_text
+        from app import db as _wrs_db
+        _wrs_db.session.execute(
+            _wrs_text(
+                "ALTER TABLE shipments "
+                "ADD COLUMN IF NOT EXISTS warehouse_status VARCHAR(30)"
+            )
+        )
+        _wrs_db.session.commit()
+        logging.info("warehouse_status column ensured on shipments table")
+    except Exception as e:
+        logging.error(f"Error adding warehouse_status column: {str(e)}")
+
+    try:
         from update_sms_schema import update_sms_schema
         update_sms_schema()
     except Exception as e:
