@@ -484,7 +484,7 @@ def route_picking(route_id, delivery_date):
     # name pattern, ordered by created_at DESC so late-addition sibling
     # batches (COOLER-ROUTE-<id>-2, -3, ...) take precedence.
     lock_row = db.session.execute(text(
-        "SELECT id, sequence_locked_at, sequence_locked_by, name, status "
+        "SELECT id, sequence_locked_at, sequence_locked_by, name, status, assigned_to "
         "FROM batch_picking_sessions "
         "WHERE session_type = 'cooler_route' "
         "  AND (route_id = :rid OR name = :legacy "
@@ -504,6 +504,7 @@ def route_picking(route_id, delivery_date):
             "name": lock_row[3],
             "status": lock_row[4],
             "is_locked": lock_row[1] is not None,
+            "assigned_to": lock_row[5],
         }
 
     # Cooler enhancement — picking-phase status across ALL cooler sessions
@@ -608,6 +609,12 @@ def route_picking(route_id, delivery_date):
     route_driver = _sinfo[0] if _sinfo else None
     route_name_val = _sinfo[1] if _sinfo else None
 
+    from models import User
+    picker_users = User.query.filter(
+        User.is_active == True,
+        User.role.in_(["picker", "warehouse_manager", "admin"]),
+    ).order_by(User.username).all()
+
     return render_template(
         "cooler/route_picking.html",
         route_id=route_id, delivery_date=delivery_date,
@@ -621,7 +628,54 @@ def route_picking(route_id, delivery_date):
         picked_unboxed_count=picked_unboxed_count,
         route_driver=route_driver,
         route_name=route_name_val,
+        picker_users=picker_users,
     )
+
+
+@cooler_bp.route("/route/<route_id>/assign-picker", methods=["POST"])
+@login_required
+@require_permission("cooler.lock_sequencing")
+def assign_cooler_picker(route_id):
+    """Assign (or re-assign) a picker to the cooler-route batch session."""
+    try:
+        route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        flash("Invalid route ID.", "danger")
+        return redirect(url_for("cooler.route_list"))
+
+    delivery_date = request.form.get("delivery_date", "")
+    batch_id = request.form.get("batch_id", type=int)
+    picker_username = request.form.get("picker_username", "").strip()
+
+    if not batch_id:
+        flash("No batch session specified.", "warning")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id, delivery_date=delivery_date))
+
+    session_obj = BatchPickingSession.query.get(batch_id)
+    if session_obj is None:
+        flash("Batch session not found.", "danger")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=route_id, delivery_date=delivery_date))
+
+    if picker_username:
+        from models import User
+        picker = User.query.filter_by(username=picker_username, is_active=True).first()
+        if not picker:
+            flash("Selected picker not found or inactive.", "warning")
+            return redirect(url_for("cooler.route_picking",
+                                    route_id=route_id, delivery_date=delivery_date))
+        session_obj.assigned_to = picker_username
+        db.session.commit()
+        display = getattr(picker, "display_name", None) or picker_username
+        flash(f"Cooler batch assigned to {display}.", "success")
+    else:
+        session_obj.assigned_to = None
+        db.session.commit()
+        flash("Cooler batch unassigned.", "info")
+
+    return redirect(url_for("cooler.route_picking",
+                            route_id=route_id, delivery_date=delivery_date))
 
 
 @cooler_bp.route("/route/<route_id>/lock-sequencing", methods=["POST"])

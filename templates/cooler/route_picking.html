@@ -62,6 +62,42 @@
           {% endif %}
         </div>
       </div>
+
+      {# ── Assign Picker ──────────────────────────────────────────────── #}
+      {% if cooler_session and has_permission('cooler.lock_sequencing') %}
+      <hr class="my-3">
+      <div class="row align-items-center g-2">
+        <div class="col-auto">
+          <span class="fw-semibold me-1">Batch:</span>
+          <code>{{ cooler_session.name }}</code>
+          <span class="badge ms-2 {% if cooler_session.status in ('Active','picking','In Progress') %}bg-success{% elif cooler_session.status == 'Paused' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ cooler_session.status }}</span>
+        </div>
+        <div class="col-auto ms-auto">
+          {% if cooler_session.assigned_to %}
+            <span class="text-success me-2"><i class="fas fa-user-check me-1"></i>Assigned to: <strong>{{ cooler_session.assigned_to }}</strong></span>
+          {% else %}
+            <span class="text-muted me-2"><i class="fas fa-user-slash me-1"></i>Unassigned</span>
+          {% endif %}
+        </div>
+        <div class="col-auto">
+          <form method="post" action="{{ url_for('cooler.assign_cooler_picker', route_id=route_id) }}" class="d-flex align-items-center gap-2">
+            <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+            <input type="hidden" name="batch_id" value="{{ cooler_session.id }}">
+            <select name="picker_username" class="form-select form-select-sm" style="min-width:160px;">
+              <option value="">— Unassign —</option>
+              {% for u in picker_users %}
+              <option value="{{ u.username }}" {% if cooler_session.assigned_to == u.username %}selected{% endif %}>
+                {{ u.display_name or u.username }}{% if u.role == 'picker' %} (picker){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm text-nowrap">
+              {% if cooler_session.assigned_to %}<i class="fas fa-user-edit me-1"></i>Change Picker{% else %}<i class="fas fa-user-plus me-1"></i>Assign Picker{% endif %}
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
 

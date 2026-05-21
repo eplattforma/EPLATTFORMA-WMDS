@@ -424,7 +424,7 @@ def picker_batch_list():
     # Get batch sessions assigned to this picker
     batch_sessions = BatchPickingSession.query.filter(
         BatchPickingSession.assigned_to == current_user.username,
-        BatchPickingSession.status.in_(['Created', 'In Progress'])
+        BatchPickingSession.status.in_(['Created', 'In Progress', 'Active', 'Paused', 'picking'])
     ).order_by(BatchPickingSession.created_at.desc()).all()
     
     # Get recently completed batch sessions
