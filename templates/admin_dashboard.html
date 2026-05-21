@@ -162,7 +162,27 @@
                             </tr>
                             {% for _bs in active_batches_by_route.get(route.id, []) %}
                             <tr class="table-light" style="font-size:0.85rem;border-left:3px solid #0d6efd;">
-                                <td colspan="9" class="py-1 ps-5"><i class="fas fa-layer-group me-2 text-primary"></i><strong>Batch #{{ _bs.id }}</strong> {{ _bs.name }} <span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ _bs.status }}</span>{% set _bc = batch_session_item_counts.get(_bs.id, {}) %}<span class="badge bg-dark ms-2">{{ _bc.get('picked', 0) }}/{{ _bc.get('total', 0) }} items</span>{% if _bs.assigned_to %}<span class="badge bg-success ms-2"><i class="fas fa-user me-1"></i>{{ _bs.assigned_to }}</span>{% else %}<span class="badge bg-secondary ms-2">Unassigned</span>{% endif %}</td>
+                                <td colspan="6" class="py-1 ps-5"><i class="fas fa-layer-group me-2 text-primary"></i><strong>Batch #{{ _bs.id }}</strong> {{ _bs.name }} <span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ _bs.status }}</span>{% set _bc = batch_session_item_counts.get(_bs.id, {}) %}<span class="badge bg-dark ms-2">{{ _bc.get('picked', 0) }}/{{ _bc.get('total', 0) }} items</span>{% if _bs.assigned_to %}<span class="badge bg-success ms-2"><i class="fas fa-user me-1"></i>{{ _bs.assigned_to }}</span>{% else %}<span class="badge bg-secondary ms-2">Unassigned</span>{% endif %}</td>
+                                <td colspan="3" class="py-1 text-end pe-2">
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button class="btn btn-outline-primary btn-sm batch-qv-btn" data-batch-id="{{ _bs.id }}" data-batch-label="{{ (_bs.batch_number or _bs.name)|e }}" title="Quick View"><i class="fas fa-eye"></i></button>
+                                        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-outline-secondary btn-sm" title="Manage batch"><i class="fas fa-cog"></i></a>
+                                        {% if _bs.status not in ('Completed', 'Cancelled') %}
+                                        <button class="btn btn-outline-success btn-sm"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#dashAssignModal"
+                                                data-batch-id="{{ _bs.id }}"
+                                                data-batch-name="{{ _bs.name }}"
+                                                data-assign-url="{{ url_for('batch.batch_picking_assign', batch_id=_bs.id) }}"
+                                                title="Assign picker"><i class="fas fa-user-plus"></i></button>
+                                        {% if _bs.assigned_to %}
+                                        <form method="post" action="{{ url_for('batch.batch_picking_unassign', batch_id=_bs.id) }}" class="d-inline" onsubmit="return confirm('Unassign picker from batch #{{ _bs.id }}?')">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm" title="Unassign picker"><i class="fas fa-user-minus"></i></button>
+                                        </form>
+                                        {% endif %}
+                                        {% endif %}
+                                    </div>
+                                </td>
                             </tr>
                             {% endfor %}
                             {% endif %}
@@ -188,7 +208,27 @@
                             </tr>
                             {% for _bs in active_batches_by_route.get(route.id, []) %}
                             <tr class="table-light" style="font-size:0.85rem;border-left:3px solid #0d6efd;">
-                                <td colspan="9" class="py-1 ps-5"><i class="fas fa-layer-group me-2 text-primary"></i><strong>Batch #{{ _bs.id }}</strong> {{ _bs.name }} <span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ _bs.status }}</span>{% set _bc = batch_session_item_counts.get(_bs.id, {}) %}<span class="badge bg-dark ms-2">{{ _bc.get('picked', 0) }}/{{ _bc.get('total', 0) }} items</span>{% if _bs.assigned_to %}<span class="badge bg-success ms-2"><i class="fas fa-user me-1"></i>{{ _bs.assigned_to }}</span>{% else %}<span class="badge bg-secondary ms-2">Unassigned</span>{% endif %}</td>
+                                <td colspan="6" class="py-1 ps-5"><i class="fas fa-layer-group me-2 text-primary"></i><strong>Batch #{{ _bs.id }}</strong> {{ _bs.name }} <span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ _bs.status }}</span>{% set _bc = batch_session_item_counts.get(_bs.id, {}) %}<span class="badge bg-dark ms-2">{{ _bc.get('picked', 0) }}/{{ _bc.get('total', 0) }} items</span>{% if _bs.assigned_to %}<span class="badge bg-success ms-2"><i class="fas fa-user me-1"></i>{{ _bs.assigned_to }}</span>{% else %}<span class="badge bg-secondary ms-2">Unassigned</span>{% endif %}</td>
+                                <td colspan="3" class="py-1 text-end pe-2">
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button class="btn btn-outline-primary btn-sm batch-qv-btn" data-batch-id="{{ _bs.id }}" data-batch-label="{{ (_bs.batch_number or _bs.name)|e }}" title="Quick View"><i class="fas fa-eye"></i></button>
+                                        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-outline-secondary btn-sm" title="Manage batch"><i class="fas fa-cog"></i></a>
+                                        {% if _bs.status not in ('Completed', 'Cancelled') %}
+                                        <button class="btn btn-outline-success btn-sm"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#dashAssignModal"
+                                                data-batch-id="{{ _bs.id }}"
+                                                data-batch-name="{{ _bs.name }}"
+                                                data-assign-url="{{ url_for('batch.batch_picking_assign', batch_id=_bs.id) }}"
+                                                title="Assign picker"><i class="fas fa-user-plus"></i></button>
+                                        {% if _bs.assigned_to %}
+                                        <form method="post" action="{{ url_for('batch.batch_picking_unassign', batch_id=_bs.id) }}" class="d-inline" onsubmit="return confirm('Unassign picker from batch #{{ _bs.id }}?')">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm" title="Unassign picker"><i class="fas fa-user-minus"></i></button>
+                                        </form>
+                                        {% endif %}
+                                        {% endif %}
+                                    </div>
+                                </td>
                             </tr>
                             {% endfor %}
                             {% endif %}

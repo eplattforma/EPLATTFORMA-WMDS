@@ -256,20 +256,23 @@ class TestBoxAssignmentGuards:
                 "C1", "Cust1", route_id, delivery_date)
 
     def test_pending_item_accepted_by_box_assign_item(self):
-        """box_assign_item must accept both 'pending' and 'picked' items.
+        """box_assign_item must REJECT pending items.
 
-        Box assignment constitutes picking for cooler items, so pending items
-        are allowed.  Only terminal statuses (exception, skipped, etc.) must be
-        rejected.  We verify by inspecting the guard expression in the source.
+        Physical picking and box packing are separate steps.  Only items that
+        have already been physically picked (status='picked') may be assigned to
+        a box.  Pending items must be rejected with HTTP 400.
         """
         import inspect
         import blueprints.cooler_picking as mod
 
         source = inspect.getsource(mod.box_assign_item)
-        # The guard must allow pending AND picked (reject everything else).
-        assert ("\"pending\", \"picked\"" in source or
-                "'pending', 'picked'" in source), (
-            "box_assign_item must accept 'pending' and 'picked' items."
+        # The guard must reject anything other than 'picked'.
+        assert ("!= \"picked\"" in source or "!= 'picked'" in source), (
+            "box_assign_item must reject pending items — only status='picked' is allowed."
+        )
+        # And the error message must guide the picker to pick first.
+        assert "Pick the item first" in source, (
+            "box_assign_item error message must tell the picker to pick before boxing."
         )
 
     def test_picked_item_passes_status_check(self):
@@ -296,18 +299,20 @@ class TestBoxAssignmentGuards:
         )
 
     def test_box_assign_item_updates_pending_queue_status(self):
-        """box_assign_item must UPDATE pending items to 'picked'.
+        """box_assign_item must NOT UPDATE pending items to 'picked'.
 
-        When a cooler queue item is still pending, box assignment constitutes
-        the physical pick.  The function must SET status = 'picked' for pending
-        rows so they appear as picked/unboxed if the box is later cancelled.
+        Physical picking and box packing are separate audit events.
+        box_assign_item must never SET status = 'picked' in batch_pick_queue;
+        that transition belongs exclusively to queue_pick.
+        Pending items must be rejected before the INSERT even runs.
         """
         import inspect
         import blueprints.cooler_picking as mod
 
         source = inspect.getsource(mod.box_assign_item)
-        assert "SET status = 'picked'" in source, (
-            "box_assign_item must update pending queue items to 'picked'."
+        assert "SET status = 'picked'" not in source, (
+            "box_assign_item must NOT change queue status to 'picked'; "
+            "physical picking is a separate event (queue_pick)."
         )
 
 

@@ -1,0 +1,91 @@
+Change — Add Route Warehouse Readiness Status: Ready to Dispatch
+
+We need a clear route-level status showing when all picking/packing work for a route is completed and the route is ready to dispatch.
+
+Do not use `DISPATCHED` for this automatically. `DISPATCHED` should mean the route has actually been released to the driver.
+
+Add or support a route status/state:
+
+Internal value:
+WAREHOUSE_READY
+
+User-facing label:
+Ready to Dispatch
+
+Route lifecycle should be:
+
+PLANNED → WAREHOUSE_READY → DISPATCHED → IN_TRANSIT → COMPLETED
+
+Business rule:
+A route becomes WAREHOUSE_READY only when all warehouse work for that route is complete.
+
+A route is warehouse-ready when:
+1. All normal picking batches related to the route are completed.
+2. All cooler picking batches related to the route are completed.
+3. All picked cooler items are assigned to cooler boxes.
+4. All cooler boxes for the route are closed.
+5. There are no pending picking exceptions for the route.
+6. There are no picked/unboxed cooler items remaining.
+7. There are no pending cooler route items remaining.
+
+Implementation requirement:
+Create a helper function, for example:
+
+recalculate_route_warehouse_status(route_id)
+
+or:
+
+is_route_ready_to_dispatch(route_id)
+
+This helper should check the real current database state of the route.
+
+It should be called after important warehouse events:
+- normal batch picking completed;
+- cooler batch picking completed;
+- cooler box plan confirmed;
+- cooler box closed;
+- cooler box cancelled;
+- picking exception created/resolved;
+- route batch cancelled/deleted.
+
+If the helper returns true:
+- update the route/shipment warehouse readiness to WAREHOUSE_READY / Ready to Dispatch.
+
+If the helper returns false:
+- keep the route in PLANNED or warehouse-in-progress state.
+
+Important:
+Do not mark the route as DISPATCHED automatically.
+
+Dispatch should remain a manual supervisor/manager action:
+- user clicks Dispatch Route;
+- then status changes from WAREHOUSE_READY to DISPATCHED.
+
+UI requirement:
+On `/admin/dashboard`, show the readiness clearly inside each route group.
+
+Example before completion:
+Route #420 — Pafos test
+Warehouse Status: Picking in progress
+
+Example after completion:
+Route #420 — Pafos test
+Warehouse Status: Ready to Dispatch
+
+If status is Ready to Dispatch, show a green badge.
+
+If not ready, show why:
+- Normal picking pending
+- Cooler picking pending
+- Cooler boxes open
+- Cooler items unboxed
+- Picking exceptions unresolved
+
+Acceptance criteria:
+1. Route does not become Ready to Dispatch while any picking is pending.
+2. Route does not become Ready to Dispatch while cooler items are picked but unboxed.
+3. Route does not become Ready to Dispatch while cooler boxes are open.
+4. Route becomes Ready to Dispatch when all normal picking, cooler picking, and box closing are complete.
+5. Route is not automatically marked DISPATCHED.
+6. DISPATCHED remains a separate manual action.
+7. `/admin/dashboard` shows the route readiness badge clearly.

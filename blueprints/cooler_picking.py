@@ -332,8 +332,8 @@ def _audit(activity_type, details, invoice_no=None, item_code=None):
 # ---------------------------------------------------------------------------
 @cooler_bp.route("/route-list")
 @login_required
-@require_permission("cooler.pick")
-@_require_cooler_pick
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
 @_require_picking_flag
 def route_list():
     """List route_id + delivery_date pairs that have pending cooler items.
@@ -1092,6 +1092,27 @@ def confirm_box_plan(route_id, delivery_date):
                     f"all items skipped during plan confirmation",
                 )
             else:
+                # Some items were actually inserted — recalculate box header
+                # fields based only on what was really placed inside, not the
+                # original planner estimates (which may include skipped items).
+                recalc = db.session.execute(
+                    text(
+                        "SELECT MIN(delivery_sequence), MAX(delivery_sequence) "
+                        "FROM cooler_box_items "
+                        "WHERE cooler_box_id = :bid"
+                    ),
+                    {"bid": box_id},
+                ).fetchone()
+                actual_first = recalc[0] if recalc else None
+                actual_last = recalc[1] if recalc else None
+                db.session.execute(
+                    text(
+                        "UPDATE cooler_boxes "
+                        "SET first_stop_sequence = :fs, last_stop_sequence = :ls "
+                        "WHERE id = :bid"
+                    ),
+                    {"fs": actual_first, "ls": actual_last, "bid": box_id},
+                )
                 created += 1
 
         db.session.commit()
@@ -1160,10 +1181,10 @@ def box_assign_item(box_id):
             "error": f"Queue item {queue_item_id} is not a cooler row "
                      f"(pick_zone_type={qrow[5]})."
         }), 400
-    if qrow[4] not in ("pending", "picked"):
+    if qrow[4] != "picked":
         return jsonify({
-            "error": f"Queue item {queue_item_id} status={qrow[4]}; "
-                     f"only pending or picked rows can be assigned to a box."
+            "error": "Item has not been physically picked yet. "
+                     "Pick the item first, then assign it to a box."
         }), 400
 
     # enforce that the queue item's invoice belongs to
@@ -1236,17 +1257,9 @@ def box_assign_item(box_id):
 
     from sqlalchemy.exc import IntegrityError as _IntegrityError
     now = get_utc_now()
-    # If the item is still pending, box assignment constitutes picking it.
-    if qrow[4] == "pending":
-        db.session.execute(
-            text(
-                "UPDATE batch_pick_queue "
-                "SET status = 'picked', picked_by = :who, picked_at = :now, "
-                "    qty_picked = qty_required "
-                "WHERE id = :qid AND status = 'pending'"
-            ),
-            {"who": _username(), "now": now, "qid": queue_item_id},
-        )
+    # Physical picking (pending → picked) is a separate audit event done via
+    # queue_pick. Box assignment never changes the queue status — only already-
+    # picked items reach this point (enforced by the status guard above).
     try:
         db.session.execute(
             text(

@@ -1,0 +1,193 @@
+Final Cooler Flow Closeout Fixes
+
+The cooler flow is close, but do not deploy yet. Please fix the following remaining issues.
+
+## 1. Fix `box_assign_item()` so box assignment cannot pick pending items
+
+In `blueprints/cooler_picking.py`, `queue_assign_box()` is now correct because it only allows `batch_pick_queue.status = 'picked'`.
+
+But `box_assign_item()` still allows pending items and converts them to picked.
+
+Current wrong behavior:
+
+* accepts `pending` or `picked`;
+* if pending, updates `batch_pick_queue.status = 'picked'`.
+
+This must be removed.
+
+Correct behavior:
+
+* `box_assign_item()` must only allow queue rows where `status = 'picked'`;
+* if status is not picked, return HTTP 400;
+* do not update `batch_pick_queue.status`;
+* do not update `picked_by`;
+* do not update `picked_at`;
+* do not update `qty_picked`.
+
+Error message:
+`Item has not been physically picked yet. Pick the item first, then assign it to a box.`
+
+Physical picking and box packing must remain separate audit events.
+
+Also update tests in `tests/test_cooler_box_planner.py`.
+
+These tests are now wrong and must be changed:
+
+* `test_pending_item_accepted_by_box_assign_item`
+* `test_box_assign_item_updates_pending_queue_status`
+
+They should now assert:
+
+* pending items are rejected by `box_assign_item()`;
+* `box_assign_item()` does not contain SQL that sets `status = 'picked'`.
+
+## 2. Fix picker dashboard cooler task link
+
+In `routes.py`, the picker dashboard still sends cooler route batches to the manager route page:
+
+`/cooler/route/<route_id>/<delivery_date>`
+
+This is wrong for pickers.
+
+Picker task cards must open:
+
+`/picker/batch/item/<batch_id>`
+
+Example:
+Batch #661 must open:
+
+`/picker/batch/item/661`
+
+not:
+
+`/cooler/route/420/2026-05-21`
+
+Change the picker dashboard `pick_url` logic so cooler route batches also use:
+
+`url_for('batch.batch_picking_item', batch_id=batch.id)`
+
+or, if the batch is not started yet:
+
+`url_for('batch.start_batch_picking', batch_id=batch.id)`
+
+The manager/supervisor page remains:
+
+`/cooler/route/<route_id>/<delivery_date>`
+
+That page is for route preparation, picker assignment, box planning, box closing, labels, and manifest.
+
+The picker page is only for physical picking.
+
+## 3. Make cooler jobs clear on `templates/picker_dashboard.html`
+
+The cooler-specific card display was added to `templates/picker_batch_list.html`, but the actual screen used by the picker is `templates/picker_dashboard.html`.
+
+Update `templates/picker_dashboard.html` so cooler route batches are clearly shown as cooler jobs.
+
+For cooler batches, instead of only:
+
+`Batch #661`
+
+show:
+
+`❄️ Cooler Picking — Route 420 / Pafos test`
+
+Also show:
+
+* batch name, e.g. `COOLER-ROUTE-420`;
+* driver name if available;
+* delivery date;
+* progress, e.g. `0/19 items picked`;
+* badge: `❄️ COOLER / SENSITIVE`;
+* button: `Start Cooler Picking` or `Continue Cooler Picking`.
+
+Button must go to:
+`/picker/batch/item/<batch_id>`
+
+not to the cooler route management page.
+
+## 4. Restrict and rename `/cooler/route-list`
+
+`/cooler/route-list` should remain, but it is a management overview page, not a picker page.
+
+Change the menu label from:
+
+`Cooler Picking`
+
+to one of:
+
+`Manage Cooler Routes`
+
+or:
+
+`Cooler Routes Overview`
+
+Also update the page title from:
+
+`Cooler Picking — Routes With Pending Items`
+
+to:
+
+`Cooler Routes Overview`
+
+Access rule:
+
+* admin: allowed;
+* warehouse manager / supervisor with cooler management permission: allowed;
+* normal picker: hidden and not intended for direct use.
+
+The route currently uses `@require_permission("cooler.pick")`. Change it to a cooler management permission already used in this module, for example the same permission used for route preparation/box management.
+
+Do not send picker tasks to `/cooler/route-list`.
+
+## 5. Recalculate box values in `confirm_box_plan()` after actual inserts
+
+`confirm_box_plan()` now deletes an empty created box if all items were skipped. Good.
+
+But if some items in a planned box are skipped and some are inserted, the box still keeps the original planned:
+
+* `first_stop_sequence`;
+* `last_stop_sequence`;
+* `fill_cm3`;
+* `fill_weight_kg`.
+
+After inserting actual items into a box, recalculate those values based only on the inserted `cooler_box_items`.
+
+If no items were inserted:
+
+* delete/cancel the empty box.
+
+If some items were inserted:
+
+* update `first_stop_sequence`;
+* update `last_stop_sequence`;
+* update fill fields based on actual inserted items where possible.
+
+## 6. Add actions to route-related batch rows on `/admin/dashboard`
+
+Route-related batches now appear inside their route group. Good.
+
+But the nested batch row should include the same useful actions as the old bottom Active Batch Sessions table:
+
+* assign/unassign picker;
+* quick view;
+* manage/open.
+
+Do not duplicate the route-related batch again in the bottom Active Batch Sessions table.
+
+Bottom section should remain only for batches not linked to a route.
+
+## 7. Run tests
+
+Run the full test suite in Replit.
+
+Required tests to verify:
+
+* `box_assign_item()` rejects pending rows;
+* `queue_assign_box()` rejects pending rows;
+* neither function changes pending to picked;
+* picker dashboard cooler batch opens `/picker/batch/item/<batch_id>`;
+* `/cooler/route-list` is not used as picker entry point;
+* cancelling/removing box leaves items picked/unboxed;
+* box plan confirmation creates boxes and items correctly;
+* route completes only after all picked items are boxed and boxes are closed.

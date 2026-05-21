@@ -203,30 +203,51 @@
     <div class="card-body p-2">
         {% for batch_data in batch_sessions %}
         {% set batch = batch_data.session %}
-        <div class="card mb-3 border-primary" style="border-width: 2px;">
+        {% set is_cooler = batch.session_type == 'cooler_route' %}
+        <div class="card mb-3 {% if is_cooler %}border-info{% else %}border-primary{% endif %}" style="border-width: 2px;">
             <div class="card-body p-3">
                 <!-- Row 1: Batch ID + Name -->
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
-                        <span class="fw-bold text-primary fs-5">Batch #{{ batch.id }}</span>
+                        {% if is_cooler %}
+                            <span class="fw-bold text-info fs-5">
+                                <i class="fas fa-snowflake me-1"></i>
+                                ❄️ Cooler Picking
+                                {% if batch.route_id %}— Route {{ batch.route_id }}{% endif %}
+                            </span>
+                        {% else %}
+                            <span class="fw-bold text-primary fs-5">Batch #{{ batch.id }}</span>
+                        {% endif %}
                     </div>
                     <div class="text-end">
                         <span class="text-dark fw-semibold">{{ batch.name }}</span>
                     </div>
                 </div>
-                
+
+                {% if is_cooler %}
+                <!-- Cooler-specific info row -->
+                <div class="d-flex flex-wrap gap-2 mb-2 py-2 border-top border-bottom" style="background-color: #e8f4fd;">
+                    <span class="badge bg-info text-white"><i class="fas fa-snowflake me-1"></i>COOLER / SENSITIVE</span>
+                    <span class="badge bg-light text-dark border"><i class="fas fa-cubes me-1"></i>{{ batch_data.completed_items }}/{{ batch_data.total_items }} items picked</span>
+                    {% if batch.created_at %}
+                    <span class="badge bg-light text-dark border"><i class="fas fa-calendar me-1"></i>{{ batch.created_at|local_time('%d/%m/%y') }}</span>
+                    {% endif %}
+                    <span class="badge bg-light text-dark border">Batch #{{ batch.id }}</span>
+                </div>
+                {% else %}
                 <!-- Row 2: Orders, Progress, Date -->
                 <div class="d-flex flex-wrap gap-2 mb-2 py-2 border-top border-bottom" style="background-color: #f8f9fa;">
                     <span class="badge bg-primary">{{ batch_data.invoice_count }} orders</span>
                     <span class="badge bg-light text-dark border"><i class="fas fa-cubes me-1"></i>{{ batch_data.completed_items }}/{{ batch_data.total_items }} items</span>
                     <span class="badge bg-light text-dark border"><i class="fas fa-calendar me-1"></i>{{ batch.created_at|local_time('%d/%m/%y') }}</span>
                 </div>
+                {% endif %}
                 
                 <!-- Row 3: Progress Bar -->
                 <div class="mb-3">
                     <div class="d-flex align-items-center">
                         <div class="progress flex-grow-1" style="height: 12px;">
-                            <div class="progress-bar bg-primary" style="width: {{ batch_data.progress_percent }}%"></div>
+                            <div class="progress-bar {% if is_cooler %}bg-info{% else %}bg-primary{% endif %}" style="width: {{ batch_data.progress_percent }}%"></div>
                         </div>
                         <span class="ms-2 fw-bold text-dark fs-5">{{ "%.0f"|format(batch_data.progress_percent) }}%</span>
                     </div>
@@ -236,16 +257,20 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <!-- Zones/Corridors -->
                     <div>
-                        {% if batch.zones %}
-                            {% set zone_count = batch.zones.split(',')|length %}
-                            {% if zone_count >= 5 %}
-                                <span class="badge bg-warning text-dark">ALL Zones</span>
-                            {% else %}
-                                <span class="badge bg-warning text-dark">{{ batch.zones }}</span>
+                        {% if is_cooler %}
+                            <span class="badge bg-info text-white"><i class="fas fa-snowflake me-1"></i>SENSITIVE Zone</span>
+                        {% else %}
+                            {% if batch.zones %}
+                                {% set zone_count = batch.zones.split(',')|length %}
+                                {% if zone_count >= 5 %}
+                                    <span class="badge bg-warning text-dark">ALL Zones</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">{{ batch.zones }}</span>
+                                {% endif %}
                             {% endif %}
-                        {% endif %}
-                        {% if batch.corridors %}
-                            <small class="text-dark d-block">Corr: {{ batch.corridors }}</small>
+                            {% if batch.corridors %}
+                                <small class="text-dark d-block">Corr: {{ batch.corridors }}</small>
+                            {% endif %}
                         {% endif %}
                     </div>
                     
@@ -258,9 +283,15 @@
                     
                     <!-- Action Button -->
                     <div>
-                        {% if batch.status == 'Active' %}
-                        <a href="{{ batch_data.pick_url }}" class="btn btn-primary">
-                            <i class="fas fa-play me-1"></i>Continue
+                        {% if batch.status == 'Created' %}
+                        <a href="{{ batch_data.pick_url }}" class="btn {% if is_cooler %}btn-info{% else %}btn-success{% endif %}">
+                            <i class="fas fa-{% if is_cooler %}snowflake{% else %}play{% endif %} me-1"></i>
+                            {% if is_cooler %}Start Cooler Picking{% else %}Start Picking{% endif %}
+                        </a>
+                        {% elif batch.status == 'Active' or batch.status == 'picking' %}
+                        <a href="{{ batch_data.pick_url }}" class="btn {% if is_cooler %}btn-info{% else %}btn-primary{% endif %}">
+                            <i class="fas fa-{% if is_cooler %}snowflake{% else %}play{% endif %} me-1"></i>
+                            {% if is_cooler %}Continue Cooler Picking{% else %}Continue{% endif %}
                         </a>
                         {% elif batch.status == 'Paused' %}
                         <a href="{{ batch_data.pick_url }}" class="btn btn-warning">

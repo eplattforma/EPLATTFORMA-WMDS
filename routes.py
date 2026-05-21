@@ -3276,17 +3276,14 @@ def picker_dashboard():
         # standard batch_picking_item view (which would report 'No items
         # found in this batch' because cooler items are excluded from the
         # regular zone-based pick list).
-        if getattr(batch, 'session_type', None) == 'cooler_route' and batch.route_id:
-            from models import Shipment as _Ship
-            ship = _Ship.query.get(batch.route_id)
-            if ship and ship.delivery_date:
-                pick_url = url_for(
-                    'cooler.route_picking',
-                    route_id=batch.route_id,
-                    delivery_date=ship.delivery_date.isoformat(),
-                )
+        if getattr(batch, 'session_type', None) == 'cooler_route':
+            # Cooler-route batches: pickers use the standard batch picking item page.
+            # The manager/supervisor cooler route page (/cooler/route/…) is for
+            # route prep, box planning, labels and manifest — not for physical picking.
+            if batch.status in ('Created',):
+                pick_url = url_for('batch.start_batch_picking', batch_id=batch.id)
             else:
-                pick_url = url_for('cooler.route_list')
+                pick_url = url_for('batch.batch_picking_item', batch_id=batch.id)
         else:
             pick_url = url_for('batch.batch_picking_item', batch_id=batch.id)
 
