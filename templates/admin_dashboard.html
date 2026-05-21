@@ -154,12 +154,17 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span>{% for _bs in active_batches_by_route.get(route.id, []) %}<span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}" title="{{ _bs.name }}"><i class="fas fa-layer-group me-1"></i>{{ _bs.session_type or 'batch' }}: {{ _bs.status }}</span>{% endfor %}</td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
                             </tr>
+                            {% for _bs in active_batches_by_route.get(route.id, []) %}
+                            <tr class="table-light" style="font-size:0.85rem;border-left:3px solid #0d6efd;">
+                                <td colspan="9" class="py-1 ps-5"><i class="fas fa-layer-group me-2 text-primary"></i><strong>Batch #{{ _bs.id }}</strong> {{ _bs.name }} <span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ _bs.status }}</span>{% set _bc = batch_session_item_counts.get(_bs.id, {}) %}<span class="badge bg-dark ms-2">{{ _bc.get('picked', 0) }}/{{ _bc.get('total', 0) }} items</span>{% if _bs.assigned_to %}<span class="badge bg-success ms-2"><i class="fas fa-user me-1"></i>{{ _bs.assigned_to }}</span>{% else %}<span class="badge bg-secondary ms-2">Unassigned</span>{% endif %}</td>
+                            </tr>
+                            {% endfor %}
                             {% endif %}
                         {% else %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
@@ -175,12 +180,17 @@
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
                             <tr class="table-primary route-header" data-route-id="{{ route.id }}">
-                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span>{% for _bs in active_batches_by_route.get(route.id, []) %}<span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}" title="{{ _bs.name }}"><i class="fas fa-layer-group me-1"></i>{{ _bs.session_type or 'batch' }}: {{ _bs.status }}</span>{% endfor %}</td>
+                                <td colspan="4" class="fw-bold"><i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else '' }}{% if route.route_name %}({{ route.route_name }}){% endif %}<span class="badge bg-info ms-2">{{ route.status }}</span></td>
                                 <td class="text-center fw-bold"><span class="route-total-lines" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
                                 <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
                                 <td colspan="2"></td>
                             </tr>
+                            {% for _bs in active_batches_by_route.get(route.id, []) %}
+                            <tr class="table-light" style="font-size:0.85rem;border-left:3px solid #0d6efd;">
+                                <td colspan="9" class="py-1 ps-5"><i class="fas fa-layer-group me-2 text-primary"></i><strong>Batch #{{ _bs.id }}</strong> {{ _bs.name }} <span class="badge ms-2 {% if _bs.status == 'Active' %}bg-success{% elif _bs.status in ('In Progress', 'Paused') %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ _bs.status }}</span>{% set _bc = batch_session_item_counts.get(_bs.id, {}) %}<span class="badge bg-dark ms-2">{{ _bc.get('picked', 0) }}/{{ _bc.get('total', 0) }} items</span>{% if _bs.assigned_to %}<span class="badge bg-success ms-2"><i class="fas fa-user me-1"></i>{{ _bs.assigned_to }}</span>{% else %}<span class="badge bg-secondary ms-2">Unassigned</span>{% endif %}</td>
+                            </tr>
+                            {% endfor %}
                             {% endif %}
                         {% elif not invoice.route_id and loop.previtem.route_id %}
                             <tr class="table-secondary route-header" data-route-id="unassigned">
@@ -590,7 +600,7 @@
 
         // Compute and fill route totals: lines, weight, est-time
         var routeTotals = {};
-        document.querySelectorAll('tr[data-route-group]').forEach(function(row) {
+        document.querySelectorAll('#view-classic tr[data-route-group]').forEach(function(row) {
             var rg = row.getAttribute('data-route-group');
             if (!routeTotals[rg]) { routeTotals[rg] = {lines: 0, weight: 0, est: 0}; }
             routeTotals[rg].lines  += parseInt(row.getAttribute('data-lines')    || '0', 10);
