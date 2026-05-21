@@ -1,0 +1,74 @@
+The cooler flow work is not complete and should not be deployed yet. Please fix the following issues.
+
+1. `blueprints/cooler_picking.py` calls `generate_box_plan()` in the new box-plan routes but does not import it. This will crash with `NameError`. Import it from `services.cooler_box_planner`.
+
+2. The Box Plan UI is incomplete. `templates/cooler/route_picking.html` currently shows only a “Confirm Box Plan” button. It does not show:
+
+* box type selector;
+* Generate Box Plan button;
+* preview of planned boxes;
+* stop direction like `Stops 10 → 8`;
+* item list;
+* fill percentage;
+* weight;
+* missing dimension warning.
+  Please implement the full preview → confirm workflow.
+
+3. Add `picked_unboxed_count` in `route_picking(route_id, delivery_date)` and pass it to the template. Show the Box Plan card only when `picked_unboxed_count > 0`. Do not use `not boxes` and do not show the card unconditionally.
+
+4. Fix manual box assignment. `box_assign_item()` and `queue_assign_box()` still allow pending items and then update them to picked. This is wrong. Box assignment must only allow `batch_pick_queue.status = 'picked'`. It must never change pending items to picked. Physical picking and box packing must remain separate audit events.
+
+5. Fix `box_close()`. It still marks cooler route sessions Completed when there are no open boxes. This is wrong. Implement `_is_cooler_route_pack_complete(route_id, delivery_date)` and only complete the cooler session when:
+
+* no cooler rows are unsequenced;
+* no cooler rows are pending;
+* every picked cooler row is assigned to a box;
+* no box with items is still open;
+* no duplicate `queue_item_id` exists in `cooler_box_items`.
+
+6. Add the missing database unique index:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cooler_box_items_queue_item
+ON cooler_box_items(queue_item_id)
+WHERE queue_item_id IS NOT NULL;
+```
+
+7. Move manual box controls under a collapsed “Advanced box management” section. The main UI should not show manual assign dropdowns and New Box as the normal workflow.
+
+8. Remove “Pack by Stop” from the normal workflow. The backend `pack_stop(route_id)` still exists and its docstring still describes one box per stop. If kept for compatibility, mark it as legacy/internal only and do not expose it in the UI.
+
+9. Complete the wording cleanup:
+
+* `Sequenced — pickable` should become `Ready to pick`.
+* `Unsequenced` should become `Awaiting route preparation`.
+* Do not leave warehouse users with technical sequencing language.
+
+10. Improve `services/cooler_box_planner.py`:
+
+* avoid one `DwItem` query per row;
+* use `COALESCE(qty_picked, qty_required, 1)`;
+* handle missing stop sequence safely;
+* warn when a stop or box exceeds capacity;
+* keep missing dimensions warning.
+
+11. Manual batch invoice grouping was only partially implemented. Confirm whether these templates are still active:
+
+* `batch_picking_create_with_filter.html`
+* `batch_picking_filter.html`
+* `batch_picking_filter_simple.html`
+
+If active, apply the same route grouping and multi-route warning there. If obsolete, redirect/remove them from navigation so users cannot reach the old flat invoice selection.
+
+12. Add the required tests. At minimum:
+
+* planner groups stops 10, 9, 8 into one box when capacity allows;
+* planner creates more boxes when capacity is exceeded;
+* missing dimensions return warning;
+* pending item cannot be assigned to box;
+* box assignment does not change pending to picked;
+* duplicate `queue_item_id` is rejected;
+* box close does not complete route while picked items remain unboxed;
+* route completes only when all picked items are boxed and all boxes closed;
+* manual batch invoices are grouped by route;
+* multi-route selection warning appears.

@@ -35,6 +35,7 @@ from services.permissions import require_permission
 from services.cooler_pdf import (
     render_cooler_label, render_cooler_manifest, render_route_manifest,
 )
+from services.cooler_box_planner import generate_box_plan
 from timezone_utils import get_utc_now
 
 
@@ -165,6 +166,106 @@ def _box_dict(row):
         "last_stop_sequence": float(row[6]) if row[6] is not None else None,
         "route_label": f"Route {row[1]}" if row[1] is not None else "Route -",
     }
+
+
+def _is_cooler_route_pack_complete(route_id, delivery_date):
+    """Return True only when ALL of these conditions hold:
+
+    1. No cooler queue rows are unsequenced (delivery_sequence IS NULL).
+    2. No cooler queue rows are pending (status = 'picked' is required).
+    3. Every picked cooler row has an entry in cooler_box_items.
+    4. No box that contains items is still open.
+    5. No duplicate queue_item_id exists in cooler_box_items for this route.
+
+    Failing any condition keeps the session active so the manager can fix
+    the outstanding issue before the route is marked Completed.
+    """
+    rid = int(route_id)
+    dd = str(delivery_date)
+
+    # 1. Unsequenced rows
+    unsequenced = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.pick_zone_type = 'cooler' "
+            "  AND i.route_id = :rid AND s.delivery_date = :dd "
+            "  AND bpq.delivery_sequence IS NULL"
+        ),
+        {"rid": rid, "dd": dd},
+    ).scalar() or 0
+    if unsequenced > 0:
+        return False
+
+    # 2. Pending rows
+    pending = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.pick_zone_type = 'cooler' "
+            "  AND i.route_id = :rid AND s.delivery_date = :dd "
+            "  AND bpq.status = 'pending'"
+        ),
+        {"rid": rid, "dd": dd},
+    ).scalar() or 0
+    if pending > 0:
+        return False
+
+    # 3. Picked rows that are not yet in a box
+    unboxed = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.pick_zone_type = 'cooler' "
+            "  AND i.route_id = :rid AND s.delivery_date = :dd "
+            "  AND bpq.status = 'picked' "
+            "  AND NOT EXISTS ("
+            "        SELECT 1 FROM cooler_box_items cbi "
+            "        WHERE cbi.queue_item_id = bpq.id"
+            "  )"
+        ),
+        {"rid": rid, "dd": dd},
+    ).scalar() or 0
+    if unboxed > 0:
+        return False
+
+    # 4. Open boxes that contain items
+    open_with_items = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM cooler_boxes cb "
+            "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
+            "  AND cb.status = 'open' "
+            "  AND EXISTS ("
+            "        SELECT 1 FROM cooler_box_items cbi "
+            "        WHERE cbi.cooler_box_id = cb.id"
+            "  )"
+        ),
+        {"rid": rid, "dd": dd},
+    ).scalar() or 0
+    if open_with_items > 0:
+        return False
+
+    # 5. Duplicate queue_item_id assignments
+    duplicates = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT cbi.queue_item_id "
+            "  FROM cooler_box_items cbi "
+            "  JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "  WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
+            "    AND cbi.queue_item_id IS NOT NULL "
+            "  GROUP BY cbi.queue_item_id HAVING COUNT(*) > 1"
+            ") AS dups"
+        ),
+        {"rid": rid, "dd": dd},
+    ).scalar() or 0
+    if duplicates > 0:
+        return False
+
+    return True
 
 
 def _fetch_box(box_id):
@@ -465,6 +566,25 @@ def route_picking(route_id, delivery_date):
     except Exception:
         box_types = []
 
+    # Count picked items that are not yet assigned to any box — drives the
+    # "Generate Box Plan" card visibility so it only appears when useful.
+    picked_unboxed_count = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN shipments s ON s.id = i.route_id "
+            "WHERE bpq.pick_zone_type = 'cooler' "
+            "  AND bpq.status = 'picked' "
+            "  AND i.route_id = :rid "
+            "  AND s.delivery_date = :dd "
+            "  AND NOT EXISTS ("
+            "        SELECT 1 FROM cooler_box_items cbi "
+            "        WHERE cbi.queue_item_id = bpq.id"
+            "  )"
+        ),
+        {"rid": _route_id_int, "dd": str(delivery_date)},
+    ).scalar() or 0
+
     _TERMINAL_COOLER = ("Completed", "Cancelled", "Archived")
     # batch_in_progress is True only when sequencing has been locked AND the
     # batch is not yet finished. Before locking, pickers can use direct Pick
@@ -486,6 +606,7 @@ def route_picking(route_id, delivery_date):
         picking_phase=picking_phase,
         batch_in_progress=batch_in_progress,
         assigned_to_box=assigned_to_box,
+        picked_unboxed_count=picked_unboxed_count,
     )
 
 
@@ -867,10 +988,11 @@ def box_assign_item(box_id):
             "error": f"Queue item {queue_item_id} is not a cooler row "
                      f"(pick_zone_type={qrow[5]})."
         }), 400
-    if qrow[4] not in ("pending", "picked"):
+    if qrow[4] != "picked":
         return jsonify({
             "error": f"Queue item {queue_item_id} status={qrow[4]}; "
-                     f"only pending or picked rows can be assigned to a box."
+                     f"only physically-picked rows can be assigned to a box. "
+                     f"Physical picking and box packing are separate steps."
         }), 400
 
     # enforce that the queue item's invoice belongs to
@@ -946,15 +1068,8 @@ def box_assign_item(box_id):
             "now": now, "qid": queue_item_id,
         },
     )
-    db.session.execute(
-        text(
-            "UPDATE batch_pick_queue "
-            "SET status = 'picked', picked_by = :who, picked_at = :now, "
-            "    qty_picked = :pq, updated_at = :now "
-            "WHERE id = :qid AND status = 'pending'"
-        ),
-        {"who": _username(), "now": now, "pq": picked_qty, "qid": queue_item_id},
-    )
+    # Physical picking (pending → picked) is a separate audit event done via
+    # queue_pick. Box assignment never changes the queue status.
     _audit(
         "cooler.item_assigned",
         f"Cooler box #{box_id} <- queue #{queue_item_id} "
@@ -963,7 +1078,7 @@ def box_assign_item(box_id):
     )
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "queue_item_id": queue_item_id,
-                    "status": "picked"}), 200
+                    "status": "assigned"}), 200
 
 
 @cooler_bp.route("/box/<int:box_id>/remove-item", methods=["POST"])
@@ -1120,14 +1235,7 @@ def box_close(box_id):
             box_id, exc,
         )
 
-    remaining_open_boxes = db.session.execute(
-        text(
-            "SELECT COUNT(*) FROM cooler_boxes "
-            "WHERE route_id = :rid AND delivery_date = :dd AND status = 'open'"
-        ),
-        {"rid": box["route_id"], "dd": box["delivery_date"]},
-    ).scalar() or 0
-    if remaining_open_boxes == 0:
+    if _is_cooler_route_pack_complete(box["route_id"], box["delivery_date"]):
         db.session.execute(
             text(
                 "UPDATE batch_picking_sessions "
@@ -1425,8 +1533,12 @@ def queue_assign_box(queue_item_id):
     if qrow[5] != "cooler":
         flash("Not a cooler queue item.", "danger")
         return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
-    if qrow[4] not in ("pending", "picked"):
-        flash(f"Item status is '{qrow[4]}'; cannot assign to box.", "warning")
+    if qrow[4] != "picked":
+        flash(
+            f"Item status is '{qrow[4]}' — only physically-picked items can be assigned "
+            f"to a box. Physical picking and box packing are separate steps.",
+            "warning",
+        )
         return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
 
     if qrow[8] is None:
@@ -1503,15 +1615,8 @@ def queue_assign_box(queue_item_id):
             "qid": queue_item_id,
         },
     )
-    db.session.execute(
-        text(
-            "UPDATE batch_pick_queue "
-            "SET status = 'picked', picked_by = :who, picked_at = :now, "
-            "    qty_picked = :pq, updated_at = :now "
-            "WHERE id = :qid AND status IN ('pending', 'picked')"
-        ),
-        {"who": _username(), "now": now, "pq": picked_qty, "qid": queue_item_id},
-    )
+    # Physical picking (pending → picked) is a separate event (queue_pick).
+    # Box assignment never changes the queue status.
     _audit(
         "cooler.item_assigned",
         f"Cooler box #{box_id} <- queue #{queue_item_id} "
@@ -1529,7 +1634,16 @@ def queue_assign_box(queue_item_id):
 @_require_cooler_manage
 @_require_picking_flag
 def pack_stop(route_id):
-    """Create one cooler box for all picked, unassigned items at a delivery stop.
+    """LEGACY — no longer exposed in the UI.
+
+    The route_picking template no longer renders a Pack-by-Stop button.
+    The automated box plan (box_plan_preview / confirm_box_plan) supersedes
+    this endpoint.  The route is kept so that any bookmarked or scripted
+    calls continue to work and do not 404, but new UI flows use the
+    generate-box-plan / confirm-box-plan pair instead.
+
+    Original docstring follows:
+    Create one cooler box for all picked, unassigned items at a delivery stop.
 
     Intended for location_order mode: after all items are physically
     picked by warehouse location, the manager packs them per-stop with

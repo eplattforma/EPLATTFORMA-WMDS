@@ -201,6 +201,11 @@ def update_phase5_cooler_picking_schema():
                 "CREATE INDEX IF NOT EXISTS idx_cooler_box_items_route_stop "
                 "ON cooler_box_items (route_stop_id)"
             ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_cooler_box_items_queue_item "
+                "ON cooler_box_items (queue_item_id) "
+                "WHERE queue_item_id IS NOT NULL"
+            ))
             logger.info("Phase 5: cooler_box_items table + indexes ensured")
 
             conn.commit()
