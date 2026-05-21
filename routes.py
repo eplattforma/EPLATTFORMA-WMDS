@@ -2790,6 +2790,31 @@ def resolve_time_alert(alert_id):
     
     return redirect(url_for('admin_time_alerts'))
 
+@app.route('/admin/picking_exception/<int:exception_id>/resolve', methods=['POST'])
+@login_required
+def resolve_picking_exception(exception_id):
+    """Mark a picking exception as resolved and re-check warehouse readiness."""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('index'))
+
+    exc = PickingException.query.get_or_404(exception_id)
+    exc.is_resolved = True
+    db.session.commit()
+    flash(f'Exception for {exc.item_code} on {exc.invoice_no} marked as resolved.', 'success')
+
+    # Re-check warehouse readiness for the route this invoice belongs to
+    try:
+        inv = Invoice.query.get(exc.invoice_no)
+        if inv and inv.route_id:
+            from services.route_warehouse_readiness import recalculate_route_warehouse_status
+            recalculate_route_warehouse_status(int(inv.route_id))
+    except Exception:
+        pass
+
+    return redirect(url_for('admin_view_exceptions', invoice_no=exc.invoice_no))
+
+
 @app.route('/admin/view_exceptions/<invoice_no>')
 @login_required
 def admin_view_exceptions(invoice_no):

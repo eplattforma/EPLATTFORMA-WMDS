@@ -101,11 +101,13 @@
                         <th>Discrepancy</th>
                         <th>Picker</th>
                         <th>Reason</th>
+                        <th>Status</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for exception in exceptions %}
-                    <tr>
+                    <tr class="{% if exception.is_resolved %}table-success{% endif %}">
                         <td>{{ exception.timestamp.strftime('%d/%m/%y %H:%M') }}</td>
                         <td><strong>{{ exception.item_code }}</strong></td>
                         <td>
@@ -132,6 +134,26 @@
                         </td>
                         <td>{{ exception.picker_username }}</td>
                         <td>{{ exception.reason or 'No reason provided' }}</td>
+                        <td>
+                            {% if exception.is_resolved %}
+                            <span class="badge bg-success"><i class="fas fa-check me-1"></i>Resolved</span>
+                            {% else %}
+                            <span class="badge bg-danger"><i class="fas fa-times me-1"></i>Open</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not exception.is_resolved %}
+                            <form method="POST" action="{{ url_for('resolve_picking_exception', exception_id=exception.id) }}"
+                                  onsubmit="return confirm('Mark this exception as resolved?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-success">
+                                    <i class="fas fa-check me-1"></i>Resolve
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
