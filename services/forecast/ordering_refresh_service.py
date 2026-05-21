@@ -77,7 +77,8 @@ def _resolve_supplier_context(item_code, supplier_map, dw_item):
         context["supplier_code"] = supplier_map.supplier_code or None
         context["supplier_source"] = "supplier_map"
         context["lead_time_days"] = _to_float(supplier_map.lead_time_days)
-        context["review_cycle_days"] = _to_float(supplier_map.review_cycle_days) or 1.0
+        rc = supplier_map.review_cycle_days
+        context["review_cycle_days"] = _to_float(rc) if rc is not None else 1.0
         context["min_order_qty"] = _to_float(supplier_map.min_order_qty_override)
 
     if not context["supplier_code"] and dw_item and dw_item.supplier_code_365:
@@ -252,7 +253,8 @@ def refresh_ordering_snapshot(
 
         sup_ctx = _resolve_supplier_context(item_code, smap, dw_item)
         lead_time = sup_ctx["lead_time_days"]
-        review_cycle = sup_ctx["review_cycle_days"] or default_review_cycle
+        _rc = sup_ctx["review_cycle_days"]
+        review_cycle = _rc if _rc is not None else default_review_cycle
 
         target_weeks = 4.0
         if profile and profile.target_weeks_of_stock is not None:
