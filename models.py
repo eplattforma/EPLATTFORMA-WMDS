@@ -232,7 +232,8 @@ class PickingException(db.Model):
     picker_username = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=False)
     timestamp = db.Column(UTCDateTime(), default=get_utc_now)
     reason = db.Column(db.String(500), nullable=True)  # Optional reason for the exception
-    
+    is_resolved = db.Column(db.Boolean, default=False, nullable=True)
+
 # Batch Picking Session Table
 class BatchPickingSession(db.Model, SoftDeleteMixin):
     __tablename__ = 'batch_picking_sessions'
