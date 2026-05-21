@@ -882,11 +882,17 @@ def complete_batch_confirm(batch_id):
         picked_qty = int(request.form.get('picked_qty', 0))
     except ValueError:
         picked_qty = 0
-    
-    if picked_qty <= 0:
+
+    exception_reason = (request.form.get('reason') or '').strip()
+    is_exception = bool(exception_reason) or picked_qty <= 0
+
+    if picked_qty <= 0 and not is_exception:
         flash('Please enter a valid picked quantity.', 'danger')
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
-    
+
+    if is_exception and not exception_reason:
+        exception_reason = 'Exception reported by picker'
+
     # Get the source items for this batch item
     source_items = current_item['source_items']
     total_required = current_item['total_qty']
@@ -914,14 +920,15 @@ def complete_batch_confirm(batch_id):
                         expected_qty=required_qty,
                         picked_qty=picked_qty,
                         picker_username=current_user.username,
-                        reason=f"Batch picking: {picked_qty} picked, {required_qty} required"
+                        reason=(exception_reason if is_exception
+                                else f"Batch picking: {picked_qty} picked, {required_qty} required")
                     )
                     db.session.add(exception)
                 
                 # Update the invoice item
                 invoice_item.picked_qty = picked_qty
                 invoice_item.is_picked = True
-                invoice_item.pick_status = 'picked'
+                invoice_item.pick_status = 'exception' if is_exception else 'picked'
                 
                 # Record the batch picked item
                 batch_picked = BatchPickedItem(
@@ -959,22 +966,22 @@ def complete_batch_confirm(batch_id):
             sorted_sources = sorted(source_items, key=lambda x: x['invoice_no'])
             
             remaining_qty = picked_qty
-            
+
             for source in sorted_sources:
                 invoice_no = source['invoice_no']
                 item_code = source['item_code']
                 required_qty = source['qty']
-                
+
                 # Allocate as much as possible to this invoice
                 allocated_qty = min(remaining_qty, required_qty)
-                
-                if allocated_qty > 0:
+
+                if allocated_qty > 0 or is_exception:
                     # Update the invoice item
                     invoice_item = InvoiceItem.query.filter_by(
                         invoice_no=invoice_no,
                         item_code=item_code
                     ).first()
-                    
+
                     if invoice_item:
                         # Record any exceptions if there's a discrepancy
                         if allocated_qty != required_qty:
@@ -984,14 +991,15 @@ def complete_batch_confirm(batch_id):
                                 expected_qty=required_qty,
                                 picked_qty=allocated_qty,
                                 picker_username=current_user.username,
-                                reason=f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required"
+                                reason=(exception_reason if is_exception
+                                        else f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required")
                             )
                             db.session.add(exception)
-                        
+
                         # Update the invoice item
                         invoice_item.picked_qty = allocated_qty
                         invoice_item.is_picked = True
-                        invoice_item.pick_status = 'picked'
+                        invoice_item.pick_status = 'exception' if is_exception else 'picked'
                         
                         # Record the batch picked item
                         batch_picked = BatchPickedItem(
