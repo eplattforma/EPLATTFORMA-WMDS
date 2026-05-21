@@ -89,51 +89,32 @@
     <div class="card-body">
         {% if exceptions %}
         <div class="table-responsive">
-            <table class="table table-hover">
+            <table class="table table-hover align-middle">
                 <thead>
                     <tr>
                         <th>Date/Time</th>
                         <th>Item Code</th>
                         <th>Item Name</th>
-                        <th>Location</th>
-                        <th>Expected Qty</th>
-                        <th>Picked Qty</th>
                         <th>Discrepancy</th>
                         <th>Picker</th>
-                        <th>Reason</th>
                         <th>Status</th>
-                        <th>Action</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for exception in exceptions %}
+                    {% set item = item_lookup.get(exception.item_code) %}
+                    {% set discrepancy = exception.picked_qty - exception.expected_qty %}
                     <tr class="{% if exception.is_resolved %}table-success{% endif %}">
                         <td>{{ exception.timestamp.strftime('%d/%m/%y %H:%M') }}</td>
                         <td><strong>{{ exception.item_code }}</strong></td>
+                        <td>{{ item.item_name if item else 'Unknown Item' }}</td>
                         <td>
-                            {% if exception.item_code in item_lookup %}
-                            {{ item_lookup[exception.item_code].item_name }}
-                            {% else %}
-                            Unknown Item
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if exception.item_code in item_lookup %}
-                            {{ item_lookup[exception.item_code].location }}
-                            {% else %}
-                            Unknown
-                            {% endif %}
-                        </td>
-                        <td>{{ exception.expected_qty }}</td>
-                        <td>{{ exception.picked_qty }}</td>
-                        <td>
-                            {% set discrepancy = exception.picked_qty - exception.expected_qty %}
                             <span class="badge {% if discrepancy > 0 %}bg-primary{% else %}bg-danger{% endif %}">
                                 {% if discrepancy > 0 %}+{% endif %}{{ discrepancy }}
                             </span>
                         </td>
                         <td>{{ exception.picker_username }}</td>
-                        <td>{{ exception.reason or 'No reason provided' }}</td>
                         <td>
                             {% if exception.is_resolved %}
                             <span class="badge bg-success"><i class="fas fa-check me-1"></i>Resolved</span>
@@ -142,17 +123,22 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if not exception.is_resolved %}
-                            <form method="POST" action="{{ url_for('resolve_picking_exception', exception_id=exception.id) }}"
-                                  onsubmit="return confirm('Mark this exception as resolved?')">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-success">
-                                    <i class="fas fa-check me-1"></i>Resolve
-                                </button>
-                            </form>
-                            {% else %}
-                            <span class="text-muted small">—</span>
-                            {% endif %}
+                            <button type="button" class="btn btn-sm btn-outline-primary"
+                                    data-bs-toggle="modal" data-bs-target="#exceptionDetailModal"
+                                    data-exc-id="{{ exception.id }}"
+                                    data-exc-item="{{ exception.item_code }}"
+                                    data-exc-item-name="{{ item.item_name if item else 'Unknown Item' }}"
+                                    data-exc-location="{{ item.location if item else '—' }}"
+                                    data-exc-expected="{{ exception.expected_qty }}"
+                                    data-exc-picked="{{ exception.picked_qty }}"
+                                    data-exc-discrepancy="{% if discrepancy > 0 %}+{% endif %}{{ discrepancy }}"
+                                    data-exc-picker="{{ exception.picker_username }}"
+                                    data-exc-reason="{{ exception.reason or 'No reason provided' }}"
+                                    data-exc-timestamp="{{ exception.timestamp.strftime('%d/%m/%Y %H:%M') }}"
+                                    data-exc-resolved="{{ 'true' if exception.is_resolved else 'false' }}"
+                                    data-exc-resolve-url="{{ url_for('resolve_picking_exception', exception_id=exception.id) }}">
+                                <i class="fas fa-eye me-1"></i>View
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -180,16 +166,135 @@
         </div>
     </div>
 </div>
+
+<!-- Exception Detail Modal -->
+<div class="modal fade" id="exceptionDetailModal" tabindex="-1" aria-labelledby="exceptionDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="exceptionDetailModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Exception Detail
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card h-100 border-0 bg-light">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-3 text-muted text-uppercase small">Item</h6>
+                                <p class="mb-1"><strong id="modal-item-code" class="fs-5"></strong></p>
+                                <p class="mb-0 text-muted" id="modal-item-name"></p>
+                                <p class="mb-0 text-muted small mt-1"><i class="fas fa-map-marker-alt me-1"></i><span id="modal-location"></span></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card h-100 border-0 bg-light">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-3 text-muted text-uppercase small">Picker</h6>
+                                <p class="mb-1"><i class="fas fa-user me-2 text-primary"></i><strong id="modal-picker"></strong></p>
+                                <p class="mb-0 text-muted small"><i class="fas fa-clock me-2"></i><span id="modal-timestamp"></span></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 bg-light text-center">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted text-uppercase small">Expected Qty</h6>
+                                <p class="fs-3 fw-bold mb-0 text-secondary" id="modal-expected"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 bg-light text-center">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted text-uppercase small">Picked Qty</h6>
+                                <p class="fs-3 fw-bold mb-0 text-primary" id="modal-picked"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 text-center" id="modal-discrepancy-card">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted text-uppercase small">Discrepancy</h6>
+                                <p class="fs-3 fw-bold mb-0" id="modal-discrepancy"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="card border-0 bg-light">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted text-uppercase small">Reason</h6>
+                                <p class="mb-0" id="modal-reason"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12" id="modal-status-banner">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <form id="modal-resolve-form" method="POST" action="">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-success" id="modal-resolve-btn">
+                        <i class="fas fa-check me-2"></i>Mark as Resolved
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    $(function() {
-        // Enable tooltips
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl)
-        })
-    });
+    (function () {
+        var modal = document.getElementById('exceptionDetailModal');
+        modal.addEventListener('show.bs.modal', function (event) {
+            var btn = event.relatedTarget;
+
+            var itemCode   = btn.dataset.excItem;
+            var itemName   = btn.dataset.excItemName;
+            var location   = btn.dataset.excLocation;
+            var expected   = btn.dataset.excExpected;
+            var picked     = btn.dataset.excPicked;
+            var disc       = btn.dataset.excDiscrepancy;
+            var picker     = btn.dataset.excPicker;
+            var reason     = btn.dataset.excReason;
+            var timestamp  = btn.dataset.excTimestamp;
+            var resolved   = btn.dataset.excResolved === 'true';
+            var resolveUrl = btn.dataset.excResolveUrl;
+
+            document.getElementById('modal-item-code').textContent  = itemCode;
+            document.getElementById('modal-item-name').textContent   = itemName;
+            document.getElementById('modal-location').textContent    = location;
+            document.getElementById('modal-expected').textContent    = expected;
+            document.getElementById('modal-picked').textContent      = picked;
+            document.getElementById('modal-discrepancy').textContent = disc;
+            document.getElementById('modal-picker').textContent      = picker;
+            document.getElementById('modal-reason').textContent      = reason;
+            document.getElementById('modal-timestamp').textContent   = timestamp;
+
+            // Colour the discrepancy card
+            var discCard = document.getElementById('modal-discrepancy-card');
+            var discNum  = parseFloat(disc);
+            discCard.className = 'card border-0 text-center ' + (discNum > 0 ? 'bg-primary bg-opacity-10' : 'bg-danger bg-opacity-10');
+            document.getElementById('modal-discrepancy').className = 'fs-3 fw-bold mb-0 ' + (discNum > 0 ? 'text-primary' : 'text-danger');
+
+            // Status banner
+            var banner = document.getElementById('modal-status-banner');
+            if (resolved) {
+                banner.innerHTML = '<div class="alert alert-success mb-0"><i class="fas fa-check-circle me-2"></i>This exception has already been resolved.</div>';
+            } else {
+                banner.innerHTML = '';
+            }
+
+            // Resolve form + button
+            document.getElementById('modal-resolve-form').action = resolveUrl;
+            document.getElementById('modal-resolve-btn').style.display = resolved ? 'none' : '';
+        });
+    })();
 </script>
 {% endblock %}
