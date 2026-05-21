@@ -2024,7 +2024,7 @@ def admin_settings_save():
 
     for key in setting_keys:
         val = request.form.get(key, '').strip()
-        if val:
+        if val != '':
             Setting.set(db.session, key, val)
 
     # --- Rollover weekday ---

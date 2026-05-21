@@ -29,7 +29,7 @@
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Review Cycle Days</label>
                         <input type="number" name="forecast_review_cycle_days" class="form-control"
-                               value="{{ settings.get('forecast_review_cycle_days', '1') }}" min="1" step="1">
+                               value="{{ settings.get('forecast_review_cycle_days', '1') }}" min="0" step="1">
                         <div class="form-text">Default review cycle if not set per supplier.</div>
                     </div>
                     <div class="col-md-6">
