@@ -2661,10 +2661,13 @@ def complete_batch_confirm(batch_id):
         picked_qty = 0
     
     # Get exception reason from form (for exception reports)
-    exception_reason = request.form.get("reason", "")
-    if picked_qty <= 0:
+    exception_reason = (request.form.get("reason", "") or "").strip()
+    is_exception = bool(exception_reason) or picked_qty <= 0
+    if picked_qty <= 0 and not is_exception:
         flash('Please enter a valid picked quantity.', 'danger')
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+    if is_exception and not exception_reason:
+        exception_reason = 'Exception reported by picker'
     
     # Get the source items for this batch item
     source_items = current_item['source_items']
@@ -2706,7 +2709,7 @@ def complete_batch_confirm(batch_id):
                 # Update the invoice item
                 invoice_item.picked_qty = picked_qty
                 invoice_item.is_picked = True
-                invoice_item.pick_status = 'picked'
+                invoice_item.pick_status = 'exception' if is_exception else 'picked'
 
                 # For cooler-route batches: mirror the pick into batch_pick_queue
                 # so the cooler screen can show "Picked" status and enable Assign.
@@ -2787,31 +2790,32 @@ def complete_batch_confirm(batch_id):
                 
                 # Allocate as much as possible to this invoice
                 allocated_qty = min(remaining_qty, required_qty)
-                
-                if allocated_qty > 0:
+
+                if allocated_qty > 0 or is_exception:
                     # Update the invoice item
                     invoice_item = InvoiceItem.query.filter_by(
                         invoice_no=invoice_no,
                         item_code=item_code
                     ).first()
-                    
+
                     if invoice_item:
                         # Record any exceptions if there's a discrepancy
-                        if allocated_qty != required_qty:
+                        if allocated_qty != required_qty or is_exception:
                             exception = PickingException(
                                 invoice_no=invoice_no,
                                 item_code=item_code,
                                 expected_qty=required_qty,
                                 picked_qty=allocated_qty,
                                 picker_username=current_user.username,
-                                reason=f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required"
+                                reason=(exception_reason if is_exception
+                                        else f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required")
                             )
                             db.session.add(exception)
-                        
+
                         # Update the invoice item
                         invoice_item.picked_qty = allocated_qty
                         invoice_item.is_picked = True
-                        invoice_item.pick_status = 'picked'
+                        invoice_item.pick_status = 'exception' if is_exception else 'picked'
                         
                         # Record the batch picked item (prevent duplicates)
                         existing_batch_picked = BatchPickedItem.query.filter_by(
