@@ -396,7 +396,7 @@ def route_list():
                 pre_pick_estimate(route["route_id"], route["delivery_date"])
             )
         except Exception as exc:
-            logger.warning(
+            current_app.logger.warning(
                 "pre_pick_estimate failed for route %s: %s", route["route_id"], exc
             )
             estimates[(route["route_id"], str(route["delivery_date"]))] = None

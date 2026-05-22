@@ -307,7 +307,10 @@ def pre_pick_estimate(route_id, delivery_date):
         "all_dims_present": True,
     }
 
-    route_id = int(route_id)
+    try:
+        route_id = int(route_id)
+    except (TypeError, ValueError):
+        return _EMPTY
     delivery_date = str(delivery_date)
 
     rows = db.session.execute(
