@@ -1639,7 +1639,10 @@ def box_reopen(box_id):
         f"Cooler box #{box_id} re-opened by {_username()}",
     )
     db.session.commit()
-    return jsonify({"cooler_box_id": box_id, "status": "open"}), 200
+    flash(f"Box #{box_id} re-opened.", "success")
+    return redirect(url_for("cooler.route_picking",
+                            route_id=box["route_id"],
+                            delivery_date=box["delivery_date"]))
 
 
 @cooler_bp.route("/box/<int:box_id>/cancel", methods=["POST"])

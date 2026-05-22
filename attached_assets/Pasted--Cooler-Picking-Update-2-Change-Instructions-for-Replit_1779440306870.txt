@@ -1,0 +1,93 @@
+# Cooler Picking — Update 2 Change Instructions for Replit
+
+Three changes. Apply all three then restart the app.
+
+---
+
+## Change 1 — `services/cooler_pdf.py` — Replace entire file
+
+**Replace the entire contents of `services/cooler_pdf.py`** with the file provided separately at:
+`Claude Cowork/EPLATTFORMA-WMDS-main/services/cooler_pdf.py`
+
+What this does:
+- Completely redesigned manifest: dark navy header band, BOX number large, route/date/driver at a glance, QR code in the corner
+- Quantities shown at 18pt bold — the most important number is the easiest to read
+- Item code shown small and muted — reference only
+- Pack info as subtitle under description
+- Footer on every page with SENSITIVE ITEMS — KEEP COOL + page number
+- Signature line (Packed by / Driver / Date) on last page
+- **Cancelled boxes are excluded from the route manifest** — no more blank pages for cancelled boxes
+
+---
+
+## Change 2 — `blueprints/cooler_picking.py` — Fix box_reopen redirect
+
+Find the `box_reopen` function (search for `def box_reopen`).
+
+The last section currently reads:
+```python
+    db.session.execute(
+        text("UPDATE cooler_boxes SET status = 'open' WHERE id = :bid"),
+        {"bid": box_id},
+    )
+    _audit(
+        "cooler.box_reopened",
+        f"Cooler box #{box_id} re-opened by {_username()}",
+    )
+    db.session.commit()
+    return jsonify({"cooler_box_id": box_id, "status": "open"}), 200
+```
+
+Replace those last 8 lines with:
+```python
+    db.session.execute(
+        text("UPDATE cooler_boxes SET status = 'open' WHERE id = :bid"),
+        {"bid": box_id},
+    )
+    _audit(
+        "cooler.box_reopened",
+        f"Cooler box #{box_id} re-opened by {_username()}",
+    )
+    db.session.commit()
+    flash(f"Box #{box_id} re-opened.", "success")
+    return redirect(url_for("cooler.route_picking",
+                            route_id=box["route_id"],
+                            delivery_date=box["delivery_date"]))
+```
+
+What this fixes: clicking "Reopen Box" was showing raw JSON in the browser instead of returning to the packing screen.
+
+---
+
+## Change 3 — `templates/cooler/route_picking.html` — Exclude cancelled boxes from overfull warning
+
+Find this block near the top of `{% block content %}` (around line 36):
+
+```jinja
+  {# Check for overfull boxes (fill_pct > 100) using namespace to mutate inside loop #}
+  {% set _overfull_ns = namespace(any=false) %}
+  {% for _b in boxes %}{% if _b.fill_pct and _b.fill_pct > 100 %}{% set _overfull_ns.any = true %}{% endif %}{% endfor %}
+  {% set _any_overfull = _overfull_ns.any %}
+```
+
+Replace with:
+```jinja
+  {# Check for overfull boxes — skip cancelled boxes #}
+  {% set _overfull_ns = namespace(any=false) %}
+  {% for _b in boxes %}{% if _b.fill_pct and _b.fill_pct > 100 and _b.status != 'cancelled' %}{% set _overfull_ns.any = true %}{% endif %}{% endfor %}
+  {% set _any_overfull = _overfull_ns.any %}
+```
+
+What this fixes: the red "Box size too small" warning was still showing after the overfull box was cancelled and replaced with a correct box.
+
+---
+
+## Summary
+
+| File | Change | Effect |
+|---|---|---|
+| `services/cooler_pdf.py` | Full replacement | New manifest design — clean, readable, no cancelled pages |
+| `blueprints/cooler_picking.py` | 2 lines at end of `box_reopen` | Reopen button no longer shows raw JSON |
+| `templates/cooler/route_picking.html` | 1 word added to overfull loop | Red warning clears after cancelled box is replaced |
+
+No database changes. No new routes.

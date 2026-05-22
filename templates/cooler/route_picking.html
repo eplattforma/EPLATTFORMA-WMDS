@@ -33,9 +33,9 @@
   {% set _closed_boxes = boxes | selectattr('status', 'equalto', 'closed') | list %}
   {% set _all_boxed = (picked_unboxed_count == 0 and boxes | length > 0) %}
   {% set _all_closed = (_open_boxes | length == 0 and _closed_boxes | length > 0 and picked_unboxed_count == 0) %}
-  {# Check for overfull boxes (fill_pct > 100) using namespace to mutate inside loop #}
+  {# Check for overfull boxes — skip cancelled boxes #}
   {% set _overfull_ns = namespace(any=false) %}
-  {% for _b in boxes %}{% if _b.fill_pct and _b.fill_pct > 100 %}{% set _overfull_ns.any = true %}{% endif %}{% endfor %}
+  {% for _b in boxes %}{% if _b.fill_pct and _b.fill_pct > 100 and _b.status != 'cancelled' %}{% set _overfull_ns.any = true %}{% endif %}{% endfor %}
   {% set _any_overfull = _overfull_ns.any %}
 
   <div class="card border-0 shadow-sm mb-4" style="background:linear-gradient(135deg,#f0f9ff 0%,#e8f5e9 100%);">
