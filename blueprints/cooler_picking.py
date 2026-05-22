@@ -388,7 +388,20 @@ def route_list():
             "attached to a route with summer_cooler_mode_enabled ON.",
             "info",
         )
-    return render_template("cooler/route_list.html", routes=routes)
+    from services.cooler_box_planner import pre_pick_estimate
+    estimates = {}
+    for route in routes:
+        try:
+            estimates[(route["route_id"], str(route["delivery_date"]))] = (
+                pre_pick_estimate(route["route_id"], route["delivery_date"])
+            )
+        except Exception as exc:
+            logger.warning(
+                "pre_pick_estimate failed for route %s: %s", route["route_id"], exc
+            )
+            estimates[(route["route_id"], str(route["delivery_date"]))] = None
+
+    return render_template("cooler/route_list.html", routes=routes, estimates=estimates)
 
 
 @cooler_bp.route("/route/<route_id>/<delivery_date>")

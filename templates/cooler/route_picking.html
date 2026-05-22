@@ -33,6 +33,10 @@
   {% set _closed_boxes = boxes | selectattr('status', 'equalto', 'closed') | list %}
   {% set _all_boxed = (picked_unboxed_count == 0 and boxes | length > 0) %}
   {% set _all_closed = (_open_boxes | length == 0 and _closed_boxes | length > 0 and picked_unboxed_count == 0) %}
+  {# Check for overfull boxes (fill_pct > 100) using namespace to mutate inside loop #}
+  {% set _overfull_ns = namespace(any=false) %}
+  {% for _b in boxes %}{% if _b.fill_pct and _b.fill_pct > 100 %}{% set _overfull_ns.any = true %}{% endif %}{% endfor %}
+  {% set _any_overfull = _overfull_ns.any %}
 
   <div class="card border-0 shadow-sm mb-4" style="background:linear-gradient(135deg,#f0f9ff 0%,#e8f5e9 100%);">
     <div class="card-body py-3">
@@ -45,10 +49,17 @@
           <i class="fas fa-check me-1"></i>Picking Completed
         </span>
         <i class="fas fa-chevron-right text-muted small"></i>
+        {% if _all_boxed and _any_overfull %}
+        <span class="badge py-2 px-3 bg-danger">
+          <i class="fas fa-exclamation-triangle me-1"></i>Assign to Boxes
+          <span class="ms-1 opacity-90">⚠️</span>
+        </span>
+        {% else %}
         <span class="badge py-2 px-3 {{ 'bg-success' if _all_boxed else 'bg-primary' }}">
           <i class="fas fa-{{ 'check' if _all_boxed else 'box' }} me-1"></i>Assign to Boxes
           {% if not _all_boxed and picked_unboxed_count > 0 %}<span class="ms-1 opacity-75">🔵</span>{% endif %}
         </span>
+        {% endif %}
         <i class="fas fa-chevron-right text-muted small"></i>
         <span class="badge py-2 px-3 {{ 'bg-success' if _all_closed else ('bg-warning text-dark' if _open_boxes else 'bg-secondary') }}">
           <i class="fas fa-{{ 'check' if _all_closed else 'lock' }} me-1"></i>Close Boxes
@@ -62,6 +73,18 @@
       </div>
     </div>
   </div>
+
+  {% if _any_overfull %}
+  <div class="alert alert-danger d-flex align-items-center gap-3 mt-3 mb-4">
+    <i class="fas fa-exclamation-triangle fa-2x flex-shrink-0"></i>
+    <div>
+      <strong>Box size too small.</strong>
+      Delete the overfull box, then re-generate the box plan selecting a larger box type
+      (Medium or Large).
+      <a href="#advancedBoxControls" class="alert-link ms-2">Fix Boxes →</a>
+    </div>
+  </div>
+  {% endif %}
 
   {# ── Status summary cards ──────────────────────────────────────────────── #}
   <div class="row g-3 mb-4">
@@ -113,7 +136,10 @@
   {% elif _open_boxes %}
   <div class="alert alert-info d-flex align-items-center gap-3 mb-4">
     <i class="fas fa-arrow-circle-right fa-lg flex-shrink-0"></i>
-    <div><strong>Next step: Close all open boxes</strong> — {{ _open_boxes | length }} box(es) still open.</div>
+    <div class="flex-grow-1"><strong>Next step: Close all open boxes</strong> — {{ _open_boxes | length }} box(es) still open.</div>
+    <button class="btn btn-outline-secondary btn-sm btn-print-packing-list d-print-none flex-shrink-0">
+      <i class="fas fa-print me-1"></i>Print Packing List
+    </button>
   </div>
   {% elif _all_closed %}
   <div class="alert alert-success d-flex align-items-center gap-3 mb-4">
@@ -788,4 +814,93 @@
 })();
 </script>
 {% endif %}
+
+{% if boxes %}
+<div id="printPackingList" class="mt-4" style="display:none;">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 d-print-none">
+    <h5 class="mb-0"><i class="fas fa-print me-2"></i>Packing List — Route {{ route_id }} / {{ delivery_date }}</h5>
+    <button class="btn btn-sm btn-outline-secondary"
+            onclick="document.getElementById('printPackingList').style.display='none'">
+      <i class="fas fa-times me-1"></i>Hide
+    </button>
+  </div>
+
+  <div style="display:none;" class="print-header mb-3">
+    <strong>EP WMDS — Cooler Packing List</strong><br>
+    Route {{ route_id }} &nbsp;|&nbsp; {{ delivery_date }}
+    &nbsp;|&nbsp; Printed: <span id="printTs"></span>
+  </div>
+
+  {% for box in boxes %}
+  {% set _pitems = box_items_by_box.get(box.id, []) %}
+  <div class="card mb-3">
+    <div class="card-header fw-bold" style="background:#dee2e6;color:#000;">
+      Box {{ loop.index }}
+      {% if box.first_stop_sequence or box.last_stop_sequence %}
+        &mdash; {% if box.first_stop_sequence == box.last_stop_sequence %}Stop {{ box.first_stop_sequence }}{% else %}Stops {{ box.last_stop_sequence }}&rarr;{{ box.first_stop_sequence }}{% endif %}
+      {% endif %}
+      &nbsp;&middot;&nbsp; {{ box.box_type_name }}
+      &nbsp;&middot;&nbsp; {{ _pitems | length }} item(s)
+    </div>
+    <table class="table table-sm table-bordered mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th style="width:110px">Item Code</th>
+          <th>Description</th>
+          <th class="text-end" style="width:60px">Qty</th>
+          <th style="width:160px">Customer</th>
+          <th style="width:60px">Stop</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in _pitems %}
+        <tr>
+          <td class="font-monospace">{{ item.item_code }}</td>
+          <td>{{ item.item_name or item.item_code }}</td>
+          <td class="text-end fw-bold">{{ item.qty }}</td>
+          <td>{{ item.customer_name or '—' }}</td>
+          <td class="text-center">{{ item.delivery_sequence or '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not _pitems %}
+        <tr><td colspan="5" class="text-muted text-center">No items assigned to this box.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+
+</div>
+
+<style>
+@media print {
+  nav, .navbar, footer, .alert, .d-print-none,
+  #boxPlanCard, #advancedBoxControls { display: none !important; }
+  #printPackingList { display: block !important; }
+  .print-header { display: block !important; }
+  body { background: white !important; color: #000 !important; }
+  .card { border: 1px solid #333 !important; break-inside: avoid; }
+  .card-header { background: #ddd !important; color: #000 !important;
+                 -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .table-dark th { background: #444 !important; color: #fff !important;
+                   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+
+<script>
+(function () {
+  var ts = document.getElementById('printTs');
+  if (ts) ts.textContent = new Date().toLocaleString();
+  document.querySelectorAll('.btn-print-packing-list').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.getElementById('printPackingList');
+      if (el) el.style.display = 'block';
+      setTimeout(function () { window.print(); }, 150);
+    });
+  });
+})();
+</script>
+{% endif %}
+
 {% endblock %}

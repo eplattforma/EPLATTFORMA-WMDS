@@ -1,0 +1,428 @@
+# Cooler Picking — Change Instructions for Replit
+
+Apply the following changes to the EP WMDS codebase. All changes relate to the cooler picking feature.
+
+---
+
+## 1. `services/cooler_box_planner.py` — Add pre-pick estimate function
+
+At the very end of the file (after the `generate_box_plan` function), append this new function:
+
+```python
+def pre_pick_estimate(route_id, delivery_date):
+    """
+    Return a volume/box estimate for a route BEFORE picking starts.
+    Reads ALL cooler queue rows (pending + picked + exception).
+    Called by the route_list view to show managers what boxes to prepare.
+    """
+    from sqlalchemy import text
+    from app import db
+
+    _EMPTY = {
+        "total_items": 0, "total_volume_l": 0,
+        "missing_dimension_items": [], "stops": [],
+        "box_plan": [], "recommended_box_type": None,
+        "all_dims_present": True,
+    }
+
+    # Fetch all cooler queue rows for this route (any status)
+    rows = db.session.execute(text("""
+        SELECT cq.item_code, cq.quantity, cq.stop_no, cq.customer_name
+        FROM cooler_queue cq
+        WHERE cq.route_id = :r AND cq.delivery_date = :d
+        ORDER BY cq.stop_no
+    """), {"r": route_id, "d": delivery_date}).fetchall()
+
+    if not rows:
+        return _EMPTY
+
+    # Collect unique item codes for bulk dimension fetch
+    item_codes = list({r[0] for r in rows})
+    dim_rows = db.session.execute(text("""
+        SELECT item_code,
+               COALESCE(length_cm, 0), COALESCE(width_cm, 0), COALESCE(height_cm, 0)
+        FROM ps_items_dw
+        WHERE item_code = ANY(:codes)
+    """), {"codes": item_codes}).fetchall()
+    dims = {r[0]: (float(r[1]), float(r[2]), float(r[3])) for r in dim_rows}
+
+    # Fetch active box types ordered smallest to largest
+    box_types = db.session.execute(text("""
+        SELECT id, name, internal_volume_cm3, fill_efficiency
+        FROM cooler_box_types
+        WHERE is_active = true
+        ORDER BY internal_volume_cm3
+    """)).fetchall()
+    box_types = [
+        {"id": r[0], "name": r[1],
+         "capacity_cm3": float(r[2]) * float(r[3])}
+        for r in box_types
+    ]
+
+    if not box_types:
+        return _EMPTY
+
+    # Group items by stop (LIFO: highest stop first)
+    from collections import defaultdict
+    stop_map = defaultdict(list)
+    missing = []
+    for item_code, qty, stop_no, customer_name in rows:
+        l, w, h = dims.get(item_code, (0, 0, 0))
+        vol = l * w * h * int(qty or 1)
+        if l == 0 or w == 0 or h == 0:
+            missing.append({"item_code": item_code})
+            vol = 0
+        stop_map[stop_no or 0].append({
+            "item_code": item_code, "quantity": qty,
+            "customer_name": customer_name, "volume_cm3": vol,
+        })
+
+    sorted_stops = sorted(stop_map.keys(), reverse=True)  # LIFO
+
+    # Build stop summary list
+    stop_summary = []
+    for stop_no in sorted(stop_map.keys()):
+        items = stop_map[stop_no]
+        vol_l = round(sum(i["volume_cm3"] for i in items) / 1000, 2)
+        missing_count = sum(1 for i in items
+                            if dims.get(i["item_code"], (0,0,0))[0] == 0)
+        stop_summary.append({
+            "stop_no": stop_no,
+            "customer_names": list({i["customer_name"] for i in items if i["customer_name"]}),
+            "item_count": sum(int(i["quantity"] or 1) for i in items),
+            "volume_l": vol_l,
+            "missing_dims": missing_count,
+        })
+
+    # Simulate box plan: group stops into boxes using largest box type
+    largest_box = box_types[-1]
+    box_plan = []
+    current_vol = 0
+    current_stops = []
+    current_missing = 0
+
+    for stop_no in sorted_stops:
+        items = stop_map[stop_no]
+        stop_vol = sum(i["volume_cm3"] for i in items)
+        stop_missing = sum(1 for i in items
+                           if dims.get(i["item_code"], (0,0,0))[0] == 0)
+
+        if current_stops and (current_vol + stop_vol) > largest_box["capacity_cm3"]:
+            box_plan.append((current_stops[:], current_vol, current_missing))
+            current_stops, current_vol, current_missing = [], 0, 0
+
+        current_stops.append(stop_no)
+        current_vol += stop_vol
+        current_missing += stop_missing
+
+    if current_stops:
+        box_plan.append((current_stops, current_vol, current_missing))
+
+    # For each planned box, find the smallest box type that fits
+    rendered_boxes = []
+    for stop_list, vol_cm3, miss in box_plan:
+        fitting = next((b for b in box_types if b["capacity_cm3"] >= vol_cm3), None)
+        chosen = fitting or box_types[-1]
+        over = vol_cm3 > chosen["capacity_cm3"]
+        fill_pct = round(vol_cm3 / chosen["capacity_cm3"] * 100) if chosen["capacity_cm3"] else 0
+        stops_sorted = sorted(stop_list)
+        stops_display = (f"Stop {stops_sorted[0]}" if len(stops_sorted) == 1
+                         else f"Stops {stops_sorted[-1]}→{stops_sorted[0]}")
+        rendered_boxes.append({
+            "box_type_name": chosen["name"],
+            "stops_display": stops_display,
+            "estimated_volume_l": round(vol_cm3 / 1000, 2),
+            "estimated_fill_pct": fill_pct,
+            "over_capacity": over,
+            "missing_dims": miss,
+        })
+
+    total_vol = sum(
+        sum(i["volume_cm3"] for i in items)
+        for items in stop_map.values()
+    )
+
+    # Recommended default box: smallest that fits the largest single stop
+    max_stop_vol = max(
+        sum(i["volume_cm3"] for i in items)
+        for items in stop_map.values()
+    )
+    rec = next((b for b in box_types if b["capacity_cm3"] >= max_stop_vol), box_types[-1])
+
+    return {
+        "total_items": sum(int(r[1] or 1) for r in rows),
+        "total_volume_l": round(total_vol / 1000, 2),
+        "missing_dimension_items": missing,
+        "all_dims_present": len(missing) == 0,
+        "stops": stop_summary,
+        "box_plan": rendered_boxes,
+        "recommended_box_type": rec["name"],
+    }
+```
+
+---
+
+## 2. `blueprints/cooler_picking.py` — Pass estimates to route_list template
+
+Find the `route_list` view function. It currently ends with something like:
+
+```python
+return render_template("cooler/route_list.html", routes=routes)
+```
+
+Replace that last return statement with:
+
+```python
+from services.cooler_box_planner import pre_pick_estimate
+estimates = {}
+for route in routes:
+    try:
+        estimates[(route["route_id"], str(route["delivery_date"]))] = (
+            pre_pick_estimate(route["route_id"], route["delivery_date"])
+        )
+    except Exception as exc:
+        logger.warning("pre_pick_estimate failed for route %s: %s", route["route_id"], exc)
+        estimates[(route["route_id"], str(route["delivery_date"]))] = None
+
+return render_template("cooler/route_list.html", routes=routes, estimates=estimates)
+```
+
+---
+
+## 3. `templates/cooler/route_list.html` — Show pre-pick estimate panel per route
+
+The current template is a plain table. Replace the entire `{% block content %}` with a card-based layout.
+
+**Key additions inside the `{% for route in routes %}` loop, after the status counters (Pending / Picked / Exceptions / Total):**
+
+Add this block to display the pre-pick estimate for each route:
+
+```html
+{% set est = estimates.get((route.route_id, route.delivery_date|string)) %}
+{% if est %}
+<div class="border rounded p-3 mt-3" style="background:#f0f9ff;">
+
+  <!-- Summary badges -->
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <span class="fw-semibold text-primary">
+      <i class="fas fa-calculator me-1"></i>Pre-pick Estimate
+    </span>
+    <span class="badge bg-primary">{{ est.total_items }} items</span>
+    <span class="badge bg-secondary">~{{ est.total_volume_l }}L total</span>
+    {% if est.recommended_box_type %}
+    <span class="badge bg-info text-dark">
+      <i class="fas fa-box me-1"></i>Suggested default: {{ est.recommended_box_type }}
+    </span>
+    {% endif %}
+    {% if not est.all_dims_present %}
+    <span class="badge bg-warning text-dark">
+      <i class="fas fa-exclamation-triangle me-1"></i>
+      {{ est.missing_dimension_items|length }} item(s) missing dimensions — volume may be understated
+    </span>
+    {% endif %}
+  </div>
+
+  <!-- Recommended boxes to prepare -->
+  {% if est.box_plan %}
+  <div class="mb-3">
+    <div class="small fw-semibold text-muted mb-1 text-uppercase">Boxes to prepare</div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for box in est.box_plan %}
+      <div class="rounded px-3 py-2 border
+           {% if box.over_capacity %}border-danger bg-danger bg-opacity-10
+           {% else %}border-success bg-success bg-opacity-10{% endif %}"
+           style="min-width:160px;">
+        <div class="fw-bold {% if box.over_capacity %}text-danger{% else %}text-success{% endif %}">
+          {{ box.box_type_name }}
+        </div>
+        <div class="small text-muted">{{ box.stops_display }}</div>
+        <div class="small">
+          ~{{ box.estimated_volume_l }}L
+          <span class="{% if box.over_capacity %}text-danger fw-bold
+                        {% elif box.estimated_fill_pct > 85 %}text-warning
+                        {% else %}text-success{% endif %}">
+            ({{ box.estimated_fill_pct }}%)
+          </span>
+          {% if box.over_capacity %}
+          <i class="fas fa-exclamation-circle text-danger ms-1"
+             title="Volume exceeds this box — use a larger box"></i>
+          {% endif %}
+        </div>
+        {% if box.missing_dims %}
+        <div class="small text-warning">
+          <i class="fas fa-question-circle me-1"></i>{{ box.missing_dims }} unmeasured
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Items missing dimensions warning -->
+  {% if est.missing_dimension_items %}
+  <div class="alert alert-warning py-2 small mb-0">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    <strong>Items without dimensions — volume underestimated for:</strong>
+    {% for item in est.missing_dimension_items %}
+      <span class="badge bg-warning text-dark me-1">{{ item.item_code }}</span>
+    {% endfor %}
+    <br><span class="text-muted">Fix via Admin → Cooler Items Missing Dimensions.</span>
+  </div>
+  {% endif %}
+
+</div>
+{% endif %}
+```
+
+---
+
+## 4. `templates/cooler/route_picking.html` — Overfull warning + step indicator + print packing list
+
+### 4a. Step indicator — turn red when any box is overfull
+
+Find the step indicator block (the row of pill badges: Route Prepared / Picking Completed / Assign to Boxes / Close Boxes / Ready for Dispatch).
+
+Add this variable near the top of `{% block content %}`:
+
+```html
+{% set _any_overfull = boxes | selectattr('estimated_fill_pct') |
+   selectattr('estimated_fill_pct', 'greaterthan', 100) | list | length > 0 %}
+```
+
+Then for the "Assign to Boxes" step badge, change the logic so that:
+- If boxes exist AND `_any_overfull` → show **red/danger** badge with ⚠️ icon
+- If boxes exist AND not overfull → show **green/success** badge with ✓ icon
+- If no boxes yet → show the normal in-progress blue badge
+
+### 4b. Overfull warning banner
+
+Immediately after the step indicator row, add:
+
+```html
+{% if _any_overfull %}
+<div class="alert alert-danger d-flex align-items-center gap-3 mt-3">
+  <i class="fas fa-exclamation-triangle fa-2x flex-shrink-0"></i>
+  <div>
+    <strong>Box size too small.</strong>
+    Delete the overfull box, then re-generate the box plan selecting a larger box type
+    (Medium or Large).
+    <a href="#advancedBoxControls" class="alert-link ms-2">Fix Boxes →</a>
+  </div>
+</div>
+{% endif %}
+```
+
+### 4c. Print Packing List button
+
+Find the "Next step: Close all open boxes" banner. Add a Print Packing List button next to the text:
+
+```html
+<button class="btn btn-outline-secondary btn-sm btn-print-packing-list d-print-none">
+  <i class="fas fa-print me-1"></i>Print Packing List
+</button>
+```
+
+### 4d. Printable packing list section
+
+Just before the final `{% endblock %}` at the very end of the file, add:
+
+```html
+{% if boxes %}
+<div id="printPackingList" class="mt-4" style="display:none;">
+
+  <!-- Screen header (hidden when printing) -->
+  <div class="d-flex align-items-center justify-content-between mb-3 d-print-none">
+    <h5 class="mb-0"><i class="fas fa-print me-2"></i>Packing List — Route {{ route_id }} / {{ delivery_date }}</h5>
+    <button class="btn btn-sm btn-outline-secondary"
+            onclick="document.getElementById('printPackingList').style.display='none'">
+      <i class="fas fa-times me-1"></i>Hide
+    </button>
+  </div>
+
+  <!-- Print-only header (hidden on screen) -->
+  <div style="display:none;" class="print-header mb-3">
+    <strong>EP WMDS — Cooler Packing List</strong><br>
+    Route {{ route_id }} &nbsp;|&nbsp; {{ delivery_date }}
+    &nbsp;|&nbsp; Printed: <span id="printTs"></span>
+  </div>
+
+  {% for box in boxes %}
+  <div class="card mb-3">
+    <div class="card-header fw-bold" style="background:#dee2e6;color:#000;">
+      Box {{ loop.index }}
+      {% if box.stop_label %}— {{ box.stop_label }}{% endif %}
+      &nbsp;·&nbsp; {{ box.box_type_name }}
+      &nbsp;·&nbsp; {{ box.items | length }} item(s)
+    </div>
+    <table class="table table-sm table-bordered mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th style="width:110px">Item Code</th>
+          <th>Description</th>
+          <th class="text-end" style="width:60px">Qty</th>
+          <th style="width:160px">Customer</th>
+          <th style="width:60px">Stop</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in box.items %}
+        <tr>
+          <td class="font-monospace">{{ item.item_code }}</td>
+          <td>{{ item.item_description or item.item_code }}</td>
+          <td class="text-end fw-bold">{{ item.quantity }}</td>
+          <td>{{ item.customer_name or '—' }}</td>
+          <td class="text-center">{{ item.stop_no or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+
+</div>
+{% endif %}
+
+<style>
+@media print {
+  nav, .navbar, footer, .alert, .d-print-none,
+  #boxPlanCard, #advancedBoxControls { display: none !important; }
+  #printPackingList { display: block !important; }
+  .print-header { display: block !important; }
+  body { background: white !important; color: #000 !important; }
+  .card { border: 1px solid #333 !important; break-inside: avoid; }
+  .card-header { background: #ddd !important; color: #000 !important;
+                 -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .table-dark th { background: #444 !important; color: #fff !important;
+                   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+
+<script>
+(function () {
+  var ts = document.getElementById('printTs');
+  if (ts) ts.textContent = new Date().toLocaleString();
+  document.querySelectorAll('.btn-print-packing-list').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.getElementById('printPackingList');
+      if (el) el.style.display = 'block';
+      setTimeout(function () { window.print(); }, 150);
+    });
+  });
+})();
+</script>
+```
+
+---
+
+## Summary of what these changes do
+
+| Change | Effect |
+|---|---|
+| `pre_pick_estimate()` | Calculates box requirements from all queue rows before picking starts |
+| Route list cards | Manager sees recommended box sizes and missing dimension warnings before opening a route |
+| Overfull step badge | "Assign to Boxes" turns red if any box exceeds 100% fill — impossible to miss |
+| Overfull banner | Clear instruction to delete and regenerate with a larger box type |
+| Print packing list | After picking, one click prints a per-box item list so the packer sorts items without staring at a screen |
+
+No database changes required. No new routes or URL changes.
