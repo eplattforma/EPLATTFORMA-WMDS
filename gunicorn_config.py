@@ -23,12 +23,28 @@ capture_output = True       # Capture print statements
 enable_stdio_inheritance = True
 
 # Performance optimizations
-preload_app = False         # Disabled: app loads inside worker AFTER port bind (required for Cloud Run health checks)
+preload_app = True          # Load app once in master before workers fork — workers are
+                            # immediately ready to serve (health probe passes right away).
+                            # Without this, each worker runs ~90s of schema migrations
+                            # before accepting requests, causing Cloud Run health checks
+                            # to time out and the deployment to fail.
 worker_tmp_dir = "/dev/shm"
 sendfile = True             # Use sendfile for static files
 tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
 
 def post_fork(server, worker):
-    os.environ["GUNICORN_WORKER_AGE"] = str(worker.age)
+    """Re-establish DB connections per worker after fork.
 
-print(f"Production config: {workers} workers, {threads} threads/worker, {timeout}s timeout, preload disabled")
+    With preload_app=True the SQLAlchemy engine is created in the master
+    process.  Forked workers must dispose the inherited pool so they get
+    their own fresh connections instead of sharing the master's file
+    descriptors (which leads to silent corruption or connection errors).
+    """
+    os.environ["GUNICORN_WORKER_AGE"] = str(worker.age)
+    try:
+        from app import db
+        db.engine.dispose()
+    except Exception:
+        pass  # If app hasn't initialised yet, nothing to dispose
+
+print(f"Production config: {workers} workers, {threads} threads/worker, {timeout}s timeout, preload enabled")
