@@ -682,6 +682,27 @@ def admin_dashboard():
         import logging as _cplog
         _cplog.getLogger(__name__).warning("admin_dashboard: cooler_pack_needed query failed: %s", _cpe)
 
+    # Routes with open cooler boxes — the cooler row stays visible until
+    # every box on the route is closed, even when all items are already
+    # assigned to a box. This way the route operator can see at a glance
+    # that the route is still waiting on box closure before dispatch.
+    cooler_open_boxes_by_route = {}
+    try:
+        _open_box_rows = db.session.execute(
+            db.text(
+                "SELECT route_id, COUNT(*) "
+                "FROM cooler_boxes "
+                "WHERE status = 'open' "
+                "  AND route_id IS NOT NULL "
+                "GROUP BY route_id"
+            )
+        ).fetchall()
+        for _ob in _open_box_rows:
+            cooler_open_boxes_by_route[_ob[0]] = int(_ob[1])
+    except Exception as _obe:
+        import logging as _oblog
+        _oblog.getLogger(__name__).warning("admin_dashboard: cooler_open_boxes query failed: %s", _obe)
+
     open_batch_statuses = ['Created', 'In Progress', 'Active', 'Paused', 'picking']
     open_batch_sessions = BatchPickingSession.query.filter(
         BatchPickingSession.status.in_(open_batch_statuses),
@@ -894,7 +915,8 @@ def admin_dashboard():
                               active_batches_by_route=active_batches_by_route,
                               unassigned_active_sessions=unassigned_active_sessions,
                               route_warehouse_status=route_warehouse_status,
-                              cooler_pack_needed_by_route=cooler_pack_needed_by_route)
+                              cooler_pack_needed_by_route=cooler_pack_needed_by_route,
+                              cooler_open_boxes_by_route=cooler_open_boxes_by_route)
     except Exception as _admin_dash_err:
         import traceback as _tb
         # Log a short one-liner FIRST so the exception type/message is visible

@@ -186,17 +186,24 @@
                                 </td>
                             </tr>
                             {% endfor %}
-                            {% if cooler_pack_needed_by_route.get(route.id, 0) > 0 and route.delivery_date %}
+                            {% set _cooler_unboxed = cooler_pack_needed_by_route.get(route.id, 0) %}
+                            {% set _cooler_open_boxes = cooler_open_boxes_by_route.get(route.id, 0) %}
+                            {% if (_cooler_unboxed > 0 or _cooler_open_boxes > 0) and route.delivery_date %}
                             <tr style="font-size:0.85rem;border-left:3px solid #0dcaf0;background:#e8f7fb;">
                                 <td colspan="2" class="py-1 ps-5">
                                     <i class="fas fa-snowflake me-1 text-info"></i>
+                                    {% if _cooler_unboxed > 0 %}
                                     <strong class="text-info">Cooler picking complete</strong>
-                                    <span class="badge bg-info ms-2">{{ cooler_pack_needed_by_route[route.id] }} item(s) ready to box</span>
+                                    <span class="badge bg-info ms-2">{{ _cooler_unboxed }} item(s) ready to box</span>
+                                    {% else %}
+                                    <strong class="text-info">Cooler boxes open</strong>
+                                    <span class="badge bg-warning text-dark ms-2">{{ _cooler_open_boxes }} box(es) waiting to be closed</span>
+                                    {% endif %}
                                 </td>
                                 <td colspan="7" class="py-1 text-end pe-2">
                                     <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date.strftime('%Y-%m-%d')) }}#packing"
                                        class="btn btn-info btn-sm text-white">
-                                        <i class="fas fa-box me-1"></i>Pack Cooler Boxes
+                                        <i class="fas fa-box me-1"></i>{% if _cooler_unboxed > 0 %}Pack Cooler Boxes{% else %}Close Cooler Boxes{% endif %}
                                     </a>
                                 </td>
                             </tr>
@@ -248,17 +255,24 @@
                                 </td>
                             </tr>
                             {% endfor %}
-                            {% if cooler_pack_needed_by_route.get(route.id, 0) > 0 and route.delivery_date %}
+                            {% set _cooler_unboxed = cooler_pack_needed_by_route.get(route.id, 0) %}
+                            {% set _cooler_open_boxes = cooler_open_boxes_by_route.get(route.id, 0) %}
+                            {% if (_cooler_unboxed > 0 or _cooler_open_boxes > 0) and route.delivery_date %}
                             <tr style="font-size:0.85rem;border-left:3px solid #0dcaf0;background:#e8f7fb;">
                                 <td colspan="2" class="py-1 ps-5">
                                     <i class="fas fa-snowflake me-1 text-info"></i>
+                                    {% if _cooler_unboxed > 0 %}
                                     <strong class="text-info">Cooler picking complete</strong>
-                                    <span class="badge bg-info ms-2">{{ cooler_pack_needed_by_route[route.id] }} item(s) ready to box</span>
+                                    <span class="badge bg-info ms-2">{{ _cooler_unboxed }} item(s) ready to box</span>
+                                    {% else %}
+                                    <strong class="text-info">Cooler boxes open</strong>
+                                    <span class="badge bg-warning text-dark ms-2">{{ _cooler_open_boxes }} box(es) waiting to be closed</span>
+                                    {% endif %}
                                 </td>
                                 <td colspan="7" class="py-1 text-end pe-2">
                                     <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date.strftime('%Y-%m-%d')) }}#packing"
                                        class="btn btn-info btn-sm text-white">
-                                        <i class="fas fa-box me-1"></i>Pack Cooler Boxes
+                                        <i class="fas fa-box me-1"></i>{% if _cooler_unboxed > 0 %}Pack Cooler Boxes{% else %}Close Cooler Boxes{% endif %}
                                     </a>
                                 </td>
                             </tr>
