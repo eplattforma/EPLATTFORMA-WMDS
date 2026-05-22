@@ -45,6 +45,14 @@ if _db_available:
     logging.warning("PHASE 3: DB smoke test passed")
     print("PHASE 3: DB smoke test passed", flush=True)
 
+if _db_available and not is_production:
+    # Schema migrations — run in development only.
+    # In production the schema is already up to date; running ~100 idempotent
+    # "column already exists" checks against the remote Neon DB adds 60-70 s
+    # of latency before workers can serve requests, which causes Cloud Run's
+    # health probe to time out and the deployment to fail.
+    # To apply a new migration to production, set RUN_MIGRATIONS=1 in the
+    # production environment variables, publish once, then remove the flag.
     try:
         from update_forecast_ordering_schema import update_forecast_ordering_schema
         logging.warning("Running forecast ordering schema updater...")
@@ -117,9 +125,35 @@ if _db_available:
 
     logging.warning("PHASE 4: schema updater and verification done")
     print("PHASE 4: schema updater and verification done", flush=True)
+
+elif _db_available and is_production:
+    logging.warning("PHASE 4: schema migrations SKIPPED (production — already applied)")
+    print("PHASE 4: schema migrations SKIPPED (production)", flush=True)
+
 else:
     logging.warning("PHASE 3-4: SKIPPED (DB unavailable)")
     print("PHASE 3-4: SKIPPED (DB unavailable)", flush=True)
+
+# Clean up any job_log rows stuck in 'running' for more than 2 hours.
+# These are zombie rows from workers that were killed mid-job (e.g. a
+# previous deployment restart). Left uncleaned they confuse the scheduler
+# startup checks and show as "still running" in the admin job log table.
+if _db_available:
+    try:
+        with app.app_context():
+            _cleaned = db.session.execute(_sa_text("""
+                UPDATE job_runs
+                   SET status        = 'TIMED_OUT',
+                       finished_at   = NOW(),
+                       error_message = 'Marked TIMED_OUT on startup: job was still running after process restart'
+                 WHERE status = 'RUNNING'
+                   AND started_at < NOW() - INTERVAL '2 hours'
+            """)).rowcount
+            db.session.commit()
+            if _cleaned:
+                logging.warning(f"Startup cleanup: marked {_cleaned} stale job_log row(s) as timed_out")
+    except Exception:
+        logging.exception("Startup job_log cleanup failed (non-fatal)")
 
 DEFAULT_TERMS_CODE = os.getenv("DEFAULT_TERMS_CODE", "POD")
 DEFAULT_DUE_DAYS = int(os.getenv("DEFAULT_DUE_DAYS", "0"))

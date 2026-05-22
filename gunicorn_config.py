@@ -23,11 +23,12 @@ capture_output = True       # Capture print statements
 enable_stdio_inheritance = True
 
 # Performance optimizations
-preload_app = True          # Load app once in master before workers fork — workers are
-                            # immediately ready to serve (health probe passes right away).
-                            # Without this, each worker runs ~90s of schema migrations
-                            # before accepting requests, causing Cloud Run health checks
-                            # to time out and the deployment to fail.
+preload_app = False         # Must be False on Cloud Run: port 5000 is not bound until
+                            # after preload completes, so with preload=True the container
+                            # gets killed for "port never opened" before migrations finish.
+                            # Workers load the app concurrently after the port is bound;
+                            # schema migrations are skipped in production (is_production=True)
+                            # so workers become ready in seconds, not 60+ seconds.
 worker_tmp_dir = "/dev/shm"
 sendfile = True             # Use sendfile for static files
 tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
@@ -47,4 +48,4 @@ def post_fork(server, worker):
     except Exception:
         pass  # If app hasn't initialised yet, nothing to dispose
 
-print(f"Production config: {workers} workers, {threads} threads/worker, {timeout}s timeout, preload enabled")
+print(f"Production config: {workers} workers, {threads} threads/worker, {timeout}s timeout, preload disabled")
