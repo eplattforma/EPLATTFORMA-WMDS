@@ -100,7 +100,7 @@
         {% if group.supplier_code_365 %}
         <span class="badge bg-secondary fw-normal">{{ group.supplier_code_365 }}</span>
         {% endif %}
-        <span class="badge bg-light text-dark border">{{ group.items|length }} lines</span>
+        <span class="badge bg-light text-dark border">{{ group.item_rows|length }} lines</span>
       </div>
       <div class="d-flex align-items-center gap-3">
         <span class="text-muted small">
@@ -144,7 +144,7 @@
             </tr>
           </thead>
           <tbody>
-            {% for item in group.items %}
+            {% for item in group.item_rows %}
             <tr class="item-row{% if item.fully_committed %} table-warning{% endif %}"
                 data-item="{{ item.item_code_365 }}"
                 data-qty="{{ item.available_cases }}"

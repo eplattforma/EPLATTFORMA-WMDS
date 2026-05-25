@@ -143,7 +143,7 @@ def _fetch_pending_return_pos() -> tuple:
         resp = call_ps365("list_purchase_orders", method="POST", payload={
             "filter_define": {
                 "page_number": 1,
-                "page_size":   200,
+                "page_size":   100,
                 "only_counted": "N",
                 "orders_supplier_selection":    "",
                 "order_status_selection":       "",
@@ -310,13 +310,14 @@ def _apply_pending_and_group(
                 "supplier_code_365": key,
                 "supplier_name": r["supplier_name"] or ("Unknown Supplier" if not key else key),
                 "total_value": 0.0,
-                "items": [],
+                "item_rows": [],
             }
-        buckets[key]["items"].append(r)
+        buckets[key]["item_rows"].append(r)
         if r["value_available"]:
             buckets[key]["total_value"] = round(
                 buckets[key]["total_value"] + r["value_available"], 2
             )
+
 
     return sorted(
         buckets.values(),
@@ -373,8 +374,8 @@ def get_returns_stock(force_refresh: bool = False) -> Dict[str, Any]:
     groups = _apply_pending_and_group(enriched, pending_qty)
 
     total_value   = round(sum(g["total_value"] for g in groups), 2)
-    total_items   = sum(len(g["items"]) for g in groups)
-    unknown_count = sum(len(g["items"]) for g in groups if not g["supplier_code_365"])
+    total_items   = sum(len(g["item_rows"]) for g in groups)
+    unknown_count = sum(len(g["item_rows"]) for g in groups if not g["supplier_code_365"])
     age           = _cache_age_minutes()
     fetched_at    = _cache["fetched_at"]
 
