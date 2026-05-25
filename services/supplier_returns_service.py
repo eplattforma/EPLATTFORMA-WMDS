@@ -203,8 +203,9 @@ def _fetch_pending_return_pos() -> tuple:
 
         cart_code   = str(header.get("shopping_cart_code") or "")
 
-        # Client-side filter: our return POs always have cart codes starting "RET-"
-        if not cart_code.startswith("RET-"):
+        # Client-side filter: our return POs have cart codes containing "RET-"
+        # (current format: "RET-YYYYMMDD-…"; legacy format: "WMDS-RET-YYYYMMDD-…")
+        if "RET-" not in cart_code:
             continue
 
         logger.info("[Returns] PO %s cart=%s store=%s status=%s is_pending=%s — evaluating",
