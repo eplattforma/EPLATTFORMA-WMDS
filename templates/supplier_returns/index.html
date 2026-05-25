@@ -81,8 +81,16 @@
         {% endif %}
         <span class="badge bg-light text-dark border">{{ group.item_list|length }} lines</span>
       </div>
-      <div class="d-flex align-items-center gap-2">
-        <span class="text-muted small">€{{ "%.3f"|format(group.total_value) }}</span>
+      <div class="d-flex align-items-center gap-3">
+        <span class="text-muted small">
+          <span class="fw-semibold text-body">{{ group.total_pieces }}</span> pcs
+        </span>
+        <span class="text-muted small">
+          Cost <span class="fw-semibold text-body">€{{ "%.2f"|format(group.total_cost) }}</span>
+        </span>
+        <span class="text-muted small">
+          Value <span class="fw-semibold text-body">€{{ "%.2f"|format(group.total_value) }}</span>
+        </span>
         {% if not is_unknown %}
         <button class="btn btn-primary btn-sm create-po-btn" data-gid="{{ gid }}"
                 data-supplier="{{ group.supplier_code_365 }}"
@@ -146,10 +154,10 @@
                 {% endif %}
               </td>
               <td class="text-end text-muted small">
-                {% if item.cost_price %}€{{ "%.3f"|format(item.cost_price) }}{% else %}—{% endif %}
+                {% if item.cost_price %}€{{ "%.2f"|format(item.cost_price) }}{% else %}—{% endif %}
               </td>
               <td class="text-end">
-                {% if item.value %}€{{ "%.3f"|format(item.value) }}{% else %}—{% endif %}
+                {% if item.value %}€{{ "%.2f"|format(item.value) }}{% else %}—{% endif %}
               </td>
               <td class="text-end">
                 <input type="number" min="0" step="1"

@@ -187,12 +187,20 @@ def _group_by_supplier(
             buckets[key] = {
                 "supplier_code_365": key,
                 "supplier_name": r["supplier_name"] or ("Unknown Supplier" if not key else key),
+                "total_pieces": 0,
+                "total_cost": 0.0,
                 "total_value": 0.0,
                 "item_list": [],
             }
         buckets[key]["item_list"].append(r)
+        if r["pieces"]:
+            buckets[key]["total_pieces"] += r["pieces"]
         if r["value"]:
-            buckets[key]["total_value"] = round(buckets[key]["total_value"] + r["value"], 3)
+            buckets[key]["total_value"] = round(buckets[key]["total_value"] + r["value"], 2)
+        if r["cost_price"] and r["stock"]:
+            buckets[key]["total_cost"] = round(
+                buckets[key]["total_cost"] + float(r["cost_price"]) * float(r["stock"]), 2
+            )
 
     # Sort: known suppliers alphabetically, unknown last
     groups = sorted(
