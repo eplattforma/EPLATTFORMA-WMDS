@@ -15,6 +15,8 @@ can convert to a Purchase Return correctly.
 """
 
 import logging
+import threading
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,6 +25,12 @@ from ps365_client import call_ps365
 logger = logging.getLogger(__name__)
 
 RETURNS_STORE_CODE = "100"
+
+# ---------------------------------------------------------------------------
+# In-memory cache — avoids a live PS365 call on every page visit
+# ---------------------------------------------------------------------------
+_cache_lock = threading.Lock()
+_cache: Dict[str, Any] = {"result": None, "fetched_at": None}
 PAGE_SIZE = 100
 MAX_PAGES = 500
 
@@ -214,9 +222,12 @@ def _group_by_supplier(
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def get_returns_stock() -> Dict[str, Any]:
+def get_returns_stock(force: bool = False) -> Dict[str, Any]:
     """
-    Fetch and return all data needed for the Returns screen.
+    Return data for the Returns screen.
+
+    Uses an in-memory cache so repeated page visits do not hit PS365.
+    Pass force=True (triggered by the Refresh button) to bypass the cache.
 
     Returns:
         {
@@ -224,29 +235,41 @@ def get_returns_stock() -> Dict[str, Any]:
             "total_items": int,
             "total_value": float,
             "unknown_supplier_count": int,
+            "fetched_at": datetime | None,
             "error": str | None,
         }
     """
+    with _cache_lock:
+        if not force and _cache["result"] is not None:
+            return _cache["result"]
+
     try:
         stock_rows = _fetch_store_100_stock()
     except Exception as e:
         logger.exception("[Returns] Failed to fetch store 100 stock")
         return {"groups": [], "total_items": 0, "total_value": 0.0,
-                "unknown_supplier_count": 0, "error": str(e)}
+                "unknown_supplier_count": 0, "fetched_at": None, "error": str(e)}
 
     enriched = _enrich_from_dw(stock_rows)
     groups = _group_by_supplier(enriched)
 
-    total_value = round(sum(g["total_value"] for g in groups), 3)
+    total_value = round(sum(g["total_value"] for g in groups), 2)
     total_items = sum(len(g["item_list"]) for g in groups)
     unknown_count = sum(
         len(g["item_list"]) for g in groups if not g["supplier_code_365"]
     )
 
-    return {
+    result = {
         "groups": groups,
         "total_items": total_items,
         "total_value": total_value,
         "unknown_supplier_count": unknown_count,
+        "fetched_at": datetime.now(timezone.utc),
         "error": None,
     }
+
+    with _cache_lock:
+        _cache["result"] = result
+        _cache["fetched_at"] = result["fetched_at"]
+
+    return result

@@ -11,8 +11,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from flask import (
-    Blueprint, jsonify, render_template,
-    request,
+    Blueprint, jsonify, redirect, render_template,
+    request, url_for,
 )
 from flask_login import current_user, login_required
 
@@ -34,7 +34,10 @@ supplier_returns_bp = Blueprint(
 @login_required
 def index():
     from services.supplier_returns_service import get_returns_stock
-    data = get_returns_stock()
+    if "refresh" in request.args:
+        get_returns_stock(force=True)
+        return redirect(url_for("supplier_returns.index"))
+    data = get_returns_stock(force=False)
     return render_template("index.html", data=data)
 
 

@@ -8,11 +8,19 @@
   <div class="d-flex align-items-center justify-content-between mb-3">
     <div>
       <h4 class="mb-0">Supplier Returns <span class="badge bg-secondary ms-2">Store 100</span></h4>
-      <small class="text-muted">Items in RETURNS awaiting collection by supplier</small>
+      <small class="text-muted">
+        Items in RETURNS awaiting collection by supplier
+        {% if data.fetched_at %}
+        &mdash; <span class="text-muted">Last updated: {{ data.fetched_at.strftime('%d %b %Y %H:%M') }} UTC</span>
+        {% else %}
+        &mdash; <span class="text-warning">Not yet loaded</span>
+        {% endif %}
+      </small>
     </div>
-    <button id="btnRefresh" class="btn btn-outline-secondary btn-sm">
+    <a href="{{ url_for('supplier_returns.index', refresh=1) }}"
+       class="btn btn-outline-secondary btn-sm" id="btnRefresh">
       <i class="fas fa-sync-alt me-1"></i> Refresh
-    </button>
+    </a>
   </div>
 
   {# ── Error banner ── #}
@@ -378,13 +386,6 @@ document.getElementById("btnSendPO").addEventListener("click", function() {
     btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send PO to PS365';
     alert("Network error: " + err.message);
   });
-});
-
-// ---------------------------------------------------------------------------
-// Refresh button — full page reload (simplest; no stale state)
-// ---------------------------------------------------------------------------
-document.getElementById("btnRefresh").addEventListener("click", function() {
-  location.reload();
 });
 
 // ---------------------------------------------------------------------------
