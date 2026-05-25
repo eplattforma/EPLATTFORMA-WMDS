@@ -347,12 +347,14 @@ def _apply_pending_and_group(
 
 def get_returns_stock(force_refresh: bool = False) -> Dict[str, Any]:
     """
-    Returns the full data payload. PS365 is only called when the cache is
-    stale or force_refresh=True. Outstanding return PO quantities are fetched
-    from PS365 on the same Refresh and netted against stock automatically.
+    Returns the full data payload.
+
+    PS365 is called ONLY when force_refresh=True (Refresh button).
+    Page loads always read from cache — if the cache is empty they return an
+    empty payload so no API call is made on navigation.
     """
     with _cache_lock:
-        if force_refresh or not _cache_is_valid():
+        if force_refresh:
             try:
                 raw_rows             = _fetch_store_100_stock()
                 enriched             = _enrich_from_dw(raw_rows)
@@ -372,7 +374,7 @@ def get_returns_stock(force_refresh: bool = False) -> Dict[str, Any]:
                         "fetched_at": None, "cache_age_minutes": None,
                         "error": str(e),
                     }
-                # Serve stale cache with a warning
+                # Serve stale cache with warning on error
 
     enriched = _cache["rows"]        or []
     po_list  = _cache["pending_pos"] or []
