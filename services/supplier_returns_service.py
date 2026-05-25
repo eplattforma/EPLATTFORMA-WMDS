@@ -139,33 +139,53 @@ def _fetch_pending_return_pos() -> tuple:
     from_date = (today - timedelta(days=180)).isoformat()
     to_date   = (today + timedelta(days=365)).isoformat()
 
-    try:
-        resp = call_ps365("list_purchase_orders", method="POST", payload={
-            "filter_define": {
-                "page_number": 1,
-                "page_size":   100,
-                "only_counted": "N",
-                "orders_supplier_selection":    "",
-                "order_status_selection":       "",
-                "from_date":                    from_date,
-                "to_date":                      to_date,
-                "items_selection":              "",
-                "stores_selection":             "",
-                "orders_type":                  "all",
-                "shopping_cart_code_selection": "",
-            }
-        })
-    except Exception as e:
-        logger.warning("[Returns] Could not fetch pending POs from PS365: %s", e)
-        return {}, []
+    # PS365 server-side status/store filters are unreliable — fetch recent POs
+    # (last 30 days) and identify our return POs client-side by cart code prefix "RET-".
+    # 30-day window keeps page count low (typically 1-3 pages of ~100 POs each).
+    from_date_recent = (today - timedelta(days=30)).isoformat()
 
-    if not resp or resp.get("api_response", {}).get("response_code") != "1":
-        logger.warning("[Returns] list_purchase_orders returned non-1: %s",
-                       resp.get("api_response", {}) if resp else "no response")
-        return {}, []
+    raw_pos: List[Dict[str, Any]] = []
+    page = 1
+    MAX_PO_PAGES = 10  # safety cap: 1000 POs max per refresh
+    while page <= MAX_PO_PAGES:
+        try:
+            resp = call_ps365("list_purchase_orders", method="POST", payload={
+                "filter_define": {
+                    "page_number": page,
+                    "page_size":   100,
+                    "only_counted": "N",
+                    "orders_supplier_selection":    "",
+                    "order_status_selection":       "",
+                    "from_date":                    from_date_recent,
+                    "to_date":                      to_date,
+                    "items_selection":              "",
+                    "stores_selection":             "",
+                    "orders_type":                  "all",
+                    "shopping_cart_code_selection": "",
+                }
+            })
+        except Exception as e:
+            logger.warning("[Returns] Could not fetch PO page %d from PS365: %s", page, e)
+            if page == 1:
+                return {}, []
+            break
 
-    raw_pos = resp.get("list_purchase_orders") or []
-    logger.info("[Returns] list_purchase_orders raw count: %d", len(raw_pos))
+        if not resp or resp.get("api_response", {}).get("response_code") != "1":
+            logger.warning("[Returns] list_purchase_orders page %d non-1: %s",
+                           page, resp.get("api_response", {}) if resp else "no response")
+            if page == 1:
+                return {}, []
+            break
+
+        page_pos = resp.get("list_purchase_orders") or []
+        raw_pos.extend(page_pos)
+        logger.info("[Returns] PO page %d: %d rows (total so far: %d)",
+                    page, len(page_pos), len(raw_pos))
+        if len(page_pos) < 100:
+            break
+        page += 1
+
+    logger.info("[Returns] Total POs fetched (30-day window): %d", len(raw_pos))
 
     pending_qty: Dict[str, Decimal] = {}
     po_list: List[Dict[str, Any]] = []
@@ -181,16 +201,14 @@ def _fetch_pending_return_pos() -> tuple:
         comments    = header.get("comments", "")
         order_date  = (header.get("order_date_local") or "")[:16]
 
-        # Client-side filter: keep POs for the RETURNS store OR with RETURN status
-        is_return_store  = (po_store == RETURNS_STORE_CODE)
-        is_return_status = (status_code == "RETURN")
-        if not is_return_store and not is_return_status:
-            logger.debug("[Returns] PO %s store=%s status=%s — skipping",
-                         po_id, po_store, status_code)
+        cart_code   = str(header.get("shopping_cart_code") or "")
+
+        # Client-side filter: our return POs always have cart codes starting "RET-"
+        if not cart_code.startswith("RET-"):
             continue
 
-        logger.info("[Returns] PO %s store=%s status=%s is_pending=%s — evaluating",
-                    po_id, po_store, status_code, is_pending)
+        logger.info("[Returns] PO %s cart=%s store=%s status=%s is_pending=%s — evaluating",
+                    po_id, cart_code, po_store, status_code, is_pending)
 
         if not is_pending and status_code not in PO_OPEN_STATUSES:
             logger.info("[Returns] PO %s skipped: status=%s not open and not pending",
