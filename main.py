@@ -775,6 +775,12 @@ if _db_available:
     except Exception as e:
         logging.error(f"Error updating forecast profile manual order schema: {e}")
 
+    try:
+        from update_supplier_return_po_tracking_schema import update_supplier_return_po_tracking_schema
+        update_supplier_return_po_tracking_schema()
+    except Exception as e:
+        logging.error(f"Error updating supplier_return_po_tracking schema: {e}")
+
     db.create_all()
 
     try:

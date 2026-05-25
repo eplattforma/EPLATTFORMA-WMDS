@@ -151,6 +151,23 @@ def api_create_po():
         po_code = api_resp.get("response_id") or cart_code
         logger.info("[Returns PO] Created PO %s for supplier %s (%d lines)",
                     po_code, supplier_code, len(detail_lines))
+
+        # Persist cart code so the Refresh can do targeted lookups (any age)
+        try:
+            from app import db
+            from models import SupplierReturnPoTracking
+            tracking = SupplierReturnPoTracking(
+                cart_code         = cart_code,
+                po_id_365         = str(po_code),
+                supplier_code_365 = supplier_code,
+                supplier_name     = request.json.get("supplier_name", ""),
+                sent_by           = getattr(current_user, "username", None),
+            )
+            db.session.merge(tracking)
+            db.session.commit()
+        except Exception:
+            logger.warning("[Returns PO] Could not save tracking row for %s", cart_code)
+
         return jsonify({"success": True, "po_code": po_code,
                         "lines_sent": len(detail_lines)})
 

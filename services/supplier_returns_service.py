@@ -127,26 +127,62 @@ def _fetch_store_100_stock() -> List[Dict[str, Any]]:
 # PS365 — pending return POs for store 100
 # ---------------------------------------------------------------------------
 
+def _lookup_po_by_cart_code(cart_code: str) -> Optional[Dict[str, Any]]:
+    """Single targeted PS365 lookup by exact cart code. Fast (~2-5s)."""
+    try:
+        today   = date.today()
+        resp = call_ps365("list_purchase_orders", method="POST", payload={
+            "filter_define": {
+                "page_number": 1,
+                "page_size":   10,
+                "only_counted": "N",
+                "orders_supplier_selection":    "",
+                "order_status_selection":       "",
+                "from_date":                    "2020-01-01",
+                "to_date":                      (today + timedelta(days=365)).isoformat(),
+                "items_selection":              "",
+                "stores_selection":             "",
+                "orders_type":                  "all",
+                "shopping_cart_code_selection": cart_code,
+            }
+        })
+        if not resp or resp.get("api_response", {}).get("response_code") != "1":
+            return None
+        pos = resp.get("list_purchase_orders") or []
+        return pos[0] if pos else None
+    except Exception as e:
+        logger.warning("[Returns] Lookup failed for cart %s: %s", cart_code, e)
+        return None
+
+
 def _fetch_pending_return_pos() -> tuple:
     """
-    Query list_purchase_orders filtered by stores_selection="100".
+    Two-stage strategy (PS365 broad filters are unreliable / slow):
+
+    Stage 1 — 30-day broad query (fast, ~2 pages):
+        Fetches all POs from the last 30 days, filters client-side for
+        cart codes containing "RET-".  Catches all recently-sent POs and
+        any legacy "WMDS-RET-…" codes not yet in the tracking table.
+
+    Stage 2 — targeted lookup for tracked cart codes older than 30 days:
+        Reads SupplierReturnPoTracking rows sent before the 30-day window
+        and does an individual shopping_cart_code_selection call for each.
+        Each call is fast (~2-5s); typically there are only a handful of
+        outstanding older POs.
 
     Returns:
         pending_qty:  {item_code_365: outstanding_cases}   (for netting)
         po_list:      list of PO summaries for the Pending POs tab
     """
     today     = date.today()
-    from_date = (today - timedelta(days=180)).isoformat()
+    cutoff_30 = today - timedelta(days=30)
     to_date   = (today + timedelta(days=365)).isoformat()
+    from_date_recent = cutoff_30.isoformat()
 
-    # PS365 server-side status/store filters are unreliable — fetch recent POs
-    # (last 30 days) and identify our return POs client-side by cart code prefix "RET-".
-    # 30-day window keeps page count low (typically 1-3 pages of ~100 POs each).
-    from_date_recent = (today - timedelta(days=30)).isoformat()
-
+    # ── Stage 1: broad 30-day query ──────────────────────────────────────
     raw_pos: List[Dict[str, Any]] = []
     page = 1
-    MAX_PO_PAGES = 10  # safety cap: 1000 POs max per refresh
+    MAX_PO_PAGES = 10
     while page <= MAX_PO_PAGES:
         try:
             resp = call_ps365("list_purchase_orders", method="POST", payload={
@@ -165,27 +201,53 @@ def _fetch_pending_return_pos() -> tuple:
                 }
             })
         except Exception as e:
-            logger.warning("[Returns] Could not fetch PO page %d from PS365: %s", page, e)
+            logger.warning("[Returns] Stage-1 page %d failed: %s", page, e)
             if page == 1:
                 return {}, []
             break
 
         if not resp or resp.get("api_response", {}).get("response_code") != "1":
-            logger.warning("[Returns] list_purchase_orders page %d non-1: %s",
-                           page, resp.get("api_response", {}) if resp else "no response")
             if page == 1:
                 return {}, []
             break
 
         page_pos = resp.get("list_purchase_orders") or []
         raw_pos.extend(page_pos)
-        logger.info("[Returns] PO page %d: %d rows (total so far: %d)",
-                    page, len(page_pos), len(raw_pos))
+        logger.info("[Returns] Stage-1 page %d: %d rows", page, len(page_pos))
         if len(page_pos) < 100:
             break
         page += 1
 
-    logger.info("[Returns] Total POs fetched (30-day window): %d", len(raw_pos))
+    # Collect cart codes already covered by stage 1
+    seen_cart_codes: set = set()
+    for po in raw_pos:
+        cc = str(po.get("purchase_order_header", {}).get("shopping_cart_code") or "")
+        if cc:
+            seen_cart_codes.add(cc)
+
+    logger.info("[Returns] Stage-1 complete: %d POs fetched", len(raw_pos))
+
+    # ── Stage 2: targeted lookup for tracked codes older than 30 days ────
+    try:
+        from models import SupplierReturnPoTracking
+        from datetime import datetime as _dt
+        older_tracking = SupplierReturnPoTracking.query.filter(
+            SupplierReturnPoTracking.sent_at < _dt.combine(cutoff_30, _dt.min.time())
+        ).all()
+    except Exception as e:
+        logger.warning("[Returns] Could not load tracking table: %s", e)
+        older_tracking = []
+
+    for row in older_tracking:
+        if row.cart_code in seen_cart_codes:
+            continue
+        logger.info("[Returns] Stage-2 lookup: %s", row.cart_code)
+        po = _lookup_po_by_cart_code(row.cart_code)
+        if po:
+            raw_pos.append(po)
+            seen_cart_codes.add(row.cart_code)
+
+    logger.info("[Returns] Total POs after both stages: %d", len(raw_pos))
 
     pending_qty: Dict[str, Decimal] = {}
     po_list: List[Dict[str, Any]] = []

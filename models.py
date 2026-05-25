@@ -3514,3 +3514,24 @@ class Supplier(db.Model):
 
     def __repr__(self):
         return f"<Supplier {self.code} {self.name}>"
+
+
+
+class SupplierReturnPoTracking(db.Model):
+    """
+    Tracks every return PO cart code sent from this system to PS365.
+    Used by the Supplier Returns module to look up PO status by exact
+    cart code — avoids slow broad queries on PS365.
+    """
+    __tablename__ = "supplier_return_po_tracking"
+
+    id               = db.Column(db.Integer, primary_key=True)
+    cart_code        = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    po_id_365        = db.Column(db.String(64),  nullable=True)
+    supplier_code_365= db.Column(db.String(64),  nullable=False, index=True)
+    supplier_name    = db.Column(db.String(255),  nullable=True)
+    sent_at          = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    sent_by          = db.Column(db.String(64),  nullable=True)
+
+    def __repr__(self):
+        return f"<SupplierReturnPoTracking {self.cart_code} po={self.po_id_365}>"
