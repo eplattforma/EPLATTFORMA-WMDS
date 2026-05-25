@@ -325,7 +325,7 @@ document.querySelectorAll(".create-po-btn").forEach(function(btn) {
       tr.innerHTML =
         "<td class='font-monospace small'>" + ln.item_code_365 + "</td>" +
         "<td>" + ln.line_quantity + "</td>" +
-        "<td class='text-end'>" + (ln.cost_price ? "€" + ln.cost_price.toFixed(3) : "—") + "</td>";
+        "<td class='text-end'>" + (ln.cost_price ? "€" + ln.cost_price.toFixed(2) : "—") + "</td>";
       tbody.appendChild(tr);
     });
     document.getElementById("poComments").value = "";
@@ -349,7 +349,7 @@ document.getElementById("btnSendPO").addEventListener("click", function() {
     comments: document.getElementById("poComments").value.trim(),
   };
 
-  fetch("/api/supplier-returns/create-po", {
+  fetch("/supplier-returns/create-po", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

@@ -43,7 +43,7 @@ def index():
 # JSON refresh (called by the Refresh button — no full page reload)
 # ---------------------------------------------------------------------------
 
-@supplier_returns_bp.route("/api/supplier-returns/data")
+@supplier_returns_bp.route("/data")
 @login_required
 def api_data():
     from services.supplier_returns_service import get_returns_stock
@@ -55,7 +55,7 @@ def api_data():
 # Create Purchase Order
 # ---------------------------------------------------------------------------
 
-@supplier_returns_bp.route("/api/supplier-returns/create-po", methods=["POST"])
+@supplier_returns_bp.route("/create-po", methods=["POST"])
 @login_required
 def api_create_po():
     """
