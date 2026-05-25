@@ -54,6 +54,12 @@
                             </li>
                             {% endif %}
                             <li>
+                                <a class="dropdown-item {% if request.endpoint == 'supplier_returns.index' %}active{% endif %}"
+                                   href="{{ url_for('supplier_returns.index') }}">
+                                    <i class="fas fa-undo-alt me-2"></i>Supplier Returns
+                                </a>
+                            </li>
+                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'warehouse.intake_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('warehouse.intake_dashboard') }}">
                                     <i class="fas fa-warehouse me-2"></i>Warehouse Intake Dashboard

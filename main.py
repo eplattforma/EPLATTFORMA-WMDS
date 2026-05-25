@@ -369,6 +369,13 @@ from blueprints.cooler_admin import cooler_admin_bp
 app.register_blueprint(cooler_admin_bp)
 _register_cooler_helpers(app)
 
+try:
+    from blueprints.supplier_returns import supplier_returns_bp
+    app.register_blueprint(supplier_returns_bp)
+    logging.info("supplier_returns blueprint registered")
+except Exception as e:
+    logging.warning(f"supplier_returns blueprint not registered: {e}")
+
 from blueprints.forecast_workbench import forecast_bp
 app.register_blueprint(forecast_bp)
 

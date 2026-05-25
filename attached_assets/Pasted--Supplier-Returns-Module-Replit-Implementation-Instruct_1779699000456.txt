@@ -1,0 +1,911 @@
+# Supplier Returns Module — Replit Implementation Instructions
+
+Four files to create, two lines to add. No database changes.
+Apply all four, register the blueprint, add the nav link, then restart.
+
+---
+
+## Overview
+
+This module surfaces what is sitting in store **100 (RETURNS)** at any moment, grouped by
+supplier, with both case quantities and piece counts. From the same screen you can:
+
+- Check physical stock against system stock (enter actual pieces, diff shown live in the browser)
+- Select items per supplier and fire a Purchase Order to PS365
+
+The PO can then be converted to a Purchase Return in the ERP.
+
+---
+
+## Change 1 — Create `services/supplier_returns_service.py`
+
+```python
+"""
+Supplier Returns Service — store 100 (RETURNS)
+
+Fetches current stock for store 100 from PS365 via list_stock_items_store,
+enriches each item from the local DwItem warehouse (selling_qty, cost_price,
+supplier), computes piece count, and returns rows grouped by supplier.
+
+Piece calculation:
+  pieces = round(stock * selling_qty)
+  where selling_qty is the number of individual pieces per selling unit
+  (e.g. 15 for "1X15"). Items with no selling_qty show None for pieces.
+
+PO quantities are passed through as raw decimals (case units) so the ERP
+can convert to a Purchase Return correctly.
+"""
+
+import logging
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any, Dict, List, Optional, Tuple
+
+from ps365_client import call_ps365
+
+logger = logging.getLogger(__name__)
+
+RETURNS_STORE_CODE = "100"
+PAGE_SIZE = 100
+MAX_PAGES = 500
+
+
+# ---------------------------------------------------------------------------
+# Decimal helpers
+# ---------------------------------------------------------------------------
+
+def _dec(v) -> Decimal:
+    try:
+        if v is None or v == "":
+            return Decimal("0")
+        return Decimal(str(v))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+def _to_float(v) -> Optional[float]:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# PS365 fetch — store 100
+# ---------------------------------------------------------------------------
+
+def _fetch_store_100_stock() -> List[Dict[str, Any]]:
+    """
+    Fetch all items with stock > 0 in store 100 via list_stock_items_store.
+    Uses the same GET pattern as the store 777 service.
+    """
+    items: Dict[str, Dict[str, Any]] = {}
+    page = 1
+
+    while page <= MAX_PAGES:
+        try:
+            data = call_ps365(
+                "list_stock_items_store",
+                {
+                    "store_code_365": RETURNS_STORE_CODE,
+                    "available_stock_type": "all",
+                    "active_type": "all",
+                    "ecommerce_type": "all",
+                    "page_number": page,
+                    "page_size": PAGE_SIZE,
+                },
+                method="GET",
+            )
+        except Exception as e:
+            logger.error("[Returns] PS365 error on page %d: %s", page, e)
+            break
+
+        rows = (
+            data.get("list_stock_stores_item")
+            or data.get("list_stock_items_store")
+            or []
+        )
+
+        if not rows:
+            break
+
+        for r in rows:
+            code = (r.get("item_code_365") or "").strip()
+            if not code:
+                continue
+            stock = _dec(r.get("stock"))
+            if stock <= 0:
+                continue
+            items[code] = {
+                "item_code_365": code,
+                "item_name": (r.get("item_name") or "").strip(),
+                "stock": stock,
+            }
+
+        if len(rows) < PAGE_SIZE:
+            break
+        page += 1
+
+    return list(items.values())
+
+
+# ---------------------------------------------------------------------------
+# DwItem enrichment
+# ---------------------------------------------------------------------------
+
+def _enrich_from_dw(stock_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Join PS365 stock rows with DwItem to get:
+      - selling_qty  (pieces per selling unit)
+      - cost_price
+      - supplier_code_365 / supplier_name
+      - item_name override (DwItem name is usually cleaner)
+    """
+    if not stock_rows:
+        return []
+
+    from models import DwItem
+
+    codes = [r["item_code_365"] for r in stock_rows]
+    dw_items = DwItem.query.filter(DwItem.item_code_365.in_(codes)).all()
+    dw_map = {d.item_code_365: d for d in dw_items}
+
+    enriched = []
+    for r in stock_rows:
+        code = r["item_code_365"]
+        dw = dw_map.get(code)
+        stock = r["stock"]
+
+        selling_qty = _dec(dw.selling_qty) if dw and dw.selling_qty else None
+        cost_price = _dec(dw.cost_price) if dw and dw.cost_price is not None else None
+
+        # Piece count: round(stock * selling_qty)
+        if selling_qty and selling_qty > 0:
+            pieces = int((stock * selling_qty).to_integral_value(rounding=ROUND_HALF_UP))
+        else:
+            pieces = None
+
+        # Value = stock (cases) × cost_price
+        value = (stock * cost_price) if cost_price else None
+
+        enriched.append({
+            "item_code_365": code,
+            "item_name": (dw.item_name if dw and dw.item_name else r["item_name"]),
+            "stock": stock,                          # decimal cases
+            "stock_display": f"{float(stock):.4g}",  # human-readable
+            "selling_qty": float(selling_qty) if selling_qty else None,
+            "pieces": pieces,
+            "cost_price": float(cost_price) if cost_price else None,
+            "value": float(value.quantize(Decimal("0.001"))) if value else None,
+            "supplier_code_365": (dw.supplier_code_365 or "").strip() if dw else "",
+            "supplier_name": (dw.supplier_name or "").strip() if dw else "",
+        })
+
+    return enriched
+
+
+# ---------------------------------------------------------------------------
+# Grouping
+# ---------------------------------------------------------------------------
+
+def _group_by_supplier(
+    rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Returns a list of supplier groups, each:
+    {
+        "supplier_code_365": str,
+        "supplier_name": str,
+        "total_value": float,
+        "items": [ {...row...}, ... ]
+    }
+    Rows with no supplier go into a group with supplier_code_365="" and
+    supplier_name="Unknown Supplier" at the end of the list.
+    """
+    buckets: Dict[str, Dict[str, Any]] = {}
+
+    for r in rows:
+        key = r["supplier_code_365"] or ""
+        if key not in buckets:
+            buckets[key] = {
+                "supplier_code_365": key,
+                "supplier_name": r["supplier_name"] or ("Unknown Supplier" if not key else key),
+                "total_value": 0.0,
+                "items": [],
+            }
+        buckets[key]["items"].append(r)
+        if r["value"]:
+            buckets[key]["total_value"] = round(buckets[key]["total_value"] + r["value"], 3)
+
+    # Sort: known suppliers alphabetically, unknown last
+    groups = sorted(
+        buckets.values(),
+        key=lambda g: ("" if g["supplier_code_365"] else "\xff", g["supplier_name"].lower()),
+    )
+    return groups
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def get_returns_stock() -> Dict[str, Any]:
+    """
+    Fetch and return all data needed for the Returns screen.
+
+    Returns:
+        {
+            "groups": [ supplier_group, ... ],
+            "total_items": int,
+            "total_value": float,
+            "unknown_supplier_count": int,
+            "error": str | None,
+        }
+    """
+    try:
+        stock_rows = _fetch_store_100_stock()
+    except Exception as e:
+        logger.exception("[Returns] Failed to fetch store 100 stock")
+        return {"groups": [], "total_items": 0, "total_value": 0.0,
+                "unknown_supplier_count": 0, "error": str(e)}
+
+    enriched = _enrich_from_dw(stock_rows)
+    groups = _group_by_supplier(enriched)
+
+    total_value = round(sum(g["total_value"] for g in groups), 3)
+    total_items = sum(len(g["items"]) for g in groups)
+    unknown_count = sum(
+        len(g["items"]) for g in groups if not g["supplier_code_365"]
+    )
+
+    return {
+        "groups": groups,
+        "total_items": total_items,
+        "total_value": total_value,
+        "unknown_supplier_count": unknown_count,
+        "error": None,
+    }
+```
+
+---
+
+## Change 2 — Create `blueprints/supplier_returns.py`
+
+```python
+"""
+Supplier Returns blueprint.
+
+Routes:
+  GET  /supplier-returns          — main page
+  GET  /api/supplier-returns/data — JSON refresh
+  POST /api/supplier-returns/create-po — fire a PO to PS365
+"""
+
+import json
+import logging
+import os
+from datetime import datetime, timezone
+
+from flask import (
+    Blueprint, flash, jsonify, redirect, render_template,
+    request, url_for,
+)
+from flask_login import current_user, login_required
+
+logger = logging.getLogger(__name__)
+
+supplier_returns_bp = Blueprint(
+    "supplier_returns",
+    __name__,
+    url_prefix="/supplier-returns",
+    template_folder="../templates/supplier_returns",
+)
+
+
+# ---------------------------------------------------------------------------
+# Main view
+# ---------------------------------------------------------------------------
+
+@supplier_returns_bp.route("/")
+@login_required
+def index():
+    from services.supplier_returns_service import get_returns_stock
+    data = get_returns_stock()
+    return render_template("index.html", data=data)
+
+
+# ---------------------------------------------------------------------------
+# JSON refresh (called by the Refresh button — no full page reload)
+# ---------------------------------------------------------------------------
+
+@supplier_returns_bp.route("/api/supplier-returns/data")
+@login_required
+def api_data():
+    from services.supplier_returns_service import get_returns_stock
+    data = get_returns_stock()
+    # Convert Decimal objects to float for JSON
+    return jsonify(data)
+
+
+# ---------------------------------------------------------------------------
+# Create Purchase Order
+# ---------------------------------------------------------------------------
+
+@supplier_returns_bp.route("/api/supplier-returns/create-po", methods=["POST"])
+@login_required
+def api_create_po():
+    """
+    Accepts JSON:
+    {
+        "supplier_code_365": "SUP001",
+        "lines": [
+            {"item_code_365": "JUI-0016", "line_quantity": 0.07, "cost_price": 11.55},
+            ...
+        ],
+        "comments": "Optional note"
+    }
+
+    Quantity is in CASES (raw decimal from PS365 stock). The existing
+    create_ps365_purchase_order normalises quantities to int, which would
+    drop fractional case values — so this route calls the PS365 API directly
+    using the same endpoint and credential pattern, preserving decimals.
+    """
+    payload = request.get_json(silent=True) or {}
+    supplier_code = (payload.get("supplier_code_365") or "").strip()
+    lines = payload.get("lines") or []
+    comments = payload.get("comments") or ""
+
+    if not supplier_code:
+        return jsonify({"success": False, "error": "supplier_code_365 is required"}), 400
+    if not lines:
+        return jsonify({"success": False, "error": "No lines provided"}), 400
+
+    # Filter out zero quantities
+    valid_lines = [
+        ln for ln in lines
+        if ln.get("item_code_365") and float(ln.get("line_quantity") or 0) > 0
+    ]
+    if not valid_lines:
+        return jsonify({"success": False, "error": "All quantities are zero"}), 400
+
+    base_url = os.getenv("PS365_BASE_URL", "").rstrip("/")
+    token = os.getenv("PS365_TOKEN", "")
+    if not base_url or not token:
+        return jsonify({"success": False, "error": "PS365 credentials not configured"}), 503
+
+    now_utc = datetime.now(timezone.utc)
+    user_code = getattr(current_user, "username", "system")
+    cart_code = f"RET-{now_utc.strftime('%Y%m%d-%H%M%S')}-{supplier_code}"
+
+    detail_lines = []
+    for ln in valid_lines:
+        detail = {
+            "item_code_365": ln["item_code_365"],
+            # Pass quantity as string with up to 4 decimal places
+            "line_quantity": f"{float(ln['line_quantity']):.4f}".rstrip("0").rstrip("."),
+        }
+        if ln.get("cost_price") is not None:
+            detail["cost_price"] = ln["cost_price"]
+        detail_lines.append(detail)
+
+    po_payload = {
+        "api_credentials": {"token": token},
+        "order": {
+            "shopping_cart_code": cart_code,
+            "purchase_order_header": {
+                "supplier_code_365": supplier_code,
+                "user_code_365": user_code,
+                "delivery_date": now_utc.strftime("%Y-%m-%d"),
+                "comments": comments or f"Supplier return — {len(detail_lines)} line(s)",
+            },
+            "list_purchase_order_details": detail_lines,
+        },
+    }
+
+    try:
+        import requests as http_req
+        url = f"{base_url}/purchaseorder"
+        resp = http_req.post(url, json=po_payload, timeout=60)
+        resp.raise_for_status()
+        result = resp.json()
+
+        api_resp = result.get("api_response", {})
+        if api_resp.get("response_code") not in ("1", "200", 1, 200):
+            msg = api_resp.get("response_msg") or "Unknown PS365 error"
+            logger.error("[Returns PO] PS365 rejected: %s", msg)
+            return jsonify({"success": False, "error": msg}), 422
+
+        po_code = (
+            result.get("purchase_order_code")
+            or result.get("po_code")
+            or result.get("order_code")
+            or cart_code
+        )
+        logger.info("[Returns PO] Created PO %s for supplier %s (%d lines)",
+                    po_code, supplier_code, len(detail_lines))
+        return jsonify({"success": True, "po_code": po_code,
+                        "lines_sent": len(detail_lines)})
+
+    except Exception as e:
+        logger.exception("[Returns PO] Failed for supplier %s", supplier_code)
+        return jsonify({"success": False, "error": str(e)}), 500
+```
+
+---
+
+## Change 3 — Create `templates/supplier_returns/index.html`
+
+Create the folder `templates/supplier_returns/` and add `index.html`:
+
+```html
+{% extends "base.html" %}
+{% block title %}Supplier Returns — Store 100{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  {# ── Header ── #}
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h4 class="mb-0">Supplier Returns <span class="badge bg-secondary ms-2">Store 100</span></h4>
+      <small class="text-muted">Items in RETURNS awaiting collection by supplier</small>
+    </div>
+    <button id="btnRefresh" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-sync-alt me-1"></i> Refresh
+    </button>
+  </div>
+
+  {# ── Error banner ── #}
+  {% if data.error %}
+  <div class="alert alert-danger">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    Could not load stock from PS365: {{ data.error }}
+  </div>
+  {% endif %}
+
+  {# ── Unknown supplier warning ── #}
+  {% if data.unknown_supplier_count > 0 %}
+  <div class="alert alert-warning py-2">
+    <i class="fas fa-question-circle me-1"></i>
+    <strong>{{ data.unknown_supplier_count }}</strong> item(s) have no supplier linked in PS365 — shown at the bottom, excluded from PO sending.
+  </div>
+  {% endif %}
+
+  {# ── Summary strip ── #}
+  <div class="row g-2 mb-3">
+    <div class="col-auto">
+      <div class="card border-0 bg-light px-3 py-2">
+        <div class="small text-muted">Total lines</div>
+        <div class="fw-bold fs-5">{{ data.total_items }}</div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card border-0 bg-light px-3 py-2">
+        <div class="small text-muted">Total value</div>
+        <div class="fw-bold fs-5">€{{ "%.2f"|format(data.total_value) }}</div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card border-0 bg-light px-3 py-2">
+        <div class="small text-muted">Suppliers</div>
+        <div class="fw-bold fs-5">{{ data.groups|length }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Supplier groups ── #}
+  {% if not data.groups %}
+  <div class="text-center text-muted py-5">
+    <i class="fas fa-box-open fa-2x mb-2"></i>
+    <p>No stock found in store 100 (RETURNS).</p>
+  </div>
+  {% endif %}
+
+  {% for group in data.groups %}
+  {% set gid = loop.index %}
+  {% set is_unknown = not group.supplier_code_365 %}
+
+  <div class="card mb-3 supplier-group" data-supplier="{{ group.supplier_code_365 }}">
+    {# ── Supplier header ── #}
+    <div class="card-header d-flex align-items-center justify-content-between py-2
+                {% if is_unknown %}bg-light text-muted{% else %}bg-white{% endif %}">
+      <div class="d-flex align-items-center gap-2">
+        {# Select-all checkbox for this supplier #}
+        {% if not is_unknown %}
+        <input class="form-check-input mt-0 select-all-cb" type="checkbox"
+               data-gid="{{ gid }}" title="Select all items for this supplier">
+        {% endif %}
+        <span class="fw-bold">{{ group.supplier_name }}</span>
+        {% if group.supplier_code_365 %}
+        <span class="badge bg-secondary fw-normal">{{ group.supplier_code_365 }}</span>
+        {% endif %}
+        <span class="badge bg-light text-dark border">{{ group.items|length }} lines</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-muted small">€{{ "%.3f"|format(group.total_value) }}</span>
+        {% if not is_unknown %}
+        <button class="btn btn-primary btn-sm create-po-btn" data-gid="{{ gid }}"
+                data-supplier="{{ group.supplier_code_365 }}"
+                data-supplier-name="{{ group.supplier_name }}">
+          <i class="fas fa-file-invoice me-1"></i>Create PO
+        </button>
+        {% endif %}
+        <button class="btn btn-link btn-sm p-0 collapse-btn" data-bs-toggle="collapse"
+                data-bs-target="#grp{{ gid }}">
+          <i class="fas fa-chevron-down"></i>
+        </button>
+      </div>
+    </div>
+
+    {# ── Items table ── #}
+    <div id="grp{{ gid }}" class="collapse show">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 returns-table">
+          <thead class="table-light">
+            <tr>
+              {% if not is_unknown %}<th style="width:36px"></th>{% endif %}
+              <th>Item Code</th>
+              <th>Description</th>
+              <th class="text-end">Cases</th>
+              <th class="text-end">Pieces</th>
+              <th class="text-end">Cost</th>
+              <th class="text-end">Value</th>
+              <th class="text-end" style="width:110px">
+                Physical
+                <i class="fas fa-info-circle text-muted small"
+                   title="Enter actual piece count to check against system"></i>
+              </th>
+              <th class="text-end" style="width:80px">Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in group.items %}
+            <tr class="item-row"
+                data-item="{{ item.item_code_365 }}"
+                data-qty="{{ item.stock }}"
+                data-cost="{{ item.cost_price or 0 }}"
+                data-pieces="{{ item.pieces if item.pieces is not none else '' }}"
+                data-gid="{{ gid }}">
+              {% if not is_unknown %}
+              <td>
+                <input class="form-check-input item-cb" type="checkbox"
+                       data-gid="{{ gid }}"
+                       data-item="{{ item.item_code_365 }}"
+                       data-qty="{{ item.stock }}"
+                       data-cost="{{ item.cost_price or 0 }}">
+              </td>
+              {% endif %}
+              <td class="font-monospace small text-muted">{{ item.item_code_365 }}</td>
+              <td>{{ item.item_name }}</td>
+              <td class="text-end">{{ item.stock_display }}</td>
+              <td class="text-end fw-bold">
+                {% if item.pieces is not none %}
+                  {{ item.pieces }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end text-muted small">
+                {% if item.cost_price %}€{{ "%.3f"|format(item.cost_price) }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end">
+                {% if item.value %}€{{ "%.3f"|format(item.value) }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end">
+                <input type="number" min="0" step="1"
+                       class="form-control form-control-sm text-end physical-input"
+                       style="width:90px; display:inline-block"
+                       placeholder="pcs"
+                       data-system-pieces="{{ item.pieces if item.pieces is not none else '' }}">
+              </td>
+              <td class="text-end diff-cell">
+                <span class="diff-badge">—</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+</div>{# /container #}
+
+{# ── Create PO modal ── #}
+<div class="modal fade" id="poModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create Purchase Order</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-2">
+          Supplier: <strong id="poSupplierName"></strong>
+          <span class="badge bg-secondary ms-1" id="poSupplierCode"></span>
+        </p>
+        <table class="table table-sm" id="poLinesTable">
+          <thead class="table-light">
+            <tr>
+              <th>Item Code</th>
+              <th>Cases (qty)</th>
+              <th class="text-end">Cost</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="mt-2">
+          <label class="form-label small">Comments (optional)</label>
+          <input type="text" class="form-control form-control-sm" id="poComments"
+                 placeholder="e.g. Damaged stock return — April 2026">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnSendPO">
+          <i class="fas fa-paper-plane me-1"></i>Send PO to PS365
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Toast ── #}
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+  <div id="poToast" class="toast align-items-center" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="poToastMsg">Done.</div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ---------------------------------------------------------------------------
+// Physical stock diff
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".physical-input").forEach(function(inp) {
+  inp.addEventListener("input", function() {
+    var systemPcs = inp.dataset.systemPieces;
+    var cell = inp.closest("tr").querySelector(".diff-cell .diff-badge");
+    if (!inp.value || systemPcs === "") {
+      cell.textContent = "—";
+      cell.className = "diff-badge";
+      return;
+    }
+    var physical = parseInt(inp.value, 10);
+    var system   = parseInt(systemPcs, 10);
+    var diff = physical - system;
+    if (diff === 0) {
+      cell.textContent = "✓";
+      cell.className = "diff-badge text-success fw-bold";
+    } else if (diff > 0) {
+      cell.textContent = "+" + diff;
+      cell.className = "diff-badge text-warning fw-bold";
+    } else {
+      cell.textContent = diff;
+      cell.className = "diff-badge text-danger fw-bold";
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Select-all checkbox
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".select-all-cb").forEach(function(cb) {
+  cb.addEventListener("change", function() {
+    var gid = cb.dataset.gid;
+    document.querySelectorAll(".item-cb[data-gid='" + gid + "']").forEach(function(c) {
+      c.checked = cb.checked;
+    });
+  });
+});
+
+// Keep select-all in sync when individual items change
+document.querySelectorAll(".item-cb").forEach(function(cb) {
+  cb.addEventListener("change", function() {
+    var gid = cb.dataset.gid;
+    var allCbs = document.querySelectorAll(".item-cb[data-gid='" + gid + "']");
+    var allChecked = Array.from(allCbs).every(function(c) { return c.checked; });
+    var selectAll = document.querySelector(".select-all-cb[data-gid='" + gid + "']");
+    if (selectAll) selectAll.checked = allChecked;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PO Modal
+// ---------------------------------------------------------------------------
+var _currentSupplier = null;
+var _currentLines    = [];
+
+document.querySelectorAll(".create-po-btn").forEach(function(btn) {
+  btn.addEventListener("click", function() {
+    var gid          = btn.dataset.gid;
+    var supplierCode = btn.dataset.supplier;
+    var supplierName = btn.dataset.supplierName;
+
+    // Collect selected (or all if none selected) items for this supplier
+    var checkedCbs = Array.from(
+      document.querySelectorAll(".item-cb[data-gid='" + gid + "']:checked")
+    );
+    if (checkedCbs.length === 0) {
+      // Fall back to all items in the group
+      checkedCbs = Array.from(
+        document.querySelectorAll(".item-cb[data-gid='" + gid + "']")
+      );
+    }
+
+    _currentSupplier = { code: supplierCode, name: supplierName };
+    _currentLines = checkedCbs.map(function(c) {
+      return {
+        item_code_365: c.dataset.item,
+        line_quantity: parseFloat(c.dataset.qty),
+        cost_price: c.dataset.cost ? parseFloat(c.dataset.cost) : null,
+      };
+    });
+
+    // Populate modal
+    document.getElementById("poSupplierName").textContent = supplierName;
+    document.getElementById("poSupplierCode").textContent = supplierCode;
+    var tbody = document.querySelector("#poLinesTable tbody");
+    tbody.innerHTML = "";
+    _currentLines.forEach(function(ln) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td class='font-monospace small'>" + ln.item_code_365 + "</td>" +
+        "<td>" + ln.line_quantity + "</td>" +
+        "<td class='text-end'>" + (ln.cost_price ? "€" + ln.cost_price.toFixed(3) : "—") + "</td>";
+      tbody.appendChild(tr);
+    });
+    document.getElementById("poComments").value = "";
+
+    var modal = new bootstrap.Modal(document.getElementById("poModal"));
+    modal.show();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Send PO
+// ---------------------------------------------------------------------------
+document.getElementById("btnSendPO").addEventListener("click", function() {
+  var btn = this;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
+
+  var payload = {
+    supplier_code_365: _currentSupplier.code,
+    lines: _currentLines,
+    comments: document.getElementById("poComments").value.trim(),
+  };
+
+  fetch("/api/supplier-returns/create-po", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send PO to PS365';
+    bootstrap.Modal.getInstance(document.getElementById("poModal")).hide();
+
+    var toastEl = document.getElementById("poToast");
+    var msgEl   = document.getElementById("poToastMsg");
+    if (data.success) {
+      toastEl.classList.remove("bg-danger", "text-white");
+      toastEl.classList.add("bg-success", "text-white");
+      msgEl.textContent = "✓ PO created: " + data.po_code + " (" + data.lines_sent + " lines)";
+    } else {
+      toastEl.classList.remove("bg-success", "text-white");
+      toastEl.classList.add("bg-danger", "text-white");
+      msgEl.textContent = "Error: " + (data.error || "Unknown error");
+    }
+    new bootstrap.Toast(toastEl, { delay: 6000 }).show();
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send PO to PS365';
+    alert("Network error: " + err.message);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refresh button — full page reload (simplest; no stale state)
+// ---------------------------------------------------------------------------
+document.getElementById("btnRefresh").addEventListener("click", function() {
+  location.reload();
+});
+
+// ---------------------------------------------------------------------------
+// Collapse chevron flip
+// ---------------------------------------------------------------------------
+document.querySelectorAll("[data-bs-toggle='collapse']").forEach(function(btn) {
+  var target = document.querySelector(btn.dataset.bsTarget);
+  if (!target) return;
+  target.addEventListener("hidden.bs.collapse", function() {
+    btn.querySelector("i").classList.replace("fa-chevron-down", "fa-chevron-up");
+  });
+  target.addEventListener("shown.bs.collapse", function() {
+    btn.querySelector("i").classList.replace("fa-chevron-up", "fa-chevron-down");
+  });
+});
+</script>
+{% endblock %}
+```
+
+---
+
+## Change 4 — Register blueprint in `main.py`
+
+Find the block where other blueprints are registered (e.g. after the cooler blueprint registration) and add:
+
+```python
+try:
+    from blueprints.supplier_returns import supplier_returns_bp
+    app.register_blueprint(supplier_returns_bp)
+    logging.info("supplier_returns blueprint registered")
+except Exception as e:
+    logging.warning(f"supplier_returns blueprint not registered: {e}")
+```
+
+---
+
+## Change 5 — Add nav link in `base.html`
+
+Find the Warehouse or Operations section of the nav and add one menu item:
+
+```jinja
+<li>
+  <a class="dropdown-item" href="{{ url_for('supplier_returns.index') }}">
+    <i class="fas fa-undo-alt me-2"></i>Supplier Returns
+  </a>
+</li>
+```
+
+Place it alongside other warehouse-operations links (receiving, picking, etc.).
+
+---
+
+## Summary
+
+| File | Action |
+|---|---|
+| `services/supplier_returns_service.py` | **Create** — fetches store 100, enriches from DwItem, groups by supplier |
+| `blueprints/supplier_returns.py` | **Create** — 3 routes: page, JSON, create-PO |
+| `templates/supplier_returns/index.html` | **Create** — full UI with stock check + PO flow |
+| `main.py` | **Add ~5 lines** — blueprint registration |
+| `base.html` | **Add ~3 lines** — nav link |
+
+No database changes. No new dependencies.
+
+---
+
+## How piece counts work
+
+`selling_qty` on `ps_items_dw` holds the number of individual pieces per selling unit.
+For `CAPRI-SUN MANGO-PASSION FRUIT 330ml 1X15`, `selling_qty = 15`.
+
+```
+stock in PS365 = 0.07 cases
+pieces = round(0.07 × 15) = round(1.05) = 1 piece
+```
+
+The Cases column shows `0.07` (raw PS365 value).
+The Pieces column shows `1` (what you physically have to return).
+The PO is sent with `line_quantity = 0.07` (cases) so the ERP converts it correctly.
+
+---
+
+## Acceptance criteria
+
+- [ ] `/supplier-returns` loads without error and shows items from store 100 grouped by supplier
+- [ ] Items with `selling_qty` show a non-zero piece count; items without show `—`
+- [ ] Entering a physical piece count shows a coloured diff (green = match, yellow = surplus, red = short)
+- [ ] "Create PO" button with no items checked sends all items for that supplier; with items checked, sends only checked
+- [ ] PO modal shows item codes + case quantities before sending
+- [ ] Successful PO shows a green toast with the PO code returned from PS365
+- [ ] Items with no supplier_code_365 appear at the bottom in "Unknown Supplier" with no PO button
+- [ ] Refresh button reloads the page with fresh PS365 data
+- [ ] Existing pages are unaffected

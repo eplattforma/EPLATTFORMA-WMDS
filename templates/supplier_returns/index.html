@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+{% block title %}Supplier Returns — Store 100{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  {# ── Header ── #}
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h4 class="mb-0">Supplier Returns <span class="badge bg-secondary ms-2">Store 100</span></h4>
+      <small class="text-muted">Items in RETURNS awaiting collection by supplier</small>
+    </div>
+    <button id="btnRefresh" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-sync-alt me-1"></i> Refresh
+    </button>
+  </div>
+
+  {# ── Error banner ── #}
+  {% if data.error %}
+  <div class="alert alert-danger">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    Could not load stock from PS365: {{ data.error }}
+  </div>
+  {% endif %}
+
+  {# ── Unknown supplier warning ── #}
+  {% if data.unknown_supplier_count > 0 %}
+  <div class="alert alert-warning py-2">
+    <i class="fas fa-question-circle me-1"></i>
+    <strong>{{ data.unknown_supplier_count }}</strong> item(s) have no supplier linked in PS365 — shown at the bottom, excluded from PO sending.
+  </div>
+  {% endif %}
+
+  {# ── Summary strip ── #}
+  <div class="row g-2 mb-3">
+    <div class="col-auto">
+      <div class="card border-0 bg-light px-3 py-2">
+        <div class="small text-muted">Total lines</div>
+        <div class="fw-bold fs-5">{{ data.total_items }}</div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card border-0 bg-light px-3 py-2">
+        <div class="small text-muted">Total value</div>
+        <div class="fw-bold fs-5">€{{ "%.2f"|format(data.total_value) }}</div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card border-0 bg-light px-3 py-2">
+        <div class="small text-muted">Suppliers</div>
+        <div class="fw-bold fs-5">{{ data.groups|length }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Supplier groups ── #}
+  {% if not data.groups %}
+  <div class="text-center text-muted py-5">
+    <i class="fas fa-box-open fa-2x mb-2"></i>
+    <p>No stock found in store 100 (RETURNS).</p>
+  </div>
+  {% endif %}
+
+  {% for group in data.groups %}
+  {% set gid = loop.index %}
+  {% set is_unknown = not group.supplier_code_365 %}
+
+  <div class="card mb-3 supplier-group" data-supplier="{{ group.supplier_code_365 }}">
+    {# ── Supplier header ── #}
+    <div class="card-header d-flex align-items-center justify-content-between py-2
+                {% if is_unknown %}bg-light text-muted{% else %}bg-white{% endif %}">
+      <div class="d-flex align-items-center gap-2">
+        {# Select-all checkbox for this supplier #}
+        {% if not is_unknown %}
+        <input class="form-check-input mt-0 select-all-cb" type="checkbox"
+               data-gid="{{ gid }}" title="Select all items for this supplier">
+        {% endif %}
+        <span class="fw-bold">{{ group.supplier_name }}</span>
+        {% if group.supplier_code_365 %}
+        <span class="badge bg-secondary fw-normal">{{ group.supplier_code_365 }}</span>
+        {% endif %}
+        <span class="badge bg-light text-dark border">{{ group.items|length }} lines</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-muted small">€{{ "%.3f"|format(group.total_value) }}</span>
+        {% if not is_unknown %}
+        <button class="btn btn-primary btn-sm create-po-btn" data-gid="{{ gid }}"
+                data-supplier="{{ group.supplier_code_365 }}"
+                data-supplier-name="{{ group.supplier_name }}">
+          <i class="fas fa-file-invoice me-1"></i>Create PO
+        </button>
+        {% endif %}
+        <button class="btn btn-link btn-sm p-0 collapse-btn" data-bs-toggle="collapse"
+                data-bs-target="#grp{{ gid }}">
+          <i class="fas fa-chevron-down"></i>
+        </button>
+      </div>
+    </div>
+
+    {# ── Items table ── #}
+    <div id="grp{{ gid }}" class="collapse show">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 returns-table">
+          <thead class="table-light">
+            <tr>
+              {% if not is_unknown %}<th style="width:36px"></th>{% endif %}
+              <th>Item Code</th>
+              <th>Description</th>
+              <th class="text-end">Cases</th>
+              <th class="text-end">Pieces</th>
+              <th class="text-end">Cost</th>
+              <th class="text-end">Value</th>
+              <th class="text-end" style="width:110px">
+                Physical
+                <i class="fas fa-info-circle text-muted small"
+                   title="Enter actual piece count to check against system"></i>
+              </th>
+              <th class="text-end" style="width:80px">Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in group.items %}
+            <tr class="item-row"
+                data-item="{{ item.item_code_365 }}"
+                data-qty="{{ item.stock }}"
+                data-cost="{{ item.cost_price or 0 }}"
+                data-pieces="{{ item.pieces if item.pieces is not none else '' }}"
+                data-gid="{{ gid }}">
+              {% if not is_unknown %}
+              <td>
+                <input class="form-check-input item-cb" type="checkbox"
+                       data-gid="{{ gid }}"
+                       data-item="{{ item.item_code_365 }}"
+                       data-qty="{{ item.stock }}"
+                       data-cost="{{ item.cost_price or 0 }}">
+              </td>
+              {% endif %}
+              <td class="font-monospace small text-muted">{{ item.item_code_365 }}</td>
+              <td>{{ item.item_name }}</td>
+              <td class="text-end">{{ item.stock_display }}</td>
+              <td class="text-end fw-bold">
+                {% if item.pieces is not none %}
+                  {{ item.pieces }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end text-muted small">
+                {% if item.cost_price %}€{{ "%.3f"|format(item.cost_price) }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end">
+                {% if item.value %}€{{ "%.3f"|format(item.value) }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end">
+                <input type="number" min="0" step="1"
+                       class="form-control form-control-sm text-end physical-input"
+                       style="width:90px; display:inline-block"
+                       placeholder="pcs"
+                       data-system-pieces="{{ item.pieces if item.pieces is not none else '' }}">
+              </td>
+              <td class="text-end diff-cell">
+                <span class="diff-badge">—</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+</div>{# /container #}
+
+{# ── Create PO modal ── #}
+<div class="modal fade" id="poModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create Purchase Order</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-2">
+          Supplier: <strong id="poSupplierName"></strong>
+          <span class="badge bg-secondary ms-1" id="poSupplierCode"></span>
+        </p>
+        <table class="table table-sm" id="poLinesTable">
+          <thead class="table-light">
+            <tr>
+              <th>Item Code</th>
+              <th>Cases (qty)</th>
+              <th class="text-end">Cost</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="mt-2">
+          <label class="form-label small">Comments (optional)</label>
+          <input type="text" class="form-control form-control-sm" id="poComments"
+                 placeholder="e.g. Damaged stock return — April 2026">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnSendPO">
+          <i class="fas fa-paper-plane me-1"></i>Send PO to PS365
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Toast ── #}
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+  <div id="poToast" class="toast align-items-center" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="poToastMsg">Done.</div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ---------------------------------------------------------------------------
+// Physical stock diff
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".physical-input").forEach(function(inp) {
+  inp.addEventListener("input", function() {
+    var systemPcs = inp.dataset.systemPieces;
+    var cell = inp.closest("tr").querySelector(".diff-cell .diff-badge");
+    if (!inp.value || systemPcs === "") {
+      cell.textContent = "—";
+      cell.className = "diff-badge";
+      return;
+    }
+    var physical = parseInt(inp.value, 10);
+    var system   = parseInt(systemPcs, 10);
+    var diff = physical - system;
+    if (diff === 0) {
+      cell.textContent = "✓";
+      cell.className = "diff-badge text-success fw-bold";
+    } else if (diff > 0) {
+      cell.textContent = "+" + diff;
+      cell.className = "diff-badge text-warning fw-bold";
+    } else {
+      cell.textContent = diff;
+      cell.className = "diff-badge text-danger fw-bold";
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Select-all checkbox
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".select-all-cb").forEach(function(cb) {
+  cb.addEventListener("change", function() {
+    var gid = cb.dataset.gid;
+    document.querySelectorAll(".item-cb[data-gid='" + gid + "']").forEach(function(c) {
+      c.checked = cb.checked;
+    });
+  });
+});
+
+// Keep select-all in sync when individual items change
+document.querySelectorAll(".item-cb").forEach(function(cb) {
+  cb.addEventListener("change", function() {
+    var gid = cb.dataset.gid;
+    var allCbs = document.querySelectorAll(".item-cb[data-gid='" + gid + "']");
+    var allChecked = Array.from(allCbs).every(function(c) { return c.checked; });
+    var selectAll = document.querySelector(".select-all-cb[data-gid='" + gid + "']");
+    if (selectAll) selectAll.checked = allChecked;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PO Modal
+// ---------------------------------------------------------------------------
+var _currentSupplier = null;
+var _currentLines    = [];
+
+document.querySelectorAll(".create-po-btn").forEach(function(btn) {
+  btn.addEventListener("click", function() {
+    var gid          = btn.dataset.gid;
+    var supplierCode = btn.dataset.supplier;
+    var supplierName = btn.dataset.supplierName;
+
+    // Collect selected (or all if none selected) items for this supplier
+    var checkedCbs = Array.from(
+      document.querySelectorAll(".item-cb[data-gid='" + gid + "']:checked")
+    );
+    if (checkedCbs.length === 0) {
+      // Fall back to all items in the group
+      checkedCbs = Array.from(
+        document.querySelectorAll(".item-cb[data-gid='" + gid + "']")
+      );
+    }
+
+    _currentSupplier = { code: supplierCode, name: supplierName };
+    _currentLines = checkedCbs.map(function(c) {
+      return {
+        item_code_365: c.dataset.item,
+        line_quantity: parseFloat(c.dataset.qty),
+        cost_price: c.dataset.cost ? parseFloat(c.dataset.cost) : null,
+      };
+    });
+
+    // Populate modal
+    document.getElementById("poSupplierName").textContent = supplierName;
+    document.getElementById("poSupplierCode").textContent = supplierCode;
+    var tbody = document.querySelector("#poLinesTable tbody");
+    tbody.innerHTML = "";
+    _currentLines.forEach(function(ln) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td class='font-monospace small'>" + ln.item_code_365 + "</td>" +
+        "<td>" + ln.line_quantity + "</td>" +
+        "<td class='text-end'>" + (ln.cost_price ? "€" + ln.cost_price.toFixed(3) : "—") + "</td>";
+      tbody.appendChild(tr);
+    });
+    document.getElementById("poComments").value = "";
+
+    var modal = new bootstrap.Modal(document.getElementById("poModal"));
+    modal.show();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Send PO
+// ---------------------------------------------------------------------------
+document.getElementById("btnSendPO").addEventListener("click", function() {
+  var btn = this;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
+
+  var payload = {
+    supplier_code_365: _currentSupplier.code,
+    lines: _currentLines,
+    comments: document.getElementById("poComments").value.trim(),
+  };
+
+  fetch("/api/supplier-returns/create-po", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send PO to PS365';
+    bootstrap.Modal.getInstance(document.getElementById("poModal")).hide();
+
+    var toastEl = document.getElementById("poToast");
+    var msgEl   = document.getElementById("poToastMsg");
+    if (data.success) {
+      toastEl.classList.remove("bg-danger", "text-white");
+      toastEl.classList.add("bg-success", "text-white");
+      msgEl.textContent = "✓ PO created: " + data.po_code + " (" + data.lines_sent + " lines)";
+    } else {
+      toastEl.classList.remove("bg-success", "text-white");
+      toastEl.classList.add("bg-danger", "text-white");
+      msgEl.textContent = "Error: " + (data.error || "Unknown error");
+    }
+    new bootstrap.Toast(toastEl, { delay: 6000 }).show();
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send PO to PS365';
+    alert("Network error: " + err.message);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refresh button — full page reload (simplest; no stale state)
+// ---------------------------------------------------------------------------
+document.getElementById("btnRefresh").addEventListener("click", function() {
+  location.reload();
+});
+
+// ---------------------------------------------------------------------------
+// Collapse chevron flip
+// ---------------------------------------------------------------------------
+document.querySelectorAll("[data-bs-toggle='collapse']").forEach(function(btn) {
+  var target = document.querySelector(btn.dataset.bsTarget);
+  if (!target) return;
+  target.addEventListener("hidden.bs.collapse", function() {
+    btn.querySelector("i").classList.replace("fa-chevron-down", "fa-chevron-up");
+  });
+  target.addEventListener("shown.bs.collapse", function() {
+    btn.querySelector("i").classList.replace("fa-chevron-up", "fa-chevron-down");
+  });
+});
+</script>
+{% endblock %}
