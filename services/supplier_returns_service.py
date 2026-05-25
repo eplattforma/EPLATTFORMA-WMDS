@@ -150,7 +150,7 @@ def _fetch_pending_return_pos() -> tuple:
                 "from_date":                    from_date,
                 "to_date":                      to_date,
                 "items_selection":              "",
-                "stores_selection":             RETURNS_STORE_CODE,
+                "stores_selection":             "",
                 "orders_type":                  "all",
                 "shopping_cart_code_selection": "",
             }
@@ -165,6 +165,8 @@ def _fetch_pending_return_pos() -> tuple:
         return {}, []
 
     raw_pos = resp.get("list_purchase_orders") or []
+    logger.info("[Returns] list_purchase_orders raw count: %d", len(raw_pos))
+
     pending_qty: Dict[str, Decimal] = {}
     po_list: List[Dict[str, Any]] = []
 
@@ -172,13 +174,27 @@ def _fetch_pending_return_pos() -> tuple:
         header      = po.get("purchase_order_header", {})
         status_code = (header.get("order_status_code") or "").upper().strip()
         is_pending  = header.get("is_pending", False)
+        po_store    = str(header.get("store_code_365") or "").strip()
         po_id       = header.get("purchase_order_id") or header.get("purchase_order_code") or "?"
         supplier    = header.get("supplier_code_365", "")
         sup_name    = header.get("supplier_name", "")
         comments    = header.get("comments", "")
         order_date  = (header.get("order_date_local") or "")[:16]
 
+        # Client-side filter: keep POs for the RETURNS store OR with RETURN status
+        is_return_store  = (po_store == RETURNS_STORE_CODE)
+        is_return_status = (status_code == "RETURN")
+        if not is_return_store and not is_return_status:
+            logger.debug("[Returns] PO %s store=%s status=%s — skipping",
+                         po_id, po_store, status_code)
+            continue
+
+        logger.info("[Returns] PO %s store=%s status=%s is_pending=%s — evaluating",
+                    po_id, po_store, status_code, is_pending)
+
         if not is_pending and status_code not in PO_OPEN_STATUSES:
+            logger.info("[Returns] PO %s skipped: status=%s not open and not pending",
+                        po_id, status_code)
             continue
 
         lines          = po.get("list_purchase_order_details") or []
