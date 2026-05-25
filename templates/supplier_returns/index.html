@@ -90,7 +90,7 @@
   <div class="card mb-3 supplier-group" data-supplier="{{ group.supplier_code_365 }}">
     {# ── Supplier header ── #}
     <div class="card-header d-flex align-items-center justify-content-between py-2
-                {% if is_unknown %}bg-light text-muted{% else %}bg-white{% endif %}">
+                {% if is_unknown %}bg-light text-muted{% else %}bg-white text-dark{% endif %}">
       <div class="d-flex align-items-center gap-2">
         {% if not is_unknown %}
         <input class="form-check-input mt-0 select-all-cb" type="checkbox"
