@@ -2,18 +2,16 @@
 Supplier Returns blueprint.
 
 Routes:
-  GET  /supplier-returns          — main page
-  GET  /api/supplier-returns/data — JSON refresh
-  POST /api/supplier-returns/create-po — fire a PO to PS365
+  GET  /supplier-returns          — main page (reads from cache)
+  POST /supplier-returns/refresh  — force-refresh stock + POs from PS365
+  POST /supplier-returns/create-po — send return PO to PS365
 """
 
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 
-from flask import (
-    Blueprint, jsonify, redirect, render_template,
-    request, url_for,
-)
+from flask import Blueprint, jsonify, render_template, request
 from flask_login import current_user, login_required
 
 logger = logging.getLogger(__name__)
@@ -27,124 +25,109 @@ supplier_returns_bp = Blueprint(
 
 
 # ---------------------------------------------------------------------------
-# Main view
+# Main view — always reads from cache (fast)
 # ---------------------------------------------------------------------------
 
 @supplier_returns_bp.route("/")
 @login_required
 def index():
     from services.supplier_returns_service import get_returns_stock
-    if "refresh" in request.args:
-        get_returns_stock(force=True)
-        return redirect(url_for("supplier_returns.index"))
-    data = get_returns_stock(force=False)
+    data = get_returns_stock(force_refresh=False)
     return render_template("index.html", data=data)
 
 
 # ---------------------------------------------------------------------------
-# JSON refresh (called by the Refresh button — no full page reload)
+# Refresh — forces a live PS365 fetch then returns JSON success
 # ---------------------------------------------------------------------------
 
-@supplier_returns_bp.route("/data")
+@supplier_returns_bp.route("/refresh", methods=["POST"])
 @login_required
-def api_data():
+def refresh():
+    """Force-refresh stock + pending POs from PS365."""
     from services.supplier_returns_service import get_returns_stock
-    data = get_returns_stock()
-    return jsonify(data)
+    try:
+        get_returns_stock(force_refresh=True)
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.exception("[Returns] Refresh failed")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------
-# Create Purchase Order
+# Create Purchase Order — sends a return PO to PS365
 # ---------------------------------------------------------------------------
 
 @supplier_returns_bp.route("/create-po", methods=["POST"])
 @login_required
 def api_create_po():
     """
-    Accepts JSON:
-    {
-        "supplier_code_365": "SUP001",
-        "lines": [
-            {"item_code_365": "JUI-0016", "line_quantity": 0.33, "cost_price": 11.55},
-            ...
-        ],
-        "comments": "Optional note"
-    }
+    Send a return PO to PS365.
+    Quantities are in CASES (raw decimals — bypasses _normalize_order_lines
+    which would truncate 0.07 to 0).
+    Uses _build_po_lines for proper calculated fields (totals, VAT, etc.).
 
-    Builds the PS365 PO directly (bypassing create_ps365_purchase_order's
-    int()-normaliser) so that:
-      - line_quantity is sent as raw cases (fractional, e.g. 0.33)
-      - store_code_365 is forced to "100" (RETURNS store)
-      - order_status_code_365 / order_status_name are set to "RETURN"
-    VAT enrichment is handled by the shared _enrich_pricing helper.
+    order_status_code_365 = "RETURN"
+    store_code_365        = "100"
     """
-    from services.ps365_purchase_order_service import (
-        _enrich_pricing, _ps365_config, send_ps365_po,
-    )
-    from routes_reports import _build_po_lines
-
-    body = request.get_json(silent=True) or {}
-    supplier_code = (body.get("supplier_code_365") or "").strip()
-    lines = body.get("lines") or []
-    comments = (body.get("comments") or "").strip()
+    payload       = request.get_json(silent=True) or {}
+    supplier_code = (payload.get("supplier_code_365") or "").strip()
+    lines         = payload.get("lines") or []
+    comments      = (payload.get("comments") or "").strip()
 
     if not supplier_code:
-        return jsonify({"success": False, "error": "supplier_code_365 is required"}), 400
-    if not lines:
-        return jsonify({"success": False, "error": "No lines provided"}), 400
+        return jsonify({"success": False, "error": "supplier_code_365 required"}), 400
 
-    # Keep raw case quantities (fractional). Pass cost_price through so
-    # _enrich_pricing only needs to resolve VAT fields from DwItem / PS365.
-    order_lines = []
-    for ln in lines:
-        code = (ln.get("item_code_365") or "").strip()
-        try:
-            raw_qty = float(ln.get("line_quantity") or 0)
-        except (TypeError, ValueError):
-            raw_qty = 0.0
-        if not code or raw_qty <= 0:
-            continue
-        entry = {"item_code_365": code, "line_quantity": raw_qty}
-        if ln.get("cost_price") is not None:
-            try:
-                entry["cost_price"] = float(ln["cost_price"])
-            except (TypeError, ValueError):
-                pass
-        order_lines.append(entry)
+    valid_lines = [
+        {
+            "item_code_365": (ln.get("item_code_365") or "").strip(),
+            "line_quantity":  str(ln.get("line_quantity") or 0),
+            **({"cost_price": ln["cost_price"]} if ln.get("cost_price") else {}),
+        }
+        for ln in lines
+        if (ln.get("item_code_365") or "").strip()
+        and float(ln.get("line_quantity") or 0) > 0
+    ]
+    if not valid_lines:
+        return jsonify({"success": False, "error": "No lines with quantity > 0"}), 400
 
-    if not order_lines:
-        return jsonify({"success": False, "error": "All quantities are zero"}), 400
+    base_url = os.getenv("PS365_BASE_URL", "").rstrip("/")
+    token    = os.getenv("PS365_TOKEN", "")
+    if not base_url or not token:
+        return jsonify({"success": False, "error": "PS365 credentials not configured"}), 503
 
-    # Enrich with vat_code_365 / vat_percent from DwItem (and PS365 fallback)
-    enriched = _enrich_pricing(order_lines)
+    # Enrich with VAT data (same path as all other POs in the system)
+    try:
+        from services.ps365_purchase_order_service import _enrich_pricing
+        enriched_lines = _enrich_pricing(valid_lines)
+    except Exception:
+        logger.warning("[Returns PO] VAT enrichment failed — proceeding without VAT")
+        enriched_lines = valid_lines
 
-    # Build line-level detail + header totals using the shared calculator
-    detail_lines, h_totals = _build_po_lines(enriched)
+    from routes_reports import _build_po_lines
+    detail_lines, h_totals = _build_po_lines(enriched_lines)
 
-    # Assemble the full payload with returns-specific overrides
-    _, ps365_token = _ps365_config()
-    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    user_code  = getattr(current_user, "username", "system")
+    now_utc    = datetime.now(timezone.utc).replace(microsecond=0)
     deliver_by = (now_utc + timedelta(days=7)).replace(microsecond=0)
-    cart_code = f"WMDS-RET-{now_utc.strftime('%Y%m%d-%H%M%S')}-{supplier_code}"
-    user_code = getattr(current_user, "username", "system")
-    auto_comment = comments or f"Supplier return — {len(enriched)} line(s)"
+    cart_code  = f"RET-{now_utc.strftime('%Y%m%d-%H%M%S')}-{supplier_code}"
 
-    payload = {
-        "api_credentials": {"token": ps365_token},
+    po_payload = {
+        "api_credentials": {"token": token},
         "order": {
             "purchase_order_header": {
-                "shopping_cart_code": cart_code,
-                "order_date_local": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
-                "order_date_utc0": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
-                "order_date_deliverby_utc0": deliver_by.strftime("%Y-%m-%d %H:%M:%S"),
-                "supplier_code_365": supplier_code,
-                "store_code_365": "100",
-                "agent_code_365": "",
-                "user_code_365": user_code,
-                "comments": auto_comment,
+                "shopping_cart_code":         cart_code,
+                "order_date_local":           now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date_utc0":            now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date_deliverby_utc0":  deliver_by.strftime("%Y-%m-%d %H:%M:%S"),
+                "supplier_code_365":          supplier_code,
+                "store_code_365":             "100",
+                "store_name":                 "RETURNS",
+                "agent_code_365":             "",
+                "user_code_365":              user_code,
+                "comments":                   comments or f"Supplier return — {len(detail_lines)} line(s)",
                 "search_additional_barcodes": False,
-                "order_status_code_365": "RETURN",
-                "order_status_name": "RETURN",
+                "order_status_code_365":      "RETURN",
+                "order_status_name":          "RETURN",
                 **h_totals,
             },
             "list_purchase_order_details": detail_lines,
@@ -152,17 +135,25 @@ def api_create_po():
     }
 
     try:
-        result = send_ps365_po(payload)
-        api_response = result.get("api_response", {}) or {}
-        if api_response.get("response_code") == "1":
-            po_code = api_response.get("response_id", cart_code)
-            logger.info("[Returns PO] Created PO %s for supplier %s (%d lines)",
-                        po_code, supplier_code, len(enriched))
-            return jsonify({"success": True, "po_code": po_code,
-                            "lines_sent": len(enriched)})
-        error_msg = api_response.get("response_msg") or "Unknown PS365 error"
-        logger.error("[Returns PO] PS365 rejected for %s: %s", supplier_code, api_response)
-        return jsonify({"success": False, "error": error_msg}), 422
-    except Exception as exc:
+        import requests as http_req
+        resp = http_req.post(f"{base_url}/purchaseorder", json=po_payload, timeout=120)
+        resp.raise_for_status()
+        result   = resp.json()
+        api_resp = result.get("api_response", {})
+
+        if api_resp.get("response_code") not in ("1", 1):
+            msg = (api_resp.get("response_msg")
+                   or api_resp.get("response_message")
+                   or "Unknown PS365 error")
+            logger.error("[Returns PO] PS365 rejected: %s", msg)
+            return jsonify({"success": False, "error": msg}), 422
+
+        po_code = api_resp.get("response_id") or cart_code
+        logger.info("[Returns PO] Created PO %s for supplier %s (%d lines)",
+                    po_code, supplier_code, len(detail_lines))
+        return jsonify({"success": True, "po_code": po_code,
+                        "lines_sent": len(detail_lines)})
+
+    except Exception as e:
         logger.exception("[Returns PO] Failed for supplier %s", supplier_code)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
