@@ -87,16 +87,24 @@ def api_create_po():
 
     # Ceiling-round fractional case quantities so nothing is lost.
     # create_ps365_purchase_order's normaliser does int(), which would drop < 1.
+    # Pass cost_price through so _enrich_pricing only needs to look up VAT fields;
+    # vat_code_365 and vat_percent are filled in automatically from DwItem / PS365.
     order_lines = []
     for ln in lines:
         code = (ln.get("item_code_365") or "").strip()
         raw_qty = float(ln.get("line_quantity") or 0)
         if not code or raw_qty <= 0:
             continue
-        order_lines.append({
+        entry = {
             "item_code_365": code,
             "line_quantity": max(1, math.ceil(raw_qty)),
-        })
+        }
+        if ln.get("cost_price") is not None:
+            try:
+                entry["cost_price"] = float(ln["cost_price"])
+            except (TypeError, ValueError):
+                pass
+        order_lines.append(entry)
 
     if not order_lines:
         return jsonify({"success": False, "error": "All quantities are zero"}), 400
