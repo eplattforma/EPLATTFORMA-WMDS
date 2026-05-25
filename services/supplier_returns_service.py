@@ -188,9 +188,9 @@ def _group_by_supplier(
                 "supplier_code_365": key,
                 "supplier_name": r["supplier_name"] or ("Unknown Supplier" if not key else key),
                 "total_value": 0.0,
-                "items": [],
+                "item_list": [],
             }
-        buckets[key]["items"].append(r)
+        buckets[key]["item_list"].append(r)
         if r["value"]:
             buckets[key]["total_value"] = round(buckets[key]["total_value"] + r["value"], 3)
 
@@ -230,9 +230,9 @@ def get_returns_stock() -> Dict[str, Any]:
     groups = _group_by_supplier(enriched)
 
     total_value = round(sum(g["total_value"] for g in groups), 3)
-    total_items = sum(len(g["items"]) for g in groups)
+    total_items = sum(len(g["item_list"]) for g in groups)
     unknown_count = sum(
-        len(g["items"]) for g in groups if not g["supplier_code_365"]
+        len(g["item_list"]) for g in groups if not g["supplier_code_365"]
     )
 
     return {
