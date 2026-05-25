@@ -34,21 +34,21 @@
   {# ── Summary strip ── #}
   <div class="row g-2 mb-3">
     <div class="col-auto">
-      <div class="card border px-3 py-2">
-        <div class="small text-muted">Total lines</div>
-        <div class="fw-bold fs-5">{{ data.total_items }}</div>
+      <div class="card bg-dark border border-secondary px-3 py-2">
+        <div class="small text-secondary">Total lines</div>
+        <div class="fw-bold fs-5 text-white">{{ data.total_items }}</div>
       </div>
     </div>
     <div class="col-auto">
-      <div class="card border px-3 py-2">
-        <div class="small text-muted">Total value</div>
-        <div class="fw-bold fs-5">€{{ "%.2f"|format(data.total_value) }}</div>
+      <div class="card bg-dark border border-secondary px-3 py-2">
+        <div class="small text-secondary">Total value</div>
+        <div class="fw-bold fs-5 text-white">€{{ "%.2f"|format(data.total_value) }}</div>
       </div>
     </div>
     <div class="col-auto">
-      <div class="card border px-3 py-2">
-        <div class="small text-muted">Suppliers</div>
-        <div class="fw-bold fs-5">{{ data.groups|length }}</div>
+      <div class="card bg-dark border border-secondary px-3 py-2">
+        <div class="small text-secondary">Suppliers</div>
+        <div class="fw-bold fs-5 text-white">{{ data.groups|length }}</div>
       </div>
     </div>
   </div>
