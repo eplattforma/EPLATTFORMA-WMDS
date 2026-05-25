@@ -160,7 +160,7 @@ def api_create_po():
                 cart_code         = cart_code,
                 po_id_365         = str(po_code),
                 supplier_code_365 = supplier_code,
-                supplier_name     = request.json.get("supplier_name", ""),
+                supplier_name     = payload.get("supplier_name", ""),
                 sent_by           = getattr(current_user, "username", None),
             )
             db.session.merge(tracking)

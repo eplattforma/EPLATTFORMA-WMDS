@@ -781,6 +781,12 @@ if _db_available:
     except Exception as e:
         logging.error(f"Error updating supplier_return_po_tracking schema: {e}")
 
+    try:
+        from update_supplier_returns_stock_cache_schema import update_supplier_returns_stock_cache_schema
+        update_supplier_returns_stock_cache_schema()
+    except Exception as e:
+        logging.error(f"Error updating supplier_returns_stock_cache schema: {e}")
+
     db.create_all()
 
     try:

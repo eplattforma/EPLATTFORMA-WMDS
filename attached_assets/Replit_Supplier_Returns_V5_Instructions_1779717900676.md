@@ -1,3 +1,130 @@
+# Supplier Returns — V5 Instructions for Replit
+
+Apply all changes below in order. Four files total.
+
+---
+
+## Background — why these changes
+
+1. **Token risk:** PS365 docs explicitly warn that repeatedly calling `list_stock_items_store` will result in the token being disconnected. The current Refresh button does exactly this. Fix: store stock in a DB table so PS365 is only called when the user explicitly clicks Refresh.
+
+2. **Bug:** In `blueprints/supplier_returns.py`, the tracking row uses `request.json` instead of the already-parsed `payload`. If content-type is missing the PO sends successfully but the tracking row never saves — so Stage 2 PO lookups break silently.
+
+3. **Speed:** Change `available_stock_type` from `"all"` to `"withStock"` so PS365 only returns items that actually have stock in store 100 instead of every item in the system.
+
+4. **Stage 1 PO query:** Add `"stores_selection": "100"` to reduce noise.
+
+---
+
+## CHANGE 1 — Fix bug in `blueprints/supplier_returns.py`
+
+Inside the `api_create_po` route, find the block that creates the tracking row. It looks like this:
+
+```python
+tracking = SupplierReturnPoTracking(
+    cart_code         = cart_code,
+    po_id_365         = str(po_code),
+    supplier_code_365 = supplier_code,
+    supplier_name     = request.json.get("supplier_name", ""),
+    sent_by           = getattr(current_user, "username", None),
+)
+```
+
+Change **one line only** — `request.json.get` → `payload.get`:
+
+```python
+tracking = SupplierReturnPoTracking(
+    cart_code         = cart_code,
+    po_id_365         = str(po_code),
+    supplier_code_365 = supplier_code,
+    supplier_name     = payload.get("supplier_name", ""),
+    sent_by           = getattr(current_user, "username", None),
+)
+```
+
+Nothing else changes in this file.
+
+---
+
+## CHANGE 2 — Create new file `update_supplier_returns_stock_cache_schema.py`
+
+Create this file in the project root (same folder as `update_supplier_return_po_tracking_schema.py`):
+
+```python
+import logging
+from app import db
+from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
+
+
+def update_supplier_returns_stock_cache_schema():
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS supplier_returns_stock_cache (
+                item_code_365     VARCHAR(64)   NOT NULL,
+                item_name         VARCHAR(255)  NOT NULL DEFAULT '',
+                stock_cases       NUMERIC(12,4) NOT NULL DEFAULT 0,
+                supplier_code_365 VARCHAR(64)   NOT NULL DEFAULT '',
+                supplier_name     VARCHAR(255)  NOT NULL DEFAULT '',
+                selling_qty       NUMERIC(10,3),
+                cost_price        NUMERIC(12,4),
+                last_synced_at    TIMESTAMP     NOT NULL DEFAULT NOW(),
+                CONSTRAINT pk_srsc PRIMARY KEY (item_code_365)
+            )
+        """))
+        db.session.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_srsc_supplier
+                ON supplier_returns_stock_cache (supplier_code_365)
+        """))
+        db.session.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_srsc_stock
+                ON supplier_returns_stock_cache (stock_cases)
+        """))
+        db.session.commit()
+        logger.info("supplier_returns_stock_cache schema ensured")
+    except Exception as e:
+        db.session.rollback()
+        logger.warning("supplier_returns_stock_cache schema update failed (non-fatal): %s", e)
+```
+
+---
+
+## CHANGE 3 — Register the new schema in `main.py`
+
+Find the block where `update_supplier_return_po_tracking_schema` is called. It looks like:
+
+```python
+try:
+    from update_supplier_return_po_tracking_schema import update_supplier_return_po_tracking_schema
+    update_supplier_return_po_tracking_schema()
+except Exception as e:
+    logging.error(f"Error updating supplier_return_po_tracking schema: {e}")
+```
+
+Immediately **after** that block, add:
+
+```python
+try:
+    from update_supplier_returns_stock_cache_schema import update_supplier_returns_stock_cache_schema
+    update_supplier_returns_stock_cache_schema()
+except Exception as e:
+    logging.error(f"Error updating supplier_returns_stock_cache schema: {e}")
+```
+
+---
+
+## CHANGE 4 — Rewrite `services/supplier_returns_service.py`
+
+Replace the entire file with the following. Key differences from the current version:
+
+- Stock is read from `supplier_returns_stock_cache` DB table on every page load (no PS365 call)
+- Refresh writes to the DB table after fetching from PS365
+- `available_stock_type=withStock` — only fetch items that actually have stock (faster)
+- `stores_selection=100` added to Stage 1 PO query (less noise)
+- In-memory cache kept as a 60-second layer on top of the DB (avoids hammering the DB on rapid reloads)
+
+```python
 """
 Supplier Returns Service — store 100 (RETURNS)
 
@@ -197,7 +324,7 @@ def _read_stock_from_db() -> List[Dict[str, Any]]:
 
     result = []
     for r in rows:
-        stock       = _dec(r.stock_cases)
+        stock      = _dec(r.stock_cases)
         selling_qty = _dec(r.selling_qty) if r.selling_qty is not None else None
         cost_price  = _dec(r.cost_price)  if r.cost_price  is not None else None
 
@@ -517,3 +644,15 @@ def get_returns_stock(force_refresh: bool = False) -> Dict[str, Any]:
         _mem_cache["at"]   = datetime.now(timezone.utc)
 
     return result
+```
+
+---
+
+## Test after applying
+
+1. Restart the app
+2. Go to `/supplier-returns/` — loads instantly, shows "Not yet loaded — click Refresh"
+3. Click Refresh — PS365 is called, data loads, items grouped by supplier
+4. Navigate away and back — instant, no API call
+5. Restart the app again — go to `/supplier-returns/` — data still there from DB
+6. Send a PO — tracking row saves correctly (bug fix confirmed)
