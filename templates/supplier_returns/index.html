@@ -20,9 +20,14 @@
         {% endif %}
       </small>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" id="btnRefresh">
-      <span id="refreshIcon"><i class="fas fa-sync-alt me-1"></i></span> Refresh
-    </button>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#helpModal">
+        <i class="fas fa-question-circle me-1"></i> Help
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" id="btnRefresh">
+        <span id="refreshIcon"><i class="fas fa-sync-alt me-1"></i></span> Refresh
+      </button>
+    </div>
   </div>
 
   {# ── Error banner ── #}
@@ -261,6 +266,45 @@
   {% endif %}
 
 </div>{# /container #}
+
+{# ── Help modal ── #}
+<div class="modal fade" id="helpModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-question-circle me-2 text-info"></i>How This Screen Works</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <h6 class="fw-bold mb-2">What you see</h6>
+        <p class="mb-3">Items currently in <strong>Store 100 (RETURNS)</strong> that are awaiting collection by their supplier. Stock quantities are pulled from PS365 and cached in the database — click <strong>Refresh</strong> to sync from PS365.</p>
+
+        <h6 class="fw-bold mb-2">Available vs On PO</h6>
+        <p class="mb-3">If an item already has an open Return PO, its quantity is shown in two parts:</p>
+        <ul class="mb-3">
+          <li><span class="badge bg-warning text-dark me-1">On PO</span> — cases already committed on an open Return Purchase Order the supplier has not yet collected.</li>
+          <li><strong>Available</strong> — remaining cases you can include in a new PO.</li>
+        </ul>
+
+        <h6 class="fw-bold mb-2">Excluded orders — what gets ignored</h6>
+        <p class="mb-1">A Return PO is <strong>excluded</strong> (does not block stock) when <em>any</em> of the following apply:</p>
+        <ul class="mb-3">
+          <li>Its <strong>status in PS365 is not <code>RETURN</code></strong> — only POs with exactly status <code>RETURN</code> are treated as open. Statuses such as <code>REC</code>, <code>CANCELLED</code>, <code>COMPLETED</code>, or any other value are ignored.</li>
+          <li>Its <strong>store in PS365 is not store 100</strong> — if PS365 assigned the PO to store 777 (or any store other than 100), it is excluded even if the status is <code>RETURN</code>.</li>
+          <li>Its <strong>cart code does not contain <code>RET-</code></strong> — only POs created by this system (cart codes starting with <code>RET-</code> or <code>WMDS-RET-</code>) are considered.</li>
+        </ul>
+
+        <h6 class="fw-bold mb-2">Refresh</h6>
+        <p class="mb-0">Refresh fetches live stock from PS365 and checks open Return POs. Page loads between refreshes use the database cache — instant, no PS365 call. Stock data survives a server restart.</p>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 {# ── Create PO modal ── #}
 <div class="modal fade" id="poModal" tabindex="-1">

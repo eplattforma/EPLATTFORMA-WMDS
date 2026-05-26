@@ -34,8 +34,7 @@ RETURNS_STORE_CODE = "100"
 PAGE_SIZE          = 100
 MAX_PAGES          = 500
 
-PO_OPEN_STATUSES = {"RETURN", "PROC", "PROCESSING", "PENDING", "ORDERED",
-                    "APPROVED", "OPEN", "RET"}
+PO_OPEN_STATUSES = {"RETURN"}
 
 # 60-second in-memory layer — avoids repeated DB hits on rapid page loads
 # within the same worker. DB is the real source of truth.
