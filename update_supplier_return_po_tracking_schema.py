@@ -27,6 +27,15 @@ def update_supplier_return_po_tracking_schema():
             CREATE INDEX IF NOT EXISTS ix_srpt_sent_at
                 ON supplier_return_po_tracking (sent_at)
         """))
+        # V6 additions
+        db.session.execute(text("""
+            ALTER TABLE supplier_return_po_tracking
+            ADD COLUMN IF NOT EXISTS collected_at TIMESTAMP
+        """))
+        db.session.execute(text("""
+            ALTER TABLE supplier_return_po_tracking
+            ADD COLUMN IF NOT EXISTS collected_by VARCHAR(64)
+        """))
         db.session.commit()
         logger.info("supplier_return_po_tracking schema ensured")
     except Exception as e:

@@ -174,3 +174,62 @@ def api_create_po():
     except Exception as e:
         logger.exception("[Returns PO] Failed for supplier %s", supplier_code)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Mark as Collected — local record only, does NOT update PS365
+# ---------------------------------------------------------------------------
+
+@supplier_returns_bp.route("/mark-collected", methods=["POST"])
+@login_required
+def mark_collected():
+    """
+    Record that a supplier physically collected the items on a return PO.
+    This is a local record only — does NOT update PS365.
+    The Purchase Return must still be processed in PS365 to deduct stock.
+    """
+    payload   = request.get_json(silent=True) or {}
+    po_id_365 = (payload.get("po_id_365") or "").strip()
+    cart_code = (payload.get("cart_code") or "").strip()
+
+    if not po_id_365 and not cart_code:
+        return jsonify({"success": False, "error": "po_id_365 or cart_code required"}), 400
+
+    try:
+        from app import db
+        from models import SupplierReturnPoTracking
+        from datetime import datetime, timezone
+
+        now  = datetime.now(timezone.utc).replace(tzinfo=None)
+        user = getattr(current_user, "username", "system")
+
+        row = None
+        if po_id_365:
+            row = SupplierReturnPoTracking.query.filter_by(po_id_365=po_id_365).first()
+        if not row and cart_code:
+            row = SupplierReturnPoTracking.query.filter_by(cart_code=cart_code).first()
+
+        if not row:
+            if cart_code:
+                row = SupplierReturnPoTracking(
+                    cart_code         = cart_code,
+                    po_id_365         = po_id_365 or cart_code,
+                    supplier_code_365 = payload.get("supplier_code_365", ""),
+                    supplier_name     = payload.get("supplier_name", ""),
+                    collected_at      = now,
+                    collected_by      = user,
+                )
+                db.session.add(row)
+            else:
+                return jsonify({"success": False, "error": "PO not found in tracking table"}), 404
+        else:
+            row.collected_at = now
+            row.collected_by = user
+
+        db.session.commit()
+        logger.info("[Returns] PO %s marked as collected by %s", po_id_365 or cart_code, user)
+        return jsonify({"success": True, "collected_at": now.strftime("%d/%m/%Y %H:%M")})
+
+    except Exception as e:
+        logger.exception("[Returns] mark-collected failed for %s", po_id_365 or cart_code)
+        return jsonify({"success": False, "error": str(e)}), 500

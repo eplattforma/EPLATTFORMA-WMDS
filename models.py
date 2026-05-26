@@ -3532,6 +3532,8 @@ class SupplierReturnPoTracking(db.Model):
     supplier_name    = db.Column(db.String(255),  nullable=True)
     sent_at          = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
     sent_by          = db.Column(db.String(64),  nullable=True)
+    collected_at     = db.Column(db.DateTime,    nullable=True)
+    collected_by     = db.Column(db.String(64),  nullable=True)
 
     def __repr__(self):
         return f"<SupplierReturnPoTracking {self.cart_code} po={self.po_id_365}>"
