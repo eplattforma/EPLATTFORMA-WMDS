@@ -342,8 +342,15 @@ def _fetch_pending_return_pos() -> tuple:
 
         if "RET-" not in cart_code:
             continue
-        # Use status as the authoritative signal — is_pending can stay True
-        # even after a PO is received/cancelled, so don't rely on it alone.
+        # Only net against POs that PS365 actually assigned to store 100.
+        # PS365 sometimes saves return POs as store 777 even when we send
+        # store_code_365="100" — those must not block store 100 stock.
+        po_store = str(header.get("store_code_365") or "").strip()
+        if po_store != RETURNS_STORE_CODE:
+            logger.info("[Returns] PO %s cart=%s skipped — store=%s (not 100)",
+                        po_id, cart_code, po_store)
+            continue
+        # Use status as the authoritative signal.
         if status_code not in PO_OPEN_STATUSES:
             continue
 
