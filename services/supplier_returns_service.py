@@ -342,7 +342,9 @@ def _fetch_pending_return_pos() -> tuple:
 
         if "RET-" not in cart_code:
             continue
-        if not is_pending and status_code not in PO_OPEN_STATUSES:
+        # Use status as the authoritative signal — is_pending can stay True
+        # even after a PO is received/cancelled, so don't rely on it alone.
+        if status_code not in PO_OPEN_STATUSES:
             continue
 
         lines              = po.get("list_purchase_order_details") or []
