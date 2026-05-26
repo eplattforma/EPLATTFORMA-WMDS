@@ -432,9 +432,9 @@
             <tr>
               <th>Item Code</th>
               <th>Description</th>
-              <th class="text-end">System Qty</th>
-              <th class="text-end" style="width:130px">Return Cases</th>
-              <th class="text-end" style="width:90px">Pieces</th>
+              <th class="text-end">Sys. Pieces</th>
+              <th class="text-end" style="width:150px">Return Pieces</th>
+              <th class="text-end" style="width:100px">Cases</th>
               <th style="width:36px"></th>
             </tr>
           </thead>
@@ -442,8 +442,8 @@
           <tfoot>
             <tr class="fw-bold border-top border-secondary">
               <td colspan="3" class="text-end text-muted small">Totals</td>
-              <td class="text-end" id="poModalTotalCases">—</td>
               <td class="text-end" id="poModalTotalPieces">—</td>
+              <td class="text-end" id="poModalTotalCases">—</td>
               <td></td>
             </tr>
           </tfoot>
@@ -652,20 +652,20 @@ document.getElementById("btnConfirmCollected").addEventListener("click", functio
           '<span class="badge bg-success py-2">' +
           '<i class="fas fa-check-circle me-1"></i>Collected ' + data.collected_at + '</span>';
       }
-      showToast("success", "✓ Collection recorded for PO " + _collectPoId);
+      showToast("✓ Collection recorded for PO " + _collectPoId, "success");
     } else {
-      showToast("danger", "Error: " + (data.error || "Unknown"));
+      showToast("Error: " + (data.error || "Unknown"), "danger");
     }
   })
   .catch(function(err) {
     confirmBtn.disabled = false;
     confirmBtn.innerHTML = '<i class="fas fa-check me-1"></i>Yes, items collected';
-    showToast("danger", "Network error: " + err.message);
+    showToast("Network error: " + err.message, "danger");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Send PO — editable quantity modal
+// Send PO — editable quantity modal (pieces input)
 // ---------------------------------------------------------------------------
 
 var currentPo = {
@@ -689,12 +689,15 @@ function openPoModal(supplierCode, supplierName) {
   currentPo.items = [];
 
   checked.forEach(function(cb) {
+    var systemCases  = parseFloat(cb.dataset.cases || cb.dataset.qty || "0");
+    var sellingQty   = parseFloat(cb.dataset.sellingQty || "0");
+    var systemPieces = calcPieces(systemCases, sellingQty);
     currentPo.items.push({
-      itemCode:    cb.dataset.itemCode  || cb.dataset.item || "",
-      itemName:    cb.dataset.itemName  || "",
-      systemCases: parseFloat(cb.dataset.cases || cb.dataset.qty || "0"),
-      sellingQty:  parseFloat(cb.dataset.sellingQty || "0"),
-      costPrice:   parseFloat(cb.dataset.cost || "0"),
+      itemCode:     cb.dataset.itemCode || cb.dataset.item || "",
+      itemName:     cb.dataset.itemName || "",
+      systemCases:  systemCases,
+      systemPieces: systemPieces,
+      sellingQty:   sellingQty,
     });
   });
 
@@ -705,25 +708,27 @@ function openPoModal(supplierCode, supplierName) {
   tbody.innerHTML = "";
 
   currentPo.items.forEach(function(item, idx) {
-    var pieces = poCalcPieces(item.systemCases, item.sellingQty);
-    var row = document.createElement("tr");
+    var cases = piecesToCases(item.systemPieces, item.sellingQty);
+    var row   = document.createElement("tr");
     row.dataset.idx = idx;
     row.innerHTML =
       '<td class="font-monospace small">' + escHtml(item.itemCode) + '</td>' +
       '<td class="small">' + escHtml(item.itemName) + '</td>' +
-      '<td class="text-end text-muted small">' + poFmtCases(item.systemCases) + '</td>' +
+      '<td class="text-end">' + item.systemPieces + '</td>' +
       '<td class="text-end">' +
         '<input type="number" class="form-control form-control-sm text-end po-qty-input"' +
-        ' data-idx="' + idx + '"' +
-        ' data-system-cases="' + item.systemCases + '"' +
-        ' data-selling-qty="' + item.sellingQty + '"' +
-        ' value="' + item.systemCases + '"' +
-        ' min="0.0001" max="' + item.systemCases + '"' +
-        ' step="0.0001">' +
+        '  data-idx="' + idx + '"' +
+        '  data-system-pieces="' + item.systemPieces + '"' +
+        '  data-selling-qty="' + item.sellingQty + '"' +
+        '  value="' + item.systemPieces + '"' +
+        '  min="1" max="' + item.systemPieces + '"' +
+        '  step="1">' +
       '</td>' +
-      '<td class="text-end small pieces-cell">' + pieces + '</td>' +
+      '<td class="text-end cases-cell">' +
+        '<span class="fw-bold">' + fmtCases(cases) + '</span>' +
+      '</td>' +
       '<td class="text-center">' +
-        '<button class="btn btn-link btn-sm text-danger p-0 remove-po-row" data-idx="' + idx + '" title="Remove this line">' +
+        '<button class="btn btn-link btn-sm text-danger p-0 remove-po-row" data-idx="' + idx + '" title="Remove line">' +
           '<i class="fas fa-times"></i>' +
         '</button>' +
       '</td>';
@@ -745,10 +750,11 @@ document.querySelectorAll(".create-po-btn").forEach(function(btn) {
 document.getElementById("poModalBody").addEventListener("input", function(e) {
   if (!e.target.classList.contains("po-qty-input")) return;
   var sellingQty = parseFloat(e.target.dataset.sellingQty || "0");
-  var val        = parseFloat(e.target.value || "0");
-  var pieces     = poCalcPieces(val, sellingQty);
+  var pieces     = parseInt(e.target.value || "0", 10);
+  var cases      = piecesToCases(pieces, sellingQty);
   var row = e.target.closest("tr");
-  if (row) row.querySelector(".pieces-cell").textContent = pieces;
+  if (row) row.querySelector(".cases-cell").innerHTML =
+    '<span class="fw-bold">' + fmtCases(cases) + '</span>';
   updatePoTotals();
   validatePoModal();
 });
@@ -765,7 +771,7 @@ document.getElementById("poModalBody").addEventListener("click", function(e) {
   tbody.querySelectorAll("tr").forEach(function(row, i) {
     row.dataset.idx = i;
     var input  = row.querySelector(".po-qty-input");
-    if (input)  input.dataset.idx = i;
+    if (input)  input.dataset.idx  = i;
     var remBtn = row.querySelector(".remove-po-row");
     if (remBtn) remBtn.dataset.idx = i;
   });
@@ -781,9 +787,13 @@ document.getElementById("btnConfirmSendPo").addEventListener("click", function()
   if (!validatePoModal()) return;
 
   var lines = [];
-  document.querySelectorAll("#poModalBody .po-qty-input").forEach(function(input, i) {
-    var cases = parseFloat(input.value || "0");
-    if (cases > 0) {
+  document.querySelectorAll("#poModalBody tr").forEach(function(row, i) {
+    var input      = row.querySelector(".po-qty-input");
+    if (!input) return;
+    var pieces     = parseInt(input.value || "0", 10);
+    var sellingQty = parseFloat(input.dataset.sellingQty || "0");
+    var cases      = piecesToCases(pieces, sellingQty);
+    if (cases > 0 && currentPo.items[i]) {
       lines.push({
         item_code_365: currentPo.items[i].itemCode,
         line_quantity: cases,
@@ -829,28 +839,37 @@ document.getElementById("btnConfirmSendPo").addEventListener("click", function()
             '<span class="badge bg-secondary" title="PO sent — refresh to confirm">On PO — refresh</span>';
         });
       });
-      showToast("success",
-        "\u2713 PO " + (data.po_code || "") + " sent \u2014 " + (data.lines_sent || lines.length) + " lines. " +
-        "<a href='/supplier-returns/print/" + currentPo.supplierCode + "' target='_blank' style='color:inherit;font-weight:bold'>Print slip \u2192</a>"
+      showToast(
+        "\u2713 PO " + (data.po_code || "") + " sent \u2014 " + (data.lines_sent || lines.length) +
+        " lines. <a href='/supplier-returns/print/" + currentPo.supplierCode +
+        "' target='_blank' style='color:inherit;font-weight:bold'>Print slip \u2192</a>",
+        "success"
       );
     } else {
-      showToast("danger", "Error: " + (data.error || "Unknown error"));
+      showToast("Error: " + (data.error || "Unknown error"), "danger");
     }
   })
   .catch(function() {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send Purchase Return';
-    showToast("danger", "Network error — try again.");
+    showToast("Network error — try again.", "danger");
   });
 });
 
-function poCalcPieces(cases, sellingQty) {
+function calcPieces(cases, sellingQty) {
   if (!sellingQty || sellingQty === 0) return 0;
   return Math.round(cases * sellingQty);
 }
 
-function poFmtCases(val) {
-  return parseFloat(val).toFixed(4).replace(/\.?0+$/, "");
+function piecesToCases(pieces, sellingQty) {
+  if (!sellingQty || sellingQty === 0) return 0;
+  return pieces / sellingQty;
+}
+
+function fmtCases(val) {
+  var n = parseFloat(val);
+  if (isNaN(n)) return "0";
+  return n.toFixed(4).replace(/\.?0+$/, "");
 }
 
 function escHtml(str) {
@@ -860,27 +879,27 @@ function escHtml(str) {
 }
 
 function updatePoTotals() {
-  var totalCases = 0, totalPieces = 0;
-  document.querySelectorAll("#poModalBody .po-qty-input").forEach(function(input, i) {
-    var cases      = parseFloat(input.value || "0");
+  var totalPieces = 0, totalCases = 0;
+  document.querySelectorAll("#poModalBody .po-qty-input").forEach(function(input) {
+    var pieces     = parseInt(input.value || "0", 10);
     var sellingQty = parseFloat(input.dataset.sellingQty || "0");
-    totalCases  += cases;
-    totalPieces += poCalcPieces(cases, sellingQty);
+    totalPieces += pieces;
+    totalCases  += piecesToCases(pieces, sellingQty);
   });
-  document.getElementById("poModalTotalCases").textContent  = poFmtCases(totalCases);
   document.getElementById("poModalTotalPieces").textContent = totalPieces;
+  document.getElementById("poModalTotalCases").textContent  = fmtCases(totalCases);
 }
 
 function validatePoModal() {
   var invalid = [];
   document.querySelectorAll("#poModalBody .po-qty-input").forEach(function(input, i) {
-    var val       = parseFloat(input.value || "0");
-    var systemQty = parseFloat(input.dataset.systemCases || "0");
-    if (val <= 0) {
-      invalid.push("Line " + (i + 1) + ": quantity must be greater than 0.");
+    var val          = parseInt(input.value || "0", 10);
+    var systemPieces = parseInt(input.dataset.systemPieces || "0", 10);
+    if (isNaN(val) || val < 1) {
+      invalid.push("Line " + (i + 1) + ": pieces must be at least 1.");
       input.classList.add("is-invalid");
-    } else if (val > systemQty + 0.00001) {
-      invalid.push("Line " + (i + 1) + ": qty cannot exceed system qty (" + poFmtCases(systemQty) + ").");
+    } else if (val > systemPieces) {
+      invalid.push("Line " + (i + 1) + ": cannot exceed system pieces (" + systemPieces + ").");
       input.classList.add("is-invalid");
     } else {
       input.classList.remove("is-invalid");
@@ -902,13 +921,27 @@ function showPoWarning(msg) {
 // ---------------------------------------------------------------------------
 // Toast helper
 // ---------------------------------------------------------------------------
-function showToast(type, message) {
-  var toast = document.getElementById("poToast");
-  var msg   = document.getElementById("poToastMsg");
-  toast.className = "toast align-items-center border-0 bg-" + type + " " +
-    (type === "warning" ? "text-dark" : "text-white");
-  msg.innerHTML = message;
-  new bootstrap.Toast(toast, { delay: 7000 }).show();
+function showToast(html, type) {
+  type = type || "success";
+  var container = document.getElementById("toastContainer");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toastContainer";
+    container.className = "position-fixed bottom-0 end-0 p-3";
+    container.style.zIndex = "1100";
+    document.body.appendChild(container);
+  }
+  var id   = "toast-" + Date.now();
+  var wrap = document.createElement("div");
+  wrap.innerHTML =
+    '<div id="' + id + '" class="toast align-items-center text-white bg-' + type + ' border-0" role="alert">' +
+    '  <div class="d-flex">' +
+    '    <div class="toast-body">' + html + '</div>' +
+    '    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>' +
+    '  </div>' +
+    '</div>';
+  container.appendChild(wrap.firstElementChild);
+  new bootstrap.Toast(document.getElementById(id), { delay: 6000 }).show();
 }
 </script>
 {% endblock %}
