@@ -721,7 +721,7 @@ function openPoModal(supplierCode, supplierName) {
         '  data-system-pieces="' + item.systemPieces + '"' +
         '  data-selling-qty="' + item.sellingQty + '"' +
         '  value="' + item.systemPieces + '"' +
-        '  min="1" max="' + item.systemPieces + '"' +
+        '  min="1"' +
         '  step="1">' +
       '</td>' +
       '<td class="text-end cases-cell">' +
@@ -897,9 +897,6 @@ function validatePoModal() {
     var systemPieces = parseInt(input.dataset.systemPieces || "0", 10);
     if (isNaN(val) || val < 1) {
       invalid.push("Line " + (i + 1) + ": pieces must be at least 1.");
-      input.classList.add("is-invalid");
-    } else if (val > systemPieces) {
-      invalid.push("Line " + (i + 1) + ": cannot exceed system pieces (" + systemPieces + ").");
       input.classList.add("is-invalid");
     } else {
       input.classList.remove("is-invalid");
