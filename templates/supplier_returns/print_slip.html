@@ -189,6 +189,7 @@
     <thead>
       <tr>
         <th>Item Code</th>
+        <th>Supplier Code</th>
         <th>Description</th>
         <th>Barcode</th>
         <th class="right">Cases (system)</th>
@@ -200,6 +201,7 @@
       {% for item in all_rows %}
       <tr>
         <td class="mono">{{ item.item_code_365 }}</td>
+        <td class="mono">{{ item.supplier_item_code or "—" }}</td>
         <td>{{ item.item_name or "—" }}</td>
         <td class="mono">{{ item.barcode or "—" }}</td>
         <td class="right">
@@ -215,7 +217,7 @@
       {% endfor %}
 
       <tr class="totals-row">
-        <td colspan="3"><strong>TOTAL</strong></td>
+        <td colspan="4"><strong>TOTAL</strong></td>
         <td class="right">
           {% set total_cases = namespace(val=0.0) %}
           {% for item in all_rows %}

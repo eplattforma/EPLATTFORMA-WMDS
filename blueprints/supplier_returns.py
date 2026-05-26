@@ -244,6 +244,7 @@ def mark_collected():
 def print_slip(supplier_code):
     """Print-friendly acknowledgement slip for a single supplier."""
     from services.supplier_returns_service import get_returns_stock
+    from models import DwItem
     from flask import abort
     result = get_returns_stock(force_refresh=False)
     groups = result.get("groups", [])
@@ -254,6 +255,18 @@ def print_slip(supplier_code):
     )
     if group is None:
         abort(404)
+
+    item_codes = [item["item_code_365"] for item in group.get("item_rows", [])]
+    if item_codes:
+        dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+        dw_map   = {d.item_code_365: d for d in dw_items}
+    else:
+        dw_map = {}
+
+    for item in group.get("item_rows", []):
+        dw = dw_map.get(item["item_code_365"])
+        item["barcode"]            = (dw.barcode            or "") if dw else ""
+        item["supplier_item_code"] = (dw.supplier_item_code or "") if dw else ""
 
     return render_template(
         "supplier_returns/print_slip.html",
