@@ -28,6 +28,11 @@ def update_supplier_returns_stock_cache_schema():
             CREATE INDEX IF NOT EXISTS ix_srsc_stock
                 ON supplier_returns_stock_cache (stock_cases)
         """))
+        # V8 — barcode for print slip
+        db.session.execute(text("""
+            ALTER TABLE supplier_returns_stock_cache
+            ADD COLUMN IF NOT EXISTS barcode VARCHAR(64)
+        """))
         db.session.commit()
         logger.info("supplier_returns_stock_cache schema ensured")
     except Exception as e:

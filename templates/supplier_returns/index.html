@@ -143,6 +143,13 @@
                 data-supplier-name="{{ group.supplier_name }}">
           <i class="fas fa-truck-loading me-1"></i>New Collection
         </button>
+        <a href="/supplier-returns/print/{{ group.supplier_code_365 }}"
+           target="_blank"
+           class="btn btn-outline-secondary btn-sm"
+           title="Print acknowledgement slip"
+           onclick="event.stopPropagation()">
+          <i class="fas fa-print"></i>
+        </a>
         {% endif %}
         <button class="btn btn-link btn-sm p-0 text-muted collapse-btn"
                 data-bs-toggle="collapse" data-bs-target="#grp{{ gid }}">

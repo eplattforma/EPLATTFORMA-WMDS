@@ -144,10 +144,10 @@ def _write_stock_to_db(ps365_rows: List[Dict[str, Any]]) -> None:
         db.session.execute(text("""
             INSERT INTO supplier_returns_stock_cache
                 (item_code_365, item_name, stock_cases, supplier_code_365,
-                 supplier_name, selling_qty, cost_price, last_synced_at)
+                 supplier_name, selling_qty, cost_price, barcode, last_synced_at)
             VALUES
                 (:code, :name, :stock, :sup_code,
-                 :sup_name, :selling_qty, :cost_price, :now)
+                 :sup_name, :selling_qty, :cost_price, :barcode, :now)
             ON CONFLICT (item_code_365) DO UPDATE SET
                 item_name         = EXCLUDED.item_name,
                 stock_cases       = EXCLUDED.stock_cases,
@@ -155,6 +155,7 @@ def _write_stock_to_db(ps365_rows: List[Dict[str, Any]]) -> None:
                 supplier_name     = EXCLUDED.supplier_name,
                 selling_qty       = EXCLUDED.selling_qty,
                 cost_price        = EXCLUDED.cost_price,
+                barcode           = EXCLUDED.barcode,
                 last_synced_at    = EXCLUDED.last_synced_at
         """), {
             "code":        code,
@@ -164,6 +165,7 @@ def _write_stock_to_db(ps365_rows: List[Dict[str, Any]]) -> None:
             "sup_name":    (dw.supplier_name     or "").strip() if dw else "",
             "selling_qty": float(dw.selling_qty) if dw and dw.selling_qty is not None else None,
             "cost_price":  float(dw.cost_price)  if dw and dw.cost_price  is not None else None,
+            "barcode":     (dw.barcode or "").strip() if dw else "",
             "now":         now,
         })
 
@@ -188,7 +190,7 @@ def _read_stock_from_db() -> List[Dict[str, Any]]:
     rows = db.session.execute(text("""
         SELECT item_code_365, item_name, stock_cases,
                supplier_code_365, supplier_name,
-               selling_qty, cost_price, last_synced_at
+               selling_qty, cost_price, barcode, last_synced_at
         FROM   supplier_returns_stock_cache
         WHERE  stock_cases > 0
         ORDER  BY item_code_365
@@ -213,6 +215,7 @@ def _read_stock_from_db() -> List[Dict[str, Any]]:
             "cost_price":        float(cost_price) if cost_price else None,
             "supplier_code_365": (r.supplier_code_365 or "").strip(),
             "supplier_name":     (r.supplier_name     or "").strip(),
+            "barcode":           (r.barcode or "").strip() if r.barcode else "",
             "last_synced_at":    r.last_synced_at,
         })
     return result
@@ -427,6 +430,9 @@ def _apply_pending_and_group(
             "value_available":   value_available,
             "has_pending_po":    on_po > 0,
             "fully_committed":   available <= 0 and on_po > 0,
+            # Aliases for print slip template
+            "stock_cases":       float(r["stock_ps365"]),
+            "pieces":            r.get("pieces_ps365"),
         })
 
     buckets: Dict[str, Dict[str, Any]] = {}

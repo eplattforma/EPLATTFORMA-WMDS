@@ -233,3 +233,30 @@ def mark_collected():
     except Exception as e:
         logger.exception("[Returns] mark-collected failed for %s", po_id_365 or cart_code)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Print slip — acknowledgement slip for a single supplier
+# ---------------------------------------------------------------------------
+
+@supplier_returns_bp.route("/print/<supplier_code>")
+@login_required
+def print_slip(supplier_code):
+    """Print-friendly acknowledgement slip for a single supplier."""
+    from services.supplier_returns_service import get_returns_stock
+    from flask import abort
+    result = get_returns_stock(force_refresh=False)
+    groups = result.get("groups", [])
+
+    group = next(
+        (g for g in groups if g["supplier_code_365"] == supplier_code),
+        None
+    )
+    if group is None:
+        abort(404)
+
+    return render_template(
+        "supplier_returns/print_slip.html",
+        group=group,
+        print_date=datetime.utcnow().strftime("%d/%m/%Y %H:%M"),
+    )

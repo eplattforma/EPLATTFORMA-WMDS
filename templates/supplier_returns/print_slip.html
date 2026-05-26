@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Purchase Returns — {{ group.supplier_name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 11pt;
+      color: #000;
+      background: #fff;
+      padding: 20mm 15mm;
+    }
+
+    .slip-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #000;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .slip-header .doc-title {
+      font-size: 16pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .slip-header .doc-meta {
+      text-align: right;
+      font-size: 9pt;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .supplier-block {
+      margin-bottom: 14px;
+      font-size: 10pt;
+    }
+    .supplier-block .label {
+      font-weight: bold;
+      display: inline-block;
+      width: 110px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 10pt;
+    }
+    thead tr {
+      background: #000;
+      color: #fff;
+    }
+    thead th {
+      padding: 5px 8px;
+      text-align: left;
+      font-weight: bold;
+    }
+    thead th.right { text-align: right; }
+    tbody tr:nth-child(even) { background: #f5f5f5; }
+    tbody td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #ddd;
+      vertical-align: middle;
+    }
+    tbody td.right { text-align: right; }
+    tbody td.mono  { font-family: monospace; font-size: 9.5pt; }
+
+    .totals-row td {
+      border-top: 2px solid #000 !important;
+      font-weight: bold;
+      background: #fff !important;
+    }
+
+    .no-items {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-style: italic;
+    }
+
+    .signature-section {
+      margin-top: 24px;
+      border-top: 1px solid #bbb;
+      padding-top: 16px;
+      page-break-inside: avoid;
+    }
+    .signature-section .sig-title {
+      font-weight: bold;
+      font-size: 10pt;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .sig-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+    .sig-field { margin-bottom: 24px; }
+    .sig-field .sig-line {
+      border-bottom: 1px solid #000;
+      height: 30px;
+      margin-bottom: 4px;
+    }
+    .sig-field .sig-label { font-size: 8.5pt; color: #555; }
+
+    .slip-footer {
+      margin-top: 16px;
+      font-size: 8pt;
+      color: #888;
+      text-align: center;
+      border-top: 1px solid #ddd;
+      padding-top: 6px;
+    }
+
+    .print-controls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 8px;
+      z-index: 100;
+    }
+    .btn-print {
+      padding: 7px 18px;
+      background: #000;
+      color: #fff;
+      border: none;
+      font-size: 11pt;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .btn-print:hover { background: #333; }
+    .btn-back {
+      padding: 7px 18px;
+      background: #fff;
+      color: #000;
+      border: 1px solid #000;
+      font-size: 11pt;
+      cursor: pointer;
+      border-radius: 4px;
+      text-decoration: none;
+    }
+
+    @media print {
+      .print-controls { display: none; }
+      body { padding: 10mm 12mm; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="print-controls">
+    <a class="btn-back" href="/supplier-returns">← Back</a>
+    <button class="btn-print" onclick="window.print()">🖨 Print</button>
+  </div>
+
+  <div class="slip-header">
+    <div>
+      <div class="doc-title">Purchase Returns</div>
+      <div style="font-size:9pt;color:#555;margin-top:3px;">Supplier Acknowledgement Slip</div>
+    </div>
+    <div class="doc-meta">
+      Date: <strong>{{ print_date }}</strong> UTC<br>
+      Warehouse: Store 100 (RETURNS)
+    </div>
+  </div>
+
+  <div class="supplier-block">
+    <div>
+      <span class="label">Supplier:</span>
+      <strong>{{ group.supplier_name or "Unknown" }}</strong>
+    </div>
+    <div>
+      <span class="label">Supplier Code:</span>
+      {{ group.supplier_code_365 or "—" }}
+    </div>
+  </div>
+
+  {% set all_rows = group.item_rows %}
+
+  {% if all_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Item Code</th>
+        <th>Description</th>
+        <th>Barcode</th>
+        <th class="right">Cases (system)</th>
+        <th class="right">Pieces</th>
+        <th class="right">Received Qty</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in all_rows %}
+      <tr>
+        <td class="mono">{{ item.item_code_365 }}</td>
+        <td>{{ item.item_name or "—" }}</td>
+        <td class="mono">{{ item.barcode or "—" }}</td>
+        <td class="right">
+          {% if item.fully_committed %}
+            <em style="color:#888">On PO</em>
+          {% else %}
+            {{ "%.4g"|format(item.stock_cases) }}
+          {% endif %}
+        </td>
+        <td class="right">{{ item.pieces if item.pieces is not none else "—" }}</td>
+        <td class="right">&nbsp;</td>
+      </tr>
+      {% endfor %}
+
+      <tr class="totals-row">
+        <td colspan="3"><strong>TOTAL</strong></td>
+        <td class="right">
+          {% set total_cases = namespace(val=0.0) %}
+          {% for item in all_rows %}
+            {% if not item.fully_committed %}
+              {% set total_cases.val = total_cases.val + item.stock_cases %}
+            {% endif %}
+          {% endfor %}
+          <strong>{{ "%.4g"|format(total_cases.val) }}</strong>
+        </td>
+        <td class="right">
+          {% set total_pieces = namespace(val=0) %}
+          {% for item in all_rows %}
+            {% if item.pieces %}
+              {% set total_pieces.val = total_pieces.val + item.pieces %}
+            {% endif %}
+          {% endfor %}
+          <strong>{{ total_pieces.val if total_pieces.val > 0 else "—" }}</strong>
+        </td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="no-items">No items found for this supplier in store 100.</p>
+  {% endif %}
+
+  <div class="signature-section">
+    <div class="sig-title">Acknowledgement</div>
+    <p style="font-size:9.5pt;margin-bottom:16px;">
+      I confirm that the above items have been collected / received in full as described.
+    </p>
+    <div class="sig-grid">
+      <div>
+        <div class="sig-field">
+          <div class="sig-line"></div>
+          <div class="sig-label">Supplier Representative — Signature</div>
+        </div>
+        <div class="sig-field">
+          <div class="sig-line"></div>
+          <div class="sig-label">Supplier Representative — Printed Name</div>
+        </div>
+      </div>
+      <div>
+        <div class="sig-field">
+          <div class="sig-line"></div>
+          <div class="sig-label">Warehouse Staff — Signature</div>
+        </div>
+        <div class="sig-field">
+          <div class="sig-line"></div>
+          <div class="sig-label">Date Collected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="slip-footer">
+    This document is for internal warehouse use only. No monetary values are stated.
+  </div>
+
+</body>
+</html>
