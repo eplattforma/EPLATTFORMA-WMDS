@@ -1,0 +1,265 @@
+# Supplier Returns — V6b Color Fixes
+
+Apply on top of V6. This covers two things:
+1. Dark mode Bootstrap color bugs (unreadable text)
+2. Clear visual states for available / on PO / sent / collected
+
+---
+
+## Why the text is unreadable
+
+The app uses Bootstrap's **dark theme** (`data-bs-theme="dark"`). In dark mode, Bootstrap remaps its CSS variables so that `text-dark` becomes **light-coloured** and `bg-white` stays **white**. This means anything written as `bg-white text-dark` or `bg-light text-dark` ends up as light text on a light background — essentially invisible.
+
+The same applies to `table-light` in table headers and `bg-light text-dark` on badges.
+
+---
+
+## PART 1 — Colour fixes for the template
+
+These are specific find-and-replace instructions for `templates/supplier_returns/index.html`.
+
+---
+
+### Fix 1 — Supplier card header background
+
+**Find:**
+```html
+{% if is_unknown %}bg-light text-muted{% else %}bg-white text-dark{% endif %}
+```
+
+**Replace with:**
+```html
+{% if is_unknown %}bg-body-secondary text-body-secondary{% endif %}
+```
+
+`bg-white text-dark` in dark mode = white background, almost-white text = invisible. Removing the explicit background lets the card header inherit the dark theme default, which is correct.
+
+---
+
+### Fix 2 — "Lines" badge on each supplier header
+
+**Find:**
+```html
+<span class="badge bg-light text-dark border">{{ group.item_rows|length }} lines</span>
+```
+
+**Replace with:**
+```html
+<span class="badge bg-secondary">{{ group.item_rows|length }} lines</span>
+```
+
+`bg-light text-dark` in dark mode = light gray bg with light text = invisible. `bg-secondary` renders correctly in both light and dark.
+
+---
+
+### Fix 3 — Cache age badge in header
+
+**Find:**
+```html
+<span class="badge bg-light text-secondary border ms-1">{{ data.cache_age_minutes }}m ago</span>
+```
+
+**Replace with:**
+```html
+<span class="badge bg-secondary ms-1">{{ data.cache_age_minutes }}m ago</span>
+```
+
+---
+
+### Fix 4 — Open return POs summary card
+
+**Find:**
+```html
+<div class="card bg-warning border border-warning px-3 py-2">
+  <div class="small text-dark">Open return POs</div>
+  <div class="fw-bold fs-5 text-dark">{{ data.pending_pos|length }}</div>
+</div>
+```
+
+**Replace with:**
+```html
+<div class="card border-warning px-3 py-2 text-center" style="border-width:2px!important">
+  <div class="small text-warning">Open collections</div>
+  <div class="fw-bold fs-5 text-warning">{{ data.pending_pos|length }}</div>
+</div>
+```
+
+Yellow background + `text-dark` in dark mode = light text on yellow = poor contrast. A warning border with `text-warning` text on a dark card is far more readable.
+
+---
+
+### Fix 5 — All table headers
+
+Every `<thead class="table-light">` in the file (there are three — items table, pending POs table, and PO modal table):
+
+**Find (all occurrences):**
+```html
+<thead class="table-light">
+```
+
+**Replace with:**
+```html
+<thead class="table-secondary">
+```
+
+`table-light` in dark mode = light-coloured header rows with low-contrast text. `table-secondary` renders as a correctly contrasted medium-dark header in dark mode.
+
+---
+
+### Fix 6 — Fully committed item rows
+
+**Find:**
+```html
+<tr class="item-row{% if item.fully_committed %} table-warning{% endif %}"
+```
+
+**Replace with:**
+```html
+<tr class="item-row{% if item.fully_committed %} opacity-50{% endif %}"
+```
+
+`table-warning` in dark mode = brownish amber row. Hard to distinguish state from the text. `opacity-50` clearly signals "this item is not available" without a colour clash.
+
+---
+
+### Fix 7 — Pending POs section header background
+
+**Find:**
+```html
+<div class="card-header bg-warning bg-opacity-10 d-flex ...">
+```
+
+**Replace with:**
+```html
+<div class="card-header border-start border-warning border-3 d-flex ...">
+```
+
+10% yellow opacity on dark = barely visible, looks dirty. A 3px left warning border clearly signals "attention needed" while keeping text fully readable.
+
+---
+
+### Fix 8 — Pending PO rows with outstanding lines
+
+**Find:**
+```html
+<tr class="{% if po.has_outstanding %}table-warning{% endif %}">
+```
+
+**Replace with:**
+```html
+<tr class="{% if po.has_outstanding %}border-start border-warning border-2{% endif %}">
+```
+
+Same reason as Fix 7 — `table-warning` in dark mode is muddy. A left border is cleaner.
+
+---
+
+### Fix 9 — JS optimistic update after PO sent
+
+In the `<script>` block, find the optimistic update section:
+
+**Find:**
+```javascript
+row.classList.add("text-muted");
+row.style.opacity = "0.55";
+```
+
+**Replace with:**
+```javascript
+row.style.opacity = "0.4";
+```
+
+`text-muted` stacked on `opacity: 0.55` makes the row almost invisible. Opacity alone at 0.4 is enough to signal "committed" without making the row unreadable.
+
+---
+
+## PART 2 — Item state visual language
+
+This is the complete, consistent colour system for item states. Implement across both the Jinja template and the JS optimistic updates.
+
+---
+
+### State 1 — Available (default)
+
+The item has stock and is not on any open PO.
+
+| Element | Class |
+|---------|-------|
+| Row | (no class — dark default) |
+| Cases column | `text-success fw-bold` |
+| Pieces column | `fw-bold` |
+| Checkbox | enabled |
+
+---
+
+### State 2 — Partially on PO
+
+Some cases are on an open PO, but the item still has available stock.
+
+| Element | Class / content |
+|---------|----------------|
+| Row | (no class — dark default) |
+| "On PO" column | `<span class="badge bg-warning" style="color:#000">0.04</span>` |
+| Available column | `text-success fw-bold` showing the *remaining* available |
+| Checkbox | enabled (only the available qty gets selected) |
+
+**Note on the yellow badge:** Use `style="color:#000"` (explicit black) rather than `text-dark` on yellow badges — `text-dark` in dark mode maps to a light colour and will be invisible on yellow.
+
+---
+
+### State 3 — Fully on PO (no available stock)
+
+All stock for this item is committed on an open PO.
+
+| Element | Class / content |
+|---------|----------------|
+| Row | `opacity-50` |
+| Available column | `<span class="badge bg-warning fst-italic" style="color:#000">Fully on PO</span>` |
+| Checkbox | `disabled` |
+
+---
+
+### State 4 — Just sent (optimistic, post-"Send PO" click)
+
+The PO has just been sent in this session. The page hasn't been refreshed yet.
+
+| Element | Class / content |
+|---------|----------------|
+| Row | `style="opacity:0.4"` via JS |
+| Available column | `<span class="badge bg-secondary">On PO — refresh</span>` via JS |
+| Checkbox | disabled via JS |
+
+Use `bg-secondary` (grey) to distinguish this "waiting for confirmation" state from the confirmed yellow `bg-warning` "on PO" state.
+
+---
+
+### State 5 — Collected (after "Mark Collected" is clicked)
+
+The supplier has physically collected the items. PS365 Purchase Return not yet processed.
+
+| Element | Class / content |
+|---------|----------------|
+| "Mark Collected" button | Replaced by: `<span class="badge bg-success py-2"><i class="fas fa-check-circle me-1"></i>Collected HH:MM</span>` |
+| PO row | No change — still shows as "outstanding" until PS365 processes the return |
+
+---
+
+### State 6 — Completed (PS365 has processed the return)
+
+`line_quantity_received` filled in, PO disappears from open collections on next Refresh. Item disappears from stock table. No action needed — this happens automatically.
+
+---
+
+## PART 3 — Summary: what to tell Replit
+
+> Apply these changes to `templates/supplier_returns/index.html` (the V6 version):
+>
+> 1. Replace `bg-white text-dark` card header class → remove both (let the dark theme default apply)
+> 2. Replace all `bg-light text-dark` badges → `bg-secondary` (no text override)
+> 3. Replace all `<thead class="table-light">` → `<thead class="table-secondary">`
+> 4. Replace `table-warning` on item rows → `opacity-50`
+> 5. Replace `table-warning` on PO rows → `border-start border-warning border-2`
+> 6. Replace `bg-warning bg-opacity-10` on the open collections header → `border-start border-warning border-3`
+> 7. Replace `text-dark` on warning summary card → remove `bg-warning` background, use `text-warning` text and `border-warning` border
+> 8. In the JS optimistic update, remove `row.classList.add("text-muted")` — keep only `row.style.opacity = "0.4"`
+> 9. On all yellow badges that show quantities, replace `text-dark` with `style="color:#000"` to force actual black text on yellow backgrounds

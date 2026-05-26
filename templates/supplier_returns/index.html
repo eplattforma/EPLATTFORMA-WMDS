@@ -13,7 +13,7 @@
         {% if data.fetched_at %}
         &mdash; <span class="text-muted">Last updated: {{ data.fetched_at }} UTC</span>
         {% if data.cache_age_minutes is not none %}
-        <span class="badge bg-light text-secondary border ms-1">{{ data.cache_age_minutes }}m ago</span>
+        <span class="badge bg-secondary ms-1">{{ data.cache_age_minutes }}m ago</span>
         {% endif %}
         {% else %}
         &mdash; <span class="text-warning">Not yet loaded — click Refresh</span>
@@ -68,9 +68,9 @@
     </div>
     {% if data.pending_pos %}
     <div class="col-auto">
-      <div class="card bg-warning border border-warning px-3 py-2">
-        <div class="small text-dark">Open return POs</div>
-        <div class="fw-bold fs-5 text-dark">{{ data.pending_pos|length }}</div>
+      <div class="card border-warning px-3 py-2 text-center" style="border-width:2px!important">
+        <div class="small text-warning">Open collections</div>
+        <div class="fw-bold fs-5 text-warning">{{ data.pending_pos|length }}</div>
       </div>
     </div>
     {% endif %}
@@ -95,7 +95,7 @@
   <div class="card mb-3 supplier-group" data-supplier="{{ group.supplier_code_365 }}">
     {# ── Supplier header ── #}
     <div class="card-header d-flex align-items-center justify-content-between py-2
-                {% if is_unknown %}bg-light text-muted{% else %}bg-white text-dark{% endif %}">
+                {% if is_unknown %}bg-body-secondary text-body-secondary{% endif %}">
       <div class="d-flex align-items-center gap-2">
         {% if not is_unknown %}
         <input class="form-check-input mt-0 select-all-cb" type="checkbox"
@@ -105,7 +105,7 @@
         {% if group.supplier_code_365 %}
         <span class="badge bg-secondary fw-normal">{{ group.supplier_code_365 }}</span>
         {% endif %}
-        <span class="badge bg-light text-dark border">{{ group.item_rows|length }} lines</span>
+        <span class="badge bg-secondary">{{ group.item_rows|length }} lines</span>
       </div>
       <div class="d-flex align-items-center gap-3">
         <span class="text-muted small">
@@ -129,7 +129,7 @@
     <div id="grp{{ gid }}" class="collapse show">
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0 returns-table">
-          <thead class="table-light">
+          <thead class="table-secondary">
             <tr>
               {% if not is_unknown %}<th style="width:36px"></th>{% endif %}
               <th>Item Code</th>
@@ -150,7 +150,7 @@
           </thead>
           <tbody>
             {% for item in group.item_rows %}
-            <tr class="item-row{% if item.fully_committed %} table-warning{% endif %}"
+            <tr class="item-row{% if item.fully_committed %} opacity-50{% endif %}"
                 data-item="{{ item.item_code_365 }}"
                 data-qty="{{ item.available_cases }}"
                 data-cost="{{ item.cost_price or 0 }}"
@@ -171,7 +171,7 @@
               <td class="text-end text-muted small">{{ item.stock_ps365 }}</td>
               <td class="text-end">
                 {% if item.has_pending_po %}
-                <span class="badge bg-warning text-dark">{{ "%.4g"|format(item.on_po_cases) }}</span>
+                <span class="badge bg-warning" style="color:#000">{{ "%.4g"|format(item.on_po_cases) }}</span>
                 {% else %}
                 <span class="text-muted">—</span>
                 {% endif %}
@@ -179,7 +179,7 @@
               <td class="text-end fw-bold available-cell
                          {% if item.fully_committed %}text-warning{% else %}text-success{% endif %}">
                 {% if item.fully_committed %}
-                <span class="badge bg-warning text-dark">Fully on PO</span>
+                <span class="badge bg-warning fst-italic" style="color:#000">Fully on PO</span>
                 {% else %}
                 {{ item.available_display }}
                 {% endif %}
@@ -219,7 +219,7 @@
   {# ── Pending POs panel ── #}
   {% if data.pending_pos %}
   <div class="card mt-4 border-warning">
-    <div class="card-header bg-warning bg-opacity-10 d-flex align-items-center justify-content-between py-2">
+    <div class="card-header border-start border-warning border-3 d-flex align-items-center justify-content-between py-2">
       <span class="fw-bold text-warning-emphasis">
         <i class="fas fa-clock me-1"></i> Open Return POs (from PS365)
       </span>
@@ -230,7 +230,7 @@
     <div id="pendingPOs" class="collapse show">
       <div class="table-responsive">
         <table class="table table-sm mb-0">
-          <thead class="table-light">
+          <thead class="table-secondary">
             <tr>
               <th>PO ID</th>
               <th>Supplier</th>
@@ -242,7 +242,7 @@
           </thead>
           <tbody>
             {% for po in data.pending_pos %}
-            <tr class="{% if po.has_outstanding %}table-warning{% endif %}">
+            <tr class="{% if po.has_outstanding %}border-start border-warning border-2{% endif %}">
               <td class="font-monospace small">{{ po.po_id }}</td>
               <td>{{ po.supplier_name or po.supplier_code_365 }}</td>
               <td><span class="badge bg-secondary">{{ po.status_code }}</span></td>
@@ -250,7 +250,7 @@
               <td>
                 {% set outstanding_lines = po.lines | selectattr("outstanding", "gt", 0) | list %}
                 {% if outstanding_lines %}
-                <span class="badge bg-warning text-dark">{{ outstanding_lines|length }} line(s)</span>
+                <span class="badge bg-warning" style="color:#000">{{ outstanding_lines|length }} line(s)</span>
                 {% else %}
                 <span class="text-muted">—</span>
                 {% endif %}
@@ -283,7 +283,7 @@
         <h6 class="fw-bold mb-2">Available vs On PO</h6>
         <p class="mb-3">If an item already has an open Return PO, its quantity is shown in two parts:</p>
         <ul class="mb-3">
-          <li><span class="badge bg-warning text-dark me-1">On PO</span> — cases already committed on an open Return Purchase Order the supplier has not yet collected.</li>
+          <li><span class="badge bg-warning me-1" style="color:#000">On PO</span> — cases already committed on an open Return Purchase Order the supplier has not yet collected.</li>
           <li><strong>Available</strong> — remaining cases you can include in a new PO.</li>
         </ul>
 
@@ -320,7 +320,7 @@
           <span class="badge bg-secondary ms-1" id="poSupplierCode"></span>
         </p>
         <table class="table table-sm" id="poLinesTable">
-          <thead class="table-light">
+          <thead class="table-secondary">
             <tr>
               <th>Item Code</th>
               <th class="text-end">Cases (qty)</th>
@@ -510,15 +510,14 @@ document.getElementById("btnSendPO").addEventListener("click", function() {
       // ── Optimistic UI update: grey out sent rows, no page reload ──
       _currentLines.forEach(function(ln) {
         document.querySelectorAll("tr[data-item='" + ln.item_code_365 + "']").forEach(function(row) {
-          row.classList.add("text-muted");
-          row.style.opacity = "0.55";
+          row.style.opacity = "0.4";
           var cb = row.querySelector(".item-cb");
           if (cb) cb.disabled = true;
           var availCell = row.querySelector(".available-cell");
           if (availCell) {
             availCell.innerHTML =
-              '<span class="badge bg-warning text-dark" ' +
-              'title="PO sent — refresh to get confirmed figure from PS365">On PO</span>';
+              '<span class="badge bg-secondary" ' +
+              'title="PO sent — refresh to get confirmed figure from PS365">On PO — refresh</span>';
           }
         });
       });
