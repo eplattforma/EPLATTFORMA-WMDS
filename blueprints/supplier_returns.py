@@ -136,16 +136,18 @@ def api_create_po():
 
     try:
         import requests as http_req
-        resp = http_req.post(f"{base_url}/purchaseorder", json=po_payload, timeout=120)
+        resp = http_req.post(f"{base_url}/purchaseorder", json=po_payload, timeout=45)
         resp.raise_for_status()
         result   = resp.json()
         api_resp = result.get("api_response", {})
 
         if api_resp.get("response_code") not in ("1", 1):
-            msg = (api_resp.get("response_msg")
-                   or api_resp.get("response_message")
-                   or "Unknown PS365 error")
-            logger.error("[Returns PO] PS365 rejected: %s", msg)
+            raw_msg = (api_resp.get("response_msg")
+                       or api_resp.get("response_message")
+                       or "Unknown PS365 error")
+            # Trim .NET stack traces — keep only the first meaningful line
+            msg = raw_msg.split("\n")[0].split(" ---> ")[0].strip()[:200]
+            logger.error("[Returns PO] PS365 rejected: %s", raw_msg)
             return jsonify({"success": False, "error": msg}), 422
 
         po_code = api_resp.get("response_id") or cart_code
