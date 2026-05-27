@@ -180,6 +180,12 @@
       <span class="label">Supplier Code:</span>
       {{ group.supplier_code_365 or "—" }}
     </div>
+    {% if po_number %}
+    <div style="margin-top:6px">
+      <span class="label" style="font-size:11pt">PO Number:</span>
+      <strong style="font-size:13pt; letter-spacing:0.5px">{{ po_number }}</strong>
+    </div>
+    {% endif %}
   </div>
 
   {% set all_rows = group.item_rows %}

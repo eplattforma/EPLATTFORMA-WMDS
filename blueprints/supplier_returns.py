@@ -156,12 +156,16 @@ def api_create_po():
         try:
             from app import db
             from models import SupplierReturnPoTracking
+            user      = getattr(current_user, "username", None)
+            now_local = datetime.now(timezone.utc).replace(tzinfo=None)
             tracking = SupplierReturnPoTracking(
                 cart_code         = cart_code,
                 po_id_365         = str(po_code),
                 supplier_code_365 = supplier_code,
                 supplier_name     = payload.get("supplier_name", ""),
-                sent_by           = getattr(current_user, "username", None),
+                sent_by           = user,
+                collected_at      = now_local,
+                collected_by      = user,
             )
             db.session.merge(tracking)
             db.session.commit()
@@ -268,8 +272,11 @@ def print_slip(supplier_code):
         item["barcode"]            = (dw.barcode            or "") if dw else ""
         item["supplier_item_code"] = (dw.supplier_item_code or "") if dw else ""
 
+    po_number = request.args.get("po_number", "").strip()
+
     return render_template(
         "supplier_returns/print_slip.html",
         group=group,
         print_date=datetime.utcnow().strftime("%d/%m/%Y %H:%M"),
+        po_number=po_number,
     )

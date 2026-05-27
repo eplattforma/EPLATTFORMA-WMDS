@@ -193,13 +193,9 @@
               <i class="fas fa-list-ul me-1"></i><span class="small">Items</span>
             </button>
             {% if outstanding_lines %}
-            <button class="btn btn-success btn-sm mark-collected-btn"
-                    data-po-id="{{ po.po_id }}"
-                    data-cart-code=""
-                    data-supplier-code="{{ po.supplier_code_365 }}"
-                    data-supplier-name="{{ po.supplier_name or group.supplier_name }}">
-              <i class="fas fa-check me-1"></i>Mark Collected
-            </button>
+            <span class="badge bg-warning text-dark py-2">
+              <i class="fas fa-clock me-1"></i>Pending PS365
+            </span>
             {% else %}
             <span class="badge bg-success py-2">
               <i class="fas fa-check-circle me-1"></i>Collected
@@ -291,7 +287,7 @@
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
               <td class="text-end text-muted small">
-                {% if item.cost_price %}€{{ "%.4f"|format(item.cost_price) }}{% else %}—{% endif %}
+                {% if item.cost_price %}€{{ "%.2f"|format(item.cost_price) }}{% else %}—{% endif %}
               </td>
               <td class="text-end">
                 {% if item.value_available %}€{{ "%.2f"|format(item.value_available) }}{% else %}—{% endif %}
@@ -369,33 +365,6 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-{# ── Mark Collected confirmation modal ── #}
-<div class="modal fade" id="collectModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fas fa-check-circle me-2 text-success"></i>Mark as Collected</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <p>Confirm that <strong id="collectSupplierName"></strong> has physically collected all items from:</p>
-        <p class="font-monospace fw-bold" id="collectPoId"></p>
-        <div class="alert alert-warning py-2 mt-3 mb-0 small">
-          <i class="fas fa-exclamation-triangle me-1"></i>
-          <strong>Remember:</strong> You must also process the <strong>Purchase Return in PS365</strong>
-          to deduct the stock from store 100. This button only records the physical handover.
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" id="btnConfirmCollected">
-          <i class="fas fa-check me-1"></i>Yes, items collected
-        </button>
       </div>
     </div>
   </div>
@@ -601,70 +570,6 @@ document.getElementById("btnRefresh").addEventListener("click", function() {
 });
 
 // ---------------------------------------------------------------------------
-// Mark as Collected
-// ---------------------------------------------------------------------------
-var _collectPoId     = null;
-var _collectCartCode = null;
-var _collectSupCode  = null;
-var _collectSupName  = null;
-var _collectBtn      = null;
-
-document.querySelectorAll(".mark-collected-btn").forEach(function(btn) {
-  btn.addEventListener("click", function() {
-    _collectPoId     = btn.dataset.poId;
-    _collectCartCode = btn.dataset.cartCode || "";
-    _collectSupCode  = btn.dataset.supplierCode;
-    _collectSupName  = btn.dataset.supplierName;
-    _collectBtn      = btn;
-    document.getElementById("collectSupplierName").textContent = _collectSupName || _collectSupCode;
-    document.getElementById("collectPoId").textContent = "PO " + _collectPoId;
-    new bootstrap.Modal(document.getElementById("collectModal")).show();
-  });
-});
-
-document.getElementById("btnConfirmCollected").addEventListener("click", function() {
-  var confirmBtn = this;
-  confirmBtn.disabled = true;
-  confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving…';
-
-  fetch("/supplier-returns/mark-collected", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || "",
-    },
-    body: JSON.stringify({
-      po_id_365:         _collectPoId,
-      cart_code:         _collectCartCode,
-      supplier_code_365: _collectSupCode,
-      supplier_name:     _collectSupName,
-    }),
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    confirmBtn.disabled = false;
-    confirmBtn.innerHTML = '<i class="fas fa-check me-1"></i>Yes, items collected';
-    bootstrap.Modal.getInstance(document.getElementById("collectModal")).hide();
-
-    if (data.success) {
-      if (_collectBtn) {
-        _collectBtn.outerHTML =
-          '<span class="badge bg-success py-2">' +
-          '<i class="fas fa-check-circle me-1"></i>Collected ' + data.collected_at + '</span>';
-      }
-      showToast("✓ Collection recorded for PO " + _collectPoId, "success");
-    } else {
-      showToast("Error: " + (data.error || "Unknown"), "danger");
-    }
-  })
-  .catch(function(err) {
-    confirmBtn.disabled = false;
-    confirmBtn.innerHTML = '<i class="fas fa-check me-1"></i>Yes, items collected';
-    showToast("Network error: " + err.message, "danger");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Send PO — editable quantity modal (pieces input)
 // ---------------------------------------------------------------------------
 
@@ -829,6 +734,9 @@ document.getElementById("btnConfirmSendPo").addEventListener("click", function()
     btn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send Purchase Return';
 
     if (data.success) {
+      var poNumber = data.po_code || "";
+
+      // 1. Fade out sent item rows
       lines.forEach(function(ln) {
         document.querySelectorAll("tr[data-item='" + ln.item_code_365 + "']").forEach(function(row) {
           row.style.opacity = "0.4";
@@ -839,10 +747,15 @@ document.getElementById("btnConfirmSendPo").addEventListener("click", function()
             '<span class="badge bg-secondary" title="PO sent — refresh to confirm">On PO — refresh</span>';
         });
       });
+
+      // 2. Open print slip immediately with PO number
+      var printUrl = "/supplier-returns/print/" + currentPo.supplierCode +
+                     (poNumber ? "?po_number=" + encodeURIComponent(poNumber) : "");
+      window.open(printUrl, "_blank");
+
+      // 3. Toast confirmation
       showToast(
-        "\u2713 PO " + (data.po_code || "") + " sent \u2014 " + (data.lines_sent || lines.length) +
-        " lines. <a href='/supplier-returns/print/" + currentPo.supplierCode +
-        "' target='_blank' style='color:inherit;font-weight:bold'>Print slip \u2192</a>",
+        "PO " + (poNumber || "sent") + " \u2014 slip opened for printing.",
         "success"
       );
     } else {
