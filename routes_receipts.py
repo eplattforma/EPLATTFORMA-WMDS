@@ -211,7 +211,23 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
             # CRITICAL: If no valid transaction number, fail completely
             if not ok or not response_id:
                 error_msg = api_response.get("response_msg", "Unknown error from Powersoft365")
-                raise Exception(f"Powersoft365 receipt creation failed: {error_msg}")
+
+                # Special case: PS365 says this reference number already exists.
+                # This means the receipt WAS created on a previous attempt but the
+                # network dropped before we received the confirmation. The receipt
+                # is in PS365 — treat this as success so the driver can proceed.
+                if ("already exists" in error_msg.lower()
+                        and "reference_number" in error_msg.lower()):
+                    logger.warning(
+                        "[Receipts] PS365 reports %s already exists — "
+                        "treating as SUCCESS (response was lost on prior attempt). "
+                        "Error was: %s", reference_number, error_msg
+                    )
+                    ok = True
+                    if not response_id:
+                        response_id = reference_number
+                else:
+                    raise Exception(f"Powersoft365 receipt creation failed: {error_msg}")
         else:
             raise Exception("Powersoft365 API not configured. Receipt creation requires valid API credentials.")
 

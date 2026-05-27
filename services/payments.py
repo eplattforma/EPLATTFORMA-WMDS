@@ -154,6 +154,23 @@ def commit_to_ps365(pe, customer_code, invoice_nos, driver_username):
         return pe
 
     except Exception as exc:
+        exc_str = str(exc).lower()
+        # If PS365 says this reference already exists, the payment went through on a
+        # prior attempt and the confirmation was lost. Mark as SUCCESS so the driver
+        # can proceed — the money is already in PS365.
+        if "already exists" in exc_str and "reference_number" in exc_str:
+            logger.warning(
+                f"[Payments] PS365 reports reference already exists for PaymentEntry {pe.id} — "
+                f"treating as SUCCESS (prior attempt confirmation lost). Error: {exc}"
+            )
+            pe.ps_status = 'SUCCESS'
+            pe.ps_error = None
+            pe.updated_at = datetime.utcnow()
+            if not pe.ps_reference:
+                pe.ps_reference = str(exc).split("reference_number")[-1][:20].strip(" :'\"") or None
+            db.session.flush()
+            return pe
+
         is_temp = _is_timeout_error(exc)
         pe.ps_status = 'PENDING_RETRY' if is_temp else 'FAILED'
         pe.ps_error = _friendly_error(exc)
