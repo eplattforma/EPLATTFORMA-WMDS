@@ -198,13 +198,20 @@
         <div class="header-section">
             <div class="header-row">
                 <div class="routing-cell">
-                    {% if invoice.routing %}
+                    {% if route_info %}
+                    <div style="font-size:11px; color:#555; margin-bottom:2px;">
+                        Route #{{ route_info.route_id }}
+                        {% if route_info.delivery_date %}&nbsp;{{ route_info.delivery_date.strftime('%d/%m/%Y') }}{% endif %}
+                    </div>
                     <div class="routing-number">
-                        {% if invoice.routing == "6.0" %}
-                            201.0
-                        {% else %}
-                            {{ invoice.routing }}
-                        {% endif %}
+                        {% if route_info.stop_seq == route_info.stop_seq|int %}{{ route_info.stop_seq|int }}{% else %}{{ route_info.stop_seq }}{% endif %}
+                    </div>
+                    {% if route_info.driver_name %}
+                    <div style="font-size:11px; color:#555; margin-top:2px;">{{ route_info.driver_name }}</div>
+                    {% endif %}
+                    {% elif invoice.routing %}
+                    <div class="routing-number">
+                        {% if invoice.routing == "6.0" %}201.0{% else %}{{ invoice.routing }}{% endif %}
                     </div>
                     {% endif %}
                 </div>
