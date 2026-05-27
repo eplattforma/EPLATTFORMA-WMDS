@@ -95,6 +95,13 @@
                         <i class="fas fa-pallet me-1"></i>Pallets
                     </a>
                     {% endif %}
+
+                    {% if cooler_picking_enabled %}
+                    <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date) }}"
+                       class="btn btn-outline-info btn-sm">
+                        <i class="fas fa-snowflake me-1"></i>Cooler Boxes
+                    </a>
+                    {% endif %}
                     
                     <div class="dropdown">
                         <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
