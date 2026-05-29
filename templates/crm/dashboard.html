@@ -302,13 +302,6 @@ function refreshAllData() {
             </div>
             <div class="col-auto pt-3">
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" name="action_only" value="1"
-                           id="actionOnly" {% if filters.action_only %}checked{% endif %}>
-                    <label class="form-check-label small" for="actionOnly">Action needed only</label>
-                </div>
-            </div>
-            <div class="col-auto pt-3">
-                <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" name="has_cart_only" value="1"
                            id="cartOnly" {% if filters.has_cart_only %}checked{% endif %}>
                     <label class="form-check-label small" for="cartOnly">Has cart only</label>
@@ -368,12 +361,6 @@ function refreshAllData() {
             <div class="card kpi-card total px-3 py-2">
                 <div class="small text-muted">Total</div>
                 <div class="fw-bold fs-5">{{ total_count }}</div>
-            </div>
-        </div>
-        <div class="col-auto">
-            <div class="card kpi-card action px-3 py-2">
-                <div class="small text-muted">Need Action</div>
-                <div class="fw-bold fs-5 text-danger">{{ kpi_action_count }}</div>
             </div>
         </div>
         <div class="col-auto">
