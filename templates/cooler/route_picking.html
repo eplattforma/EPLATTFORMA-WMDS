@@ -562,9 +562,9 @@
       {% for item_code, rows in sequenced|groupby('item_code') %}
         {% set rows = rows|list %}
         <div class="card mb-3">
-          <div class="card-header py-2 d-flex align-items-center flex-wrap gap-2 bg-light">
+          <div class="card-header py-2 d-flex align-items-center flex-wrap gap-2">
             <strong>{{ item_code }}</strong>
-            <span class="text-muted">{{ rows[0].item_name or '' }}</span>
+            <span class="text-secondary">{{ rows[0].item_name or '' }}</span>
             <span class="badge bg-primary ms-auto">Total qty: {{ rows|sum(attribute='expected_qty')|int }}</span>
             <span class="badge bg-secondary">{{ rows|length }} stop(s)</span>
           </div>
