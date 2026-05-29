@@ -806,12 +806,26 @@
 
           {# Manually assign a picked item to an open box #}
           {% if open_boxes and sequenced %}
-          <h6 class="fw-bold">Assign picked item to box</h6>
+          {% set _unboxed_picked = sequenced | selectattr('status', 'equalto', 'picked') | rejectattr('queue_item_id', 'in', assigned_to_box) | list %}
+          <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+            <h6 class="fw-bold mb-0">Assign picked item to box</h6>
+            {% if _unboxed_picked %}
+            <div class="btn-group btn-group-sm ms-auto" role="group">
+              <button type="button" class="btn btn-outline-secondary active" id="assignViewStopBtn"
+                      onclick="setAssignView('stop')"><i class="fas fa-route me-1"></i>By stop</button>
+              <button type="button" class="btn btn-outline-secondary" id="assignViewItemBtn"
+                      onclick="setAssignView('item')"><i class="fas fa-layer-group me-1"></i>By item</button>
+            </div>
+            {% endif %}
+          </div>
           <p class="small text-muted">Only physically-picked items can be assigned. Box assignment is separate from picking.</p>
+
+          {# By-stop view #}
+          <div id="assignViewStop">
           <div class="table-responsive">
           <table class="table table-sm align-middle">
             <thead class="table-light">
-              <tr><th>Stop</th><th>Customer</th><th>Item</th><th class="text-end">Qty</th><th>Status</th><th>Assign to box</th></tr>
+              <tr><th>Stop</th><th>Customer</th><th>Item</th><th>Description</th><th class="text-end">Qty</th><th>Status</th><th>Assign to box</th></tr>
             </thead>
             <tbody>
               {% for q in sequenced if q.status == 'picked' and not assigned_to_box.get(q.queue_item_id) %}
@@ -819,6 +833,7 @@
                   <td>{{ q.delivery_sequence|int }}</td>
                   <td>{{ q.customer_name or q.customer_code or '-' }}</td>
                   <td><strong>{{ q.item_code }}</strong></td>
+                  <td class="text-secondary small">{{ q.item_name or '' }}</td>
                   <td class="text-end">{{ q.expected_qty|int }}</td>
                   <td><span class="badge bg-success">Picked</span></td>
                   <td>
@@ -835,11 +850,74 @@
                   </td>
                 </tr>
               {% else %}
-                <tr><td colspan="6" class="text-muted text-center small">No unboxed picked items.</td></tr>
+                <tr><td colspan="7" class="text-muted text-center small">No unboxed picked items.</td></tr>
               {% endfor %}
             </tbody>
           </table>
           </div>
+          </div>
+
+          {# By-item grouped view #}
+          <div id="assignViewItem" style="display:none;">
+            {% for item_code, rows in _unboxed_picked | groupby('item_code') %}
+            {% set rows = rows | list %}
+            <div class="card mb-2">
+              <div class="card-header py-2 d-flex align-items-center gap-2">
+                <strong>{{ item_code }}</strong>
+                <span class="text-secondary small">{{ rows[0].item_name or '' }}</span>
+                <span class="badge bg-success ms-auto">{{ rows | sum(attribute='expected_qty') | int }} total</span>
+                <span class="badge bg-secondary">{{ rows | length }} stop(s)</span>
+              </div>
+              <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr><th>Stop</th><th>Customer</th><th class="text-end">Qty</th><th>Assign to box</th></tr>
+                </thead>
+                <tbody>
+                  {% for q in rows %}
+                  <tr>
+                    <td>{{ q.delivery_sequence|int }}</td>
+                    <td>{{ q.customer_name or q.customer_code or '-' }}</td>
+                    <td class="text-end">{{ q.expected_qty|int }}</td>
+                    <td>
+                      <form method="post" action="{{ url_for('cooler.queue_assign_box', queue_item_id=q.queue_item_id) }}" class="d-inline-flex gap-1 align-items-center">
+                        <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+                        <input type="hidden" name="picked_qty" value="{{ q.expected_qty }}">
+                        <select name="box_id" class="form-select form-select-sm" style="width:auto">
+                          {% for b in open_boxes %}<option value="{{ b.id }}">Box #{{ b.box_no }}</option>{% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-success text-nowrap">
+                          <i class="fas fa-box me-1"></i>Assign
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              </div>
+            </div>
+            {% else %}
+              <p class="text-muted small">No unboxed picked items.</p>
+            {% endfor %}
+          </div>
+
+          <script>
+          function setAssignView(mode) {
+            var stop = document.getElementById('assignViewStop');
+            var item = document.getElementById('assignViewItem');
+            var stopBtn = document.getElementById('assignViewStopBtn');
+            var itemBtn = document.getElementById('assignViewItemBtn');
+            if (!stop || !item) return;
+            if (mode === 'item') {
+              stop.style.display = 'none'; item.style.display = '';
+              itemBtn.classList.add('active'); stopBtn.classList.remove('active');
+            } else {
+              stop.style.display = ''; item.style.display = 'none';
+              stopBtn.classList.add('active'); itemBtn.classList.remove('active');
+            }
+          }
+          </script>
           {% endif %}
 
           {# Remove item from box / reopen box #}
