@@ -381,6 +381,14 @@ function refreshAllData() {
                 <div class="fw-bold fs-5 text-primary">€{{ "{:,.0f}".format(kpi_total_value_4w) }}</div>
             </div>
         </div>
+        {% if kpi_gp_pct_4w is not none %}
+        <div class="col-auto">
+            <div class="card px-3 py-2" style="border-color:#20c997;">
+                <div class="small text-muted">GP% 4w</div>
+                <div class="fw-bold fs-5" style="color:#20c997;">{{ kpi_gp_pct_4w }}%</div>
+            </div>
+        </div>
+        {% endif %}
         {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
         <div class="col-auto">
             <div class="card kpi-card px-3 py-2" style="border-color: #20c997;">

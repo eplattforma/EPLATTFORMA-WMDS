@@ -9,7 +9,7 @@ from datetime import date, datetime, time as dt_time, timedelta, timezone
 from app import db
 from models import (
     PSCustomer, CrmCustomerProfile, Setting,
-    MagentoCustomerLastLoginCurrent, DwInvoiceHeader,
+    MagentoCustomerLastLoginCurrent, DwInvoiceHeader, DwInvoiceLine,
     CrmAbandonedCartState, CrmTask, CrmInteractionLog,
     CustomerDeliverySlot, PostalCodeLookup,
     CRMCustomerOpenOrders, PSPendingOrderHeader,
@@ -183,6 +183,20 @@ def customer_slot_dashboard():
         .subquery()
     )
 
+    gp_sq = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365.label("cc"),
+            func.coalesce(func.sum(DwInvoiceLine.gross_profit), 0).label("gp_4w"),
+            func.coalesce(func.sum(DwInvoiceLine.line_net_value), 0).label("rev_4w"),
+        )
+        .join(DwInvoiceLine, DwInvoiceLine.invoice_no_365 == DwInvoiceHeader.invoice_no_365)
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
+        .filter(~DwInvoiceHeader.invoice_type.like('%RETURN%'))
+        .filter(DwInvoiceLine.gross_profit.isnot(None))
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .subquery()
+    )
+
     resolved_district = func.coalesce(
         CrmCustomerProfile.district,
         PostalCodeLookup.district,
@@ -302,6 +316,8 @@ def customer_slot_dashboard():
             ).label("cart_count"),
             func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
             func.coalesce(func.sum(sales_sq.c.value_4w), 0).label("total_value_4w"),
+            func.coalesce(func.sum(gp_sq.c.gp_4w), 0).label("total_gp_4w"),
+            func.coalesce(func.sum(gp_sq.c.rev_4w), 0).label("total_rev_4w"),
         )
         .select_from(filtered_codes_sq)
         .outerjoin(
@@ -315,6 +331,10 @@ def customer_slot_dashboard():
         .outerjoin(
             sales_sq,
             sales_sq.c.cc == filtered_codes_sq.c.customer_code_365
+        )
+        .outerjoin(
+            gp_sq,
+            gp_sq.c.cc == filtered_codes_sq.c.customer_code_365
         )
         .one()
     )
@@ -596,6 +616,10 @@ def customer_slot_dashboard():
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
         kpi_total_value_4w=float(kpi_row.total_value_4w or 0),
+        kpi_gp_pct_4w=(
+            round(float(kpi_row.total_gp_4w) / float(kpi_row.total_rev_4w) * 100, 1)
+            if kpi_row.total_rev_4w else None
+        ),
         offer_kpi=offer_kpi,
         tier_meta=TIER_META,
         kpi_tier_summary=kpi_tier_summary,
