@@ -493,20 +493,28 @@
   {% endif %}
 
   {# ── Ready to pick queue ───────────────────────────────────────────────── #}
-  <h4 class="mt-4">
-    <i class="fas fa-check-circle text-success me-1"></i>Ready to pick
-    <span class="badge bg-success">{{ sequenced|length }}</span>
+  <h4 class="mt-4 d-flex align-items-center flex-wrap gap-2">
+    <span><i class="fas fa-check-circle text-success me-1"></i>Ready to pick
+    <span class="badge bg-success">{{ sequenced|length }}</span></span>
+    {% if sequenced %}
+    <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="View mode">
+      <button type="button" class="btn btn-outline-secondary active" id="rtpViewStopBtn"
+              onclick="setRtpView('stop')"><i class="fas fa-route me-1"></i>By stop</button>
+      <button type="button" class="btn btn-outline-secondary" id="rtpViewItemBtn"
+              onclick="setRtpView('item')"><i class="fas fa-layer-group me-1"></i>By item</button>
+    </div>
+    {% endif %}
   </h4>
   {% if not sequenced %}
     <div class="alert alert-info">
       No items ready yet — click <strong>Prepare Cooler Route</strong> above to load the pick list.
     </div>
   {% else %}
-    <div class="table-responsive">
+    <div class="table-responsive" id="rtpViewStop">
     <table class="table table-sm align-middle">
       <thead class="table-light">
         <tr>
-          <th>Stop</th><th>Customer</th><th>Invoice</th><th>Item</th>
+          <th>Stop</th><th>Customer</th><th>Invoice</th><th>Item</th><th>Description</th>
           <th class="text-end">Qty</th><th>Status</th><th>Action</th>
         </tr>
       </thead>
@@ -517,6 +525,7 @@
             <td>{{ q.customer_name or q.customer_code or '-' }}</td>
             <td>{{ q.invoice_no }}</td>
             <td><strong>{{ q.item_code }}</strong></td>
+            <td class="text-muted">{{ q.item_name or '' }}</td>
             <td class="text-end">{{ q.expected_qty|int }}</td>
             <td>
               {% if q.status == 'pending' %}<span class="badge bg-secondary">Pending</span>
@@ -547,6 +556,68 @@
       </tbody>
     </table>
     </div>
+
+    {# ── Grouped-by-item view (hidden by default) ───────────────────────── #}
+    <div id="rtpViewItem" style="display:none;">
+      {% for item_code, rows in sequenced|groupby('item_code') %}
+        {% set rows = rows|list %}
+        <div class="card mb-3">
+          <div class="card-header py-2 d-flex align-items-center flex-wrap gap-2 bg-light">
+            <strong>{{ item_code }}</strong>
+            <span class="text-muted">{{ rows[0].item_name or '' }}</span>
+            <span class="badge bg-primary ms-auto">Total qty: {{ rows|sum(attribute='expected_qty')|int }}</span>
+            <span class="badge bg-secondary">{{ rows|length }} stop(s)</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Stop</th><th>Customer</th><th>Invoice</th>
+                  <th class="text-end">Qty</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for q in rows %}
+                  <tr class="{{ 'table-success' if q.status == 'picked' else '' }}">
+                    <td>{{ q.delivery_sequence|int }}</td>
+                    <td>{{ q.customer_name or q.customer_code or '-' }}</td>
+                    <td>{{ q.invoice_no }}</td>
+                    <td class="text-end">{{ q.expected_qty|int }}</td>
+                    <td>
+                      {% if q.status == 'pending' %}<span class="badge bg-secondary">Pending</span>
+                      {% elif q.status == 'picked' %}<span class="badge bg-success">Picked</span>
+                      {% elif q.status == 'exception' %}<span class="badge bg-danger">Exception</span>
+                      {% else %}<span class="badge bg-info text-dark">{{ q.status }}</span>{% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <script>
+      function setRtpView(mode) {
+        var stop = document.getElementById('rtpViewStop');
+        var item = document.getElementById('rtpViewItem');
+        var stopBtn = document.getElementById('rtpViewStopBtn');
+        var itemBtn = document.getElementById('rtpViewItemBtn');
+        if (!stop || !item) return;
+        if (mode === 'item') {
+          stop.style.display = 'none';
+          item.style.display = '';
+          itemBtn.classList.add('active');
+          stopBtn.classList.remove('active');
+        } else {
+          stop.style.display = '';
+          item.style.display = 'none';
+          stopBtn.classList.add('active');
+          itemBtn.classList.remove('active');
+        }
+      }
+    </script>
   {% endif %}
 
   {# ── Awaiting preparation queue ────────────────────────────────────────── #}
