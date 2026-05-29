@@ -558,7 +558,7 @@ function refreshAllData() {
                                 <i class="fas fa-comment-dots me-1"></i>Comm
                             </a>
                             {% if cockpit_enabled %}
-                            <a href="{{ url_for('cockpit.cockpit', customer_code=r.customer_code_365) }}"
+                            <a href="{{ url_for('cockpit.cockpit', customer_code=r.customer_code_365, return_to=request.url) }}"
                                class="btn btn-outline-info action-btn" title="Open AM Cockpit for {{ r.customer_name }}"
                                target="_blank">
                                 <i class="fas fa-chart-line"></i>

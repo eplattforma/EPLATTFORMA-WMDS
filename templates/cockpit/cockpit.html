@@ -8,7 +8,12 @@
   <div class="cockpit-header card mb-3">
     <div class="card-body py-2">
       <div class="d-flex flex-wrap align-items-center gap-3">
+        {% set _return_to = request.args.get('return_to') %}
+        {% if _return_to %}
+        <a href="{{ _return_to }}" class="btn btn-sm btn-outline-secondary">← EP SmartGrowth</a>
+        {% else %}
         <a href="/cockpit/" class="btn btn-sm btn-outline-secondary">← Search</a>
+        {% endif %}
         {% if has_permission('customers.use_cockpit') %}
           <a href="/cockpit/login-insights" class="btn btn-sm btn-outline-secondary">
             <i class="fas fa-chart-bar me-1"></i>Login Insights
