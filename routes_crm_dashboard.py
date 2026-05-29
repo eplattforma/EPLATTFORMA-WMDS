@@ -301,6 +301,7 @@ def customer_slot_dashboard():
                 case((CrmAbandonedCartState.has_abandoned_cart.is_(True), 1), else_=None)
             ).label("cart_count"),
             func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
+            func.coalesce(func.sum(sales_sq.c.value_4w), 0).label("total_value_4w"),
         )
         .select_from(filtered_codes_sq)
         .outerjoin(
@@ -310,6 +311,10 @@ def customer_slot_dashboard():
         .outerjoin(
             CRMCustomerOpenOrders,
             CRMCustomerOpenOrders.customer_code_365 == filtered_codes_sq.c.customer_code_365
+        )
+        .outerjoin(
+            sales_sq,
+            sales_sq.c.cc == filtered_codes_sq.c.customer_code_365
         )
         .one()
     )
@@ -590,6 +595,7 @@ def customer_slot_dashboard():
         kpi_done_count=kpi_done_count,
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
+        kpi_total_value_4w=float(kpi_row.total_value_4w or 0),
         offer_kpi=offer_kpi,
         tier_meta=TIER_META,
         kpi_tier_summary=kpi_tier_summary,

@@ -388,6 +388,12 @@ function refreshAllData() {
                 <div class="fw-bold fs-5" style="color:#6f42c1;">€{{ "{:,.0f}".format(kpi_total_open_amount) }}</div>
             </div>
         </div>
+        <div class="col-auto">
+            <div class="card px-3 py-2 border-primary">
+                <div class="small text-muted">Value 4w</div>
+                <div class="fw-bold fs-5 text-primary">€{{ "{:,.0f}".format(kpi_total_value_4w) }}</div>
+            </div>
+        </div>
         {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
         <div class="col-auto">
             <div class="card kpi-card px-3 py-2" style="border-color: #20c997;">
