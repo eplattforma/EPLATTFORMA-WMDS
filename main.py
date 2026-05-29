@@ -545,6 +545,12 @@ if _db_available:
         logging.error(f"Phase 7 deferred batch schema updater failed: {e}")
 
     try:
+        from update_cooler_schema import update_cooler_schema
+        update_cooler_schema()
+    except Exception as e:
+        logging.error(f"Error updating cooler schema: {e}")
+
+    try:
         from update_batch_number_schema import update_database_schema as update_batch_number_schema
         update_batch_number_schema()
     except Exception as e:

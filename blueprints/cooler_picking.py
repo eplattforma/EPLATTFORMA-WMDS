@@ -213,6 +213,19 @@ def _is_cooler_route_pack_complete(route_id, delivery_date):
     if pending > 0:
         return False
 
+    # 2b. Planned rows (pre-assigned but not yet physically picked)
+    planned = db.session.execute(
+        text(
+            "SELECT COUNT(*) FROM cooler_box_items cbi "
+            "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
+            "  AND cbi.status = 'planned'"
+        ),
+        {"rid": rid, "dd": dd},
+    ).scalar() or 0
+    if planned > 0:
+        return False
+
     # 3. Picked rows that are not yet in a box
     unboxed = db.session.execute(
         text(
@@ -573,6 +586,14 @@ def route_picking(route_id, delivery_date):
         _box["fill_pct"] = int(_b[13]) if _b[13] is not None else None
         boxes.append(_box)
 
+    # LIFO display order: boxes covering later stops are shown first
+    # so the picker packs last-delivery items into the box first.
+    boxes_lifo = sorted(
+        boxes,
+        key=lambda b: (b["last_stop_sequence"] or 0),
+        reverse=True,
+    )
+
     # Pre-fetch box items for the card display so the template can show
     # a collapsible item list without extra AJAX calls.
     box_items_by_box = {}
@@ -581,10 +602,11 @@ def route_picking(route_id, delivery_date):
         _item_rows = db.session.execute(
             text(
                 "SELECT cbi.cooler_box_id, cbi.invoice_no, cbi.item_code, cbi.item_name, "
-                "       cbi.expected_qty, cbi.customer_name, cbi.delivery_sequence "
+                "       cbi.expected_qty, cbi.customer_name, cbi.delivery_sequence, "
+                "       cbi.id, cbi.status "
                 "FROM cooler_box_items cbi "
                 "WHERE cbi.cooler_box_id = ANY(:bids) "
-                "ORDER BY cbi.cooler_box_id, cbi.delivery_sequence NULLS LAST, cbi.invoice_no"
+                "ORDER BY cbi.cooler_box_id, cbi.delivery_sequence DESC NULLS LAST, cbi.invoice_no"
             ),
             {"bids": _box_ids},
         ).fetchall()
@@ -596,6 +618,8 @@ def route_picking(route_id, delivery_date):
                 "qty": float(_r[4]) if _r[4] is not None else 0,
                 "customer_name": _r[5] or "",
                 "delivery_sequence": _r[6],
+                "cbi_id": _r[7],
+                "status": _r[8] or "planned",
             })
 
     # Phase 6 — surface estimator on the picking screen so the
@@ -622,15 +646,15 @@ def route_picking(route_id, delivery_date):
     except Exception:
         box_types = []
 
-    # Count picked items that are not yet assigned to any box — drives the
-    # "Generate Box Plan" card visibility so it only appears when useful.
+    # Count items (pending or picked) not yet assigned to any box — drives
+    # the "Plan Cooler Boxes" card visibility so it only appears when useful.
     picked_unboxed_count = db.session.execute(
         text(
             "SELECT COUNT(*) FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
             "JOIN shipments s ON s.id = i.route_id "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status = 'picked' "
+            "  AND bpq.status IN ('picked', 'pending') "
             "  AND i.route_id = :rid "
             "  AND s.delivery_date = :dd "
             "  AND NOT EXISTS ("
@@ -727,7 +751,7 @@ def route_picking(route_id, delivery_date):
         route_id=route_id, delivery_date=delivery_date,
         queue=queue, sequenced=sequenced, unsequenced=unsequenced,
         cooler_session=cooler_session, estimate=estimate,
-        boxes=boxes, open_boxes=open_boxes,
+        boxes=boxes, boxes_lifo=boxes_lifo, open_boxes=open_boxes,
         box_types=box_types,
         box_items_by_box=box_items_by_box,
         picking_phase=picking_phase,
@@ -1148,9 +1172,9 @@ def confirm_box_plan(route_id, delivery_date):
                            invoice_no=item.get("invoice_no"))
                     skipped += 1
                     continue
-                if qcheck[0] != "picked":
+                if qcheck[0] not in ("picked", "pending"):
                     _audit("cooler.confirm_plan_skip",
-                           f"queue #{qid} status={qcheck[0]} (not picked) — skipped",
+                           f"queue #{qid} status={qcheck[0]} (not plannable) — skipped",
                            invoice_no=item.get("invoice_no"))
                     skipped += 1
                     continue
@@ -1161,6 +1185,13 @@ def confirm_box_plan(route_id, delivery_date):
                     skipped += 1
                     continue
 
+                # Items already picked keep status='picked'.
+                # Items not yet picked are pre-assigned as status='planned'.
+                item_status = qcheck[0]   # 'picked' or 'pending'
+                _now_or_none = now if item_status == "picked" else None
+                _who_or_none = _username() if item_status == "picked" else None
+                _qty = item["qty"] if item_status == "picked" else None
+
                 db.session.execute(
                     text(
                         "INSERT INTO cooler_box_items "
@@ -1169,7 +1200,7 @@ def confirm_box_plan(route_id, delivery_date):
                         " expected_qty, picked_qty, picked_by, picked_at, "
                         " queue_item_id, status, created_at, updated_at) "
                         "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
-                        "        :exp, :pq, :who, :now, :qid, 'picked', :now, :now)"
+                        "        :exp, :pq, :who, :now, :qid, :status, :created, :created)"
                     ),
                     {
                         "bid": box_id,
@@ -1181,10 +1212,12 @@ def confirm_box_plan(route_id, delivery_date):
                         "ic": item["item_code"],
                         "iname": item["item_name"],
                         "exp": item["qty"],
-                        "pq": item["qty"],
-                        "who": _username(),
-                        "now": now,
+                        "pq": _qty,
+                        "who": _who_or_none,
+                        "now": _now_or_none,
                         "qid": qid,
+                        "status": item_status,
+                        "created": now,
                     },
                 )
                 items_inserted += 1
@@ -1468,6 +1501,99 @@ def box_remove_item(box_id):
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "queue_item_id": queue_item_id,
                     "status": "picked"}), 200
+
+
+@cooler_bp.route("/box-item/<int:cbi_id>/move-to-box", methods=["POST"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def move_box_item(cbi_id):
+    """Move a cooler_box_items row from its current box to a different open box.
+
+    Works for both 'planned' and 'picked' items.
+    Both the source and destination boxes must be open.
+    """
+    data = request.get_json(silent=True) or request.form
+    try:
+        dest_box_id = int(data.get("destination_box_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "destination_box_id is required and must be int"}), 400
+
+    cbi = db.session.execute(
+        text(
+            "SELECT cbi.id, cbi.cooler_box_id, cbi.invoice_no, cbi.item_code, "
+            "       cbi.status, cb.route_id, cb.delivery_date, cb.status AS box_status "
+            "FROM cooler_box_items cbi "
+            "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "WHERE cbi.id = :id"
+        ),
+        {"id": cbi_id},
+    ).fetchone()
+    if cbi is None:
+        return jsonify({"error": "Item not found"}), 404
+    if cbi[7] != "open":
+        return jsonify({"error": f"Source box is {cbi[7]}; can only move items from open boxes."}), 400
+
+    dest = db.session.execute(
+        text(
+            "SELECT id, route_id, delivery_date, status "
+            "FROM cooler_boxes WHERE id = :id"
+        ),
+        {"id": dest_box_id},
+    ).fetchone()
+    if dest is None:
+        return jsonify({"error": "Destination box not found"}), 404
+    if dest[3] != "open":
+        return jsonify({"error": f"Destination box is {dest[3]}; can only move to open boxes."}), 400
+
+    if int(dest[1]) != int(cbi[5]) or str(dest[2]) != str(cbi[6]):
+        return jsonify({"error": "Cannot move items between routes or dates."}), 400
+
+    if dest[0] == cbi[1]:
+        return jsonify({"error": "Item is already in that box."}), 400
+
+    source_box_id = cbi[1]
+    now = get_utc_now()
+
+    db.session.execute(
+        text(
+            "UPDATE cooler_box_items "
+            "SET cooler_box_id = :dest, updated_at = :now "
+            "WHERE id = :cbi_id"
+        ),
+        {"dest": dest_box_id, "now": now, "cbi_id": cbi_id},
+    )
+
+    for box_id_to_update in (source_box_id, dest_box_id):
+        recalc = db.session.execute(
+            text(
+                "SELECT MIN(delivery_sequence), MAX(delivery_sequence) "
+                "FROM cooler_box_items WHERE cooler_box_id = :bid"
+            ),
+            {"bid": box_id_to_update},
+        ).fetchone()
+        db.session.execute(
+            text(
+                "UPDATE cooler_boxes "
+                "SET first_stop_sequence = :fs, last_stop_sequence = :ls "
+                "WHERE id = :bid"
+            ),
+            {"fs": recalc[0], "ls": recalc[1], "bid": box_id_to_update},
+        )
+
+    _audit(
+        "cooler.item_moved",
+        f"cooler_box_items #{cbi_id} moved from box #{source_box_id} "
+        f"to box #{dest_box_id} ({cbi[4]}) by {_username()}",
+        invoice_no=cbi[2], item_code=cbi[3],
+    )
+    db.session.commit()
+    return jsonify({
+        "cbi_id": cbi_id,
+        "from_box_id": source_box_id,
+        "to_box_id": dest_box_id,
+    }), 200
 
 
 @cooler_bp.route("/box/<int:box_id>/close", methods=["POST"])
@@ -1805,6 +1931,29 @@ def queue_pick(queue_item_id):
             current_app.logger.warning(
                 "cooler.queue_pick: promotion check failed for %s: %s",
                 _invoice_no, _exc,
+            )
+
+        # If this item was pre-assigned to a cooler box as 'planned',
+        # upgrade it to 'picked' now that it has been physically collected.
+        try:
+            qty_req = float(row[3]) if row[3] is not None else None
+            db.session.execute(
+                text(
+                    "UPDATE cooler_box_items "
+                    "SET status = 'picked', "
+                    "    picked_qty = :qty, "
+                    "    picked_by  = :who, "
+                    "    picked_at  = :now, "
+                    "    updated_at = :now "
+                    "WHERE queue_item_id = :qid "
+                    "  AND status = 'planned'"
+                ),
+                {"qid": queue_item_id, "who": _username(), "now": now, "qty": qty_req},
+            )
+        except Exception as _upgrade_err:
+            current_app.logger.warning(
+                "cooler.queue_pick: could not upgrade planned box row for queue %s: %s",
+                queue_item_id, _upgrade_err,
             )
 
         db.session.commit()

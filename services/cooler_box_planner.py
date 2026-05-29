@@ -100,7 +100,7 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
             "LEFT JOIN invoice_items ii "
             "       ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status = 'picked' "
+            "  AND bpq.status IN ('pending', 'picked') "
             "  AND i.route_id = :rid "
             "  AND s.delivery_date = :dd "
             "  AND NOT EXISTS ("

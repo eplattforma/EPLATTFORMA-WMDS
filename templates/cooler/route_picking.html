@@ -127,7 +127,7 @@
   <div class="alert alert-primary d-flex align-items-center gap-3 mb-4">
     <i class="fas fa-arrow-circle-right fa-lg flex-shrink-0"></i>
     <div class="flex-grow-1">
-      <strong>Next step: Generate Box Plan</strong> — {{ picked_unboxed_count }} picked cooler item(s) are not yet assigned to boxes.
+      <strong>Next step: Plan Cooler Boxes</strong> — {{ picked_unboxed_count }} cooler item(s) are not yet assigned to boxes.
     </div>
     <a href="#boxPlanCard" class="btn btn-primary btn-sm text-nowrap flex-shrink-0">
       <i class="fas fa-layer-group me-1"></i>Go to Box Plan
@@ -165,11 +165,11 @@
   {% if picked_unboxed_count > 0 and has_permission('cooler.manage_boxes') %}
   <div class="card mb-4 border-primary shadow-sm" id="boxPlanCard">
     <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
-      <span><i class="fas fa-layer-group me-2"></i>Assign Picked Items to Cooler Boxes</span>
+      <span><i class="fas fa-layer-group me-2"></i>Plan Cooler Boxes</span>
       <span class="badge bg-light text-primary ms-2">{{ picked_unboxed_count }} item(s) not yet assigned</span>
     </div>
     <div class="card-body">
-      <p class="text-muted mb-3">{{ picked_unboxed_count }} picked cooler item(s) are not yet assigned to boxes. Generate a box plan to see the suggested arrangement, then confirm to create the boxes.</p>
+      <p class="text-muted mb-3">{{ picked_unboxed_count }} cooler item(s) are not yet assigned to boxes. Generate a box plan to see the suggested arrangement, then confirm to create the boxes.</p>
       <div class="row g-3 align-items-end mb-3">
         <div class="col-md-4">
           <label class="form-label fw-bold small">Box type</label>
@@ -182,7 +182,7 @@
         </div>
         <div class="col-auto">
           <button type="button" class="btn btn-primary" id="btnGeneratePlan">
-            <i class="fas fa-magic me-1"></i>Generate Box Plan
+            <i class="fas fa-magic me-1"></i>Plan Cooler Boxes
           </button>
         </div>
       </div>
@@ -439,7 +439,7 @@
           <strong>All {{ picking_phase.total_count }} item(s) physically picked.</strong>
           {% if picking_phase.batch_name %} (batch <code>{{ picking_phase.batch_name }}</code>){% endif %}
           {% if picked_unboxed_count > 0 %}
-            — use <strong>Generate Box Plan</strong> to pack them.
+            — use <strong>Plan Cooler Boxes</strong> to pack them.
           {% endif %}
         </div>
       </div>
@@ -490,6 +490,118 @@
         </a>
       {% endif %}
     </div>
+  {% endif %}
+
+  {# ── Box-by-box picking (LIFO order) ──────────────────────────────────── #}
+  {% if boxes_lifo %}
+  <div class="mb-4">
+    <h5 class="mb-3">
+      <i class="fas fa-boxes me-2"></i>Cooler Boxes
+      <span class="badge bg-secondary ms-2">{{ boxes_lifo|length }} box(es)</span>
+      <small class="text-muted ms-2" style="font-size:0.75rem">
+        Last delivery first — pick in this order
+      </small>
+    </h5>
+
+    {% for box in boxes_lifo %}
+    {% set b_items = box_items_by_box.get(box.id, []) %}
+    <div class="card mb-3 border-{% if box.status == 'closed' %}success{% else %}secondary{% endif %}">
+
+      <div class="card-header d-flex justify-content-between align-items-center
+                  {% if box.status == 'closed' %}bg-success bg-opacity-10{% endif %}">
+        <div>
+          <strong>Box #{{ box.box_no }}</strong>
+          {% if box.box_type_name %}
+            <span class="badge bg-secondary ms-1">{{ box.box_type_name }}</span>
+          {% endif %}
+          {% if box.first_stop_sequence is not none %}
+            <span class="text-muted ms-2" style="font-size:0.8rem">
+              Stops {{ box.first_stop_sequence|int }}–{{ box.last_stop_sequence|int }}
+            </span>
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge {% if box.status == 'closed' %}bg-success{% elif box.status == 'open' %}bg-primary{% else %}bg-secondary{% endif %}">
+            {{ box.status|upper }}
+          </span>
+          <span class="text-muted small">{{ b_items|length }} item(s)</span>
+        </div>
+      </div>
+
+      {% if b_items %}
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0 align-middle">
+          <thead class="table-secondary">
+            <tr>
+              <th>Stop</th>
+              <th>Customer</th>
+              <th>Item</th>
+              <th class="text-end">Qty</th>
+              <th>Status</th>
+              {% if box.status == 'open' and has_permission('cooler.manage_boxes') %}
+              <th></th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in b_items %}
+            <tr class="{{ 'opacity-75' if item.status == 'picked' else '' }}">
+              <td class="text-muted small">
+                {% if item.delivery_sequence is not none %}{{ item.delivery_sequence|int }}{% else %}—{% endif %}
+              </td>
+              <td class="small">{{ item.customer_name }}</td>
+              <td>
+                <div class="fw-bold small">{{ item.item_code }}</div>
+                <div class="text-secondary" style="font-size:0.75rem">{{ item.item_name }}</div>
+              </td>
+              <td class="text-end">{{ item.qty|int }}</td>
+              <td>
+                {% if item.status == 'picked' %}
+                  <span class="badge bg-success"><i class="fas fa-check me-1"></i>Picked</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Planned</span>
+                {% endif %}
+              </td>
+              {% if box.status == 'open' and has_permission('cooler.manage_boxes') %}
+              <td>
+                {% set other_boxes = boxes_lifo | selectattr('status', 'equalto', 'open') | selectattr('id', 'ne', box.id) | list %}
+                {% if other_boxes and item.cbi_id %}
+                <div class="dropdown">
+                  <button class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                          type="button" data-bs-toggle="dropdown">
+                    Move
+                  </button>
+                  <ul class="dropdown-menu">
+                    {% for ob in other_boxes %}
+                    <li>
+                      <button class="dropdown-item btn-move-item"
+                              data-cbi-id="{{ item.cbi_id }}"
+                              data-dest-box-id="{{ ob.id }}"
+                              data-dest-box-no="{{ ob.box_no }}">
+                        → Box #{{ ob.box_no }}
+                        {% if ob.first_stop_sequence is not none %}
+                          (stops {{ ob.first_stop_sequence|int }}–{{ ob.last_stop_sequence|int }})
+                        {% endif %}
+                      </button>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-muted small">No items assigned to this box yet.</div>
+      {% endif %}
+
+    </div>
+    {% endfor %}
+  </div>
   {% endif %}
 
   {# ── Ready to pick queue ───────────────────────────────────────────────── #}
@@ -852,7 +964,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         btnGenerate.disabled = false;
-        btnGenerate.innerHTML = '<i class="fas fa-magic me-1"></i>Generate Box Plan';
+        btnGenerate.innerHTML = '<i class="fas fa-magic me-1"></i>Plan Cooler Boxes';
         if (!data.ok) {
           errorArea.classList.remove('d-none');
           document.getElementById('planErrorMsg').textContent = data.message || 'Error generating plan.';
@@ -869,7 +981,7 @@
       })
       .catch(function () {
         btnGenerate.disabled = false;
-        btnGenerate.innerHTML = '<i class="fas fa-magic me-1"></i>Generate Box Plan';
+        btnGenerate.innerHTML = '<i class="fas fa-magic me-1"></i>Plan Cooler Boxes';
         errorArea.classList.remove('d-none');
         document.getElementById('planErrorMsg').textContent = 'Network error \u2014 please try again.';
       });
@@ -973,5 +1085,36 @@
 })();
 </script>
 {% endif %}
+
+<script>
+// ── Move item between cooler boxes ──────────────────────────────────────────
+document.addEventListener("click", function(e) {
+  var btn = e.target.closest(".btn-move-item");
+  if (!btn) return;
+
+  var cbiId  = btn.dataset.cbiId;
+  var destId = btn.dataset.destBoxId;
+  var destNo = btn.dataset.destBoxNo;
+
+  if (!confirm("Move this item to Box #" + destNo + "?")) return;
+
+  fetch("/cooler/box-item/" + cbiId + "/move-to-box", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({destination_box_id: parseInt(destId)})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      alert("Could not move: " + data.error);
+    } else {
+      window.location.reload();
+    }
+  })
+  .catch(function() {
+    alert("Network error — please try again.");
+  });
+});
+</script>
 
 {% endblock %}
