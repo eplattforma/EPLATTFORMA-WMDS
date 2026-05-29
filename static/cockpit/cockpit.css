@@ -1,9 +1,19 @@
-.cockpit-page .cockpit-header { border-left: 4px solid var(--bs-primary); }
+.cockpit-page .cockpit-header {
+  border-left: 4px solid var(--bs-primary);
+  background-color: var(--bs-card-bg);
+  color: var(--bs-body-color);
+}
+.cockpit-page .cockpit-header .text-muted {
+  color: var(--bs-secondary-color, #adb5bd) !important;
+}
+.cockpit-page .cockpit-header code {
+  color: var(--bs-code-color, #e685b5);
+}
 
 .cockpit-page .kpi-tile { border: 1px solid rgba(0,0,0,.08); }
-.cockpit-page .kpi-label { font-size: .8rem; color: #6c757d; text-transform: uppercase; letter-spacing: .03em; }
+.cockpit-page .kpi-label { font-size: .8rem; color: var(--bs-secondary-color, #adb5bd); text-transform: uppercase; letter-spacing: .03em; }
 .cockpit-page .kpi-value { font-size: 1.6rem; font-weight: 600; line-height: 1.1; }
-.cockpit-page .kpi-suffix { font-size: .9rem; color: #6c757d; font-weight: 400; }
+.cockpit-page .kpi-suffix { font-size: .9rem; color: var(--bs-secondary-color, #adb5bd); font-weight: 400; }
 .cockpit-page .kpi-delta { font-size: .85rem; }
 .cockpit-page .kpi-spark-wrap { position: relative; width: 100%; height: 28px; margin-top: .25rem; }
 .cockpit-page .kpi-spark { display: block; width: 100% !important; height: 100% !important; }
@@ -19,7 +29,11 @@
 
 .cockpit-page .cockpit-tbl-wrap { max-height: 380px; overflow-y: auto; }
 .cockpit-page .cockpit-tbl-wrap table { font-size: .85rem; }
-.cockpit-page .cockpit-tbl-wrap thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+.cockpit-page .cockpit-tbl-wrap thead th {
+  position: sticky; top: 0; z-index: 1;
+  background-color: var(--bs-card-bg);
+  color: var(--bs-body-color);
+}
 
 .cockpit-page .cockpit-timeline { max-height: 380px; overflow-y: auto; }
 .cockpit-page .timeline-icon {
@@ -60,5 +74,7 @@
 .login-insights-page .cockpit-tbl-wrap { max-height: 420px; overflow-y: auto; }
 .login-insights-page .cockpit-tbl-wrap table { font-size: .85rem; }
 .login-insights-page .cockpit-tbl-wrap thead th {
-  position: sticky; top: 0; background: #fff; z-index: 1;
+  position: sticky; top: 0; z-index: 1;
+  background-color: var(--bs-card-bg);
+  color: var(--bs-body-color);
 }

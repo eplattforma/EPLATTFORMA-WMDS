@@ -1,0 +1,53 @@
+€+0
+GP — Volume
+€+0
+GP — Mix
+€+13
+GP check
+0.0%
+Top Items
+Item	Qty	Sales	GP	GM%
+CIG-0010 BORKUM RIFF ORIGINAL 40GR	5	€50	€4	9.1
+CHG-0026 ELMA MASTICHA HIOU SUGAR FREE 13GR 1X20	1	€16	€2	14.8
+CIG-0013 CAPTAIN BLACK REGULAR 42.5GR	2	€20	€2	9.1
+COF-0009 ZERO 0 CINNAMON BOX 32g 1X12	1	€9	€1	13.0
+COF-0010 ZERO 0 LEMON BOX 32g 1X12	1	€9	€1	13.0
+COF-0007 ZERO 0 BUTTER BOX 32g 1X12	1	€9	€1	13.0
+COF-0116 ZERO 0 CHERRY BOX 32g 1X12	1	€9	€1	13.0
+CIG-0012 CAPTAIN BLACK GOLD 42.5GR	0	€0	€0	–
+CIG-0011 BORKUM RIFF RUBY 40GR	0	€0	€0	–
+Category Mix vs Peers
+Category	You	Peers	Gap
+No peer data for this customer.
+Active Offers
+5 live
+unused usage 0.0% · share 0.0% · avg disc 10.3% · margin-risk SKUs 5 · unused (high-disc) 0
+SKU	Rule	Origin	Offer	Disc	GM%	4w sales
+TAC-0001 RIZLA+ 120 FILTER TIPS ULTRA SLIMS 1X20	OFFER - RIZLA FOR GROUP 4 AND 6 EXCLUDED FROM 7% ON SHOPPING CART	€9.20	€8.00	13.0%	7.5	€0
+TAC-0002 RIZLA+ 150 FILTER TIPS SLIMS 1X10	OFFER - RIZLA FOR GROUP 4 AND 6 EXCLUDED FROM 7% ON SHOPPING CART	€5.40	€4.70	13.0%	6.4	€0
+TAC-0003 RIZLA+ 50 MICRON ULTRA THIN PAPERS 1X50	OFFER - RIZLA FOR GROUP 4 AND 6 EXCLUDED FROM 7% ON SHOPPING CART	€13.70	€12.20	10.9%	5.7	€0
+TAC-0010 RIZLA+ 50 LIQUORICE PAPERS 1X50	OFFER - RIZLA FOR GROUP 4 AND 6 EXCLUDED FROM 7% ON SHOPPING CART	€15.00	€13.90	7.3%	6.5	€0
+TAC-0004 RIZLA+ 50 SILVER SUPER THIN PAPERS 1X100	OFFER - RIZLA FOR GROUP 4 AND 6 EXCLUDED FROM 7% ON SHOPPING CART	€21.00	€19.50	7.1%	7.7	€0
+Offer Opportunities
+SKUs bought regularly · no offer yet
+SKU	90d rev	90d GP	Peers offered
+No offer opportunities surfaced.
+White Spacepeer-popular SKUs you're missing
+SKU	Pen	Peer avg
+No peer data available.
+Lapsed Itemsbought before · zero this period
+SKU	Prev qty	Prev sales
+No lapsed items.
+Churn Risk by Category
+recent vs prior 90d
+Category	Prev 90d	Recent 90d	Drop
+No churn risk detected.
+Price Index Outliers
+SKU	Your price	Peer price	Index	Qty
+No peer comparison available.
+Activity Timelinelast 14 days
+2026-05-18T09:46:10.066305+00:00 · Polis
+SMS [OK] LIMITED TIME OFFER http://eppromo.replit.app/o/42WOAn
+Recommended Actions
+Greek Claude advice · gap-to-target focus
+Δημιουργία συμβουλών…

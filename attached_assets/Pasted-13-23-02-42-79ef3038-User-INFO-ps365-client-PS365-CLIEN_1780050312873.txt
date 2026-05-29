@@ -1,0 +1,145 @@
+13:23:02.42
+79ef3038
+User
+INFO:ps365_client:[PS365 CLIENT] Calling POST https://api.powersoft365.com/list_loyalty_invoices_header
+2026-05-29 13:23:02.42
+79ef3038
+User
+INFO:datawarehouse_sync:Fetching invoice headers page 1...
+2026-05-29 13:23:02.42
+79ef3038
+User
+DEBUG:ps365_client:[PS365 CLIENT] Base URL: https://api.powersoft365.com/
+
+2026-05-29 13:23:03.88
+79ef3038
+User
+INFO:ps365_client:[PS365 CLIENT] Response status: 200, Content-Type: application/json; charset=utf-8, Time: 1.5s
+2026-05-29 13:23:03.88
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1: received 95 invoices
+2026-05-29 13:23:03.88
+79ef3038
+User
+INFO:datawarehouse_sync:API response received, parsing...
+2026-05-29 13:23:03.90
+79ef3038
+User
+DEBUG:ps365_client:[PS365 CLIENT] Base URL: https://api.powersoft365.com/
+2026-05-29 13:23:03.90
+79ef3038
+User
+INFO:datawarehouse_sync:Fetching invoice headers page 2...
+2026-05-29 13:23:03.90
+79ef3038
+User
+INFO:ps365_client:[PS365 CLIENT] Token present: True, length: 51
+2026-05-29 13:23:06.94
+79ef3038
+User
+INFO:ps365_client:[PS365 CLIENT] Response status: 200, Content-Type: application/json; charset=utf-8, Time: 2.6s
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:DEBUG Page 1 Invoice 2 response keys: ['invoice']
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1: received 95 invoices with details
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:DEBUG Page 1 Invoice 1 response keys: ['invoice']
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 1 (IN10055533): received 1 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 6 (IN10055528): received 15 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 4 (IN10055531): received 13 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 2 (IN10055530): received 12 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 8 (IN10055526): received 15 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 9 (IN10055525): received 14 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 7 (IN10055527): received 13 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 3 (IN10055532): received 18 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 5 (IN10055529): received 26 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 13 (IN10055521): received 8 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 16 (IN10055519): received 2 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 15 (CR10007638): received 1 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 14 (IN10055520): received 20 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 12 (IN10055522): received 26 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 11 (IN10055523): received 9 lines
+2026-05-29 13:23:06.95
+79ef3038
+User
+INFO:datawarehouse_sync:Page 1 Invoice 10 (IN10055524): received 17 lines
+2026-05-29 13:23:37.56
+cbbbe2d8
+User
+INFO:services.forecast.base_forecast_service:MEDIAN6 collapse fallback for PEN-0063: rate_based=1.9583
+2026-05-29 13:23:41.36
+cbbbe2d8
+User
+INFO:services.payments:PS365 commit SUCCESS for PaymentEntry 825, ref=R1001230
+2026-05-29 13:23:41.47
+cbbbe2d8
+User
+34.156.233.203 - - [29/May/2026:10:23:41 +0000] "POST /api/route-stops/3420/payment HTTP/1.1" 200 244 "https://ep-picking-bro.replit.app/driver/stops/3420/deliver" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/30.0 Chrome/143.0.0.0 Mobile Safari/537.36"
+2026-05-29 13:23:47.56
+cbbbe2d8
+User
+34.14.77.60 - - [29/May/2026:10:23:47 +0000] "POST /driver/stops/3420/deliver HTTP/1.1" 200 173 "https://ep-picking-bro.replit.app/driver/stops/3420/deliver" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/30.0 Chrome/143.0.0.0 Mobile Safari/537.36"
+2026-05-29 13:23:48.39
+cbbbe2d8
+User
+34.76.18.118 - - [29/May/2026:10:23:48 +0000] "GET /driver/receipts/1864/print.png HTTP/1.1" 200 8264 "https://ep-picking-bro.replit.app/driver/stops/3420/deliver" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/30.0 Chrome/143.0.0.0 Mobile Safari/537.36"
+2026-05-29 13:23:59.36
+cbbbe2d8
+User
+INFO:services.forecast.base_forecast_service:MEDIAN6 collapse fallback for COF-0112: rate_based=0.7600
+2026-05-29 13:24:15.96
+cbbbe2d8
+User
+INFO:services.forecast.base_forecast_service:MEDIAN6 collapse fallback for COF-0121: rate_based=0.3750
