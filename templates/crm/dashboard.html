@@ -415,7 +415,6 @@ function refreshAllData() {
                     <option value="value4w" {% if filters.sort == 'value4w' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Value 4w</option>
                     <option value="invoice" {% if filters.sort == 'invoice' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Last Invoice</option>
                     <option value="orders" {% if filters.sort == 'orders' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Orders</option>
-                    <option value="action" {% if filters.sort == 'action' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Action</option>
                 </select>
             </div>
             <button id="btn-refresh-all" class="btn btn-sm btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3); display: flex; flex-direction: column; align-items: center;">
@@ -444,7 +443,6 @@ function refreshAllData() {
                         ('invoice', 'Last Invoice', ''),
                         ('value6m', 'Value 6m', 'value-col'),
                         ('value4w', 'Value 4w', 'value-col'),
-                        ('action', 'Action', ''),
                     ] %}
                     <th class="{{ col_class }} sortable-header" data-sort="{{ col_key }}" onclick="sortTable(this)">
                         {{ col_label }}
@@ -541,17 +539,6 @@ function refreshAllData() {
                         {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
                     </td>
                     <td>
-                        {% if r.next_action == 'CART_NUDGE' %}
-                        <span class="badge bg-warning text-dark badge-action">CART NUDGE</span>
-                        {% elif r.next_action == 'ORDER_REMINDER' %}
-                        <span class="badge bg-info text-dark badge-action">ORDER REMINDER</span>
-                        {% elif r.next_action == 'CALL' %}
-                        <span class="badge bg-danger badge-action">CALL</span>
-                        {% else %}
-                        <span class="badge bg-light text-dark badge-action">OK</span>
-                        {% endif %}
-                    </td>
-                    <td>
                         {% if r.offer_indicator_state == 'none' %}
                         <span class="text-muted" style="font-size:0.72rem;">—</span>
                         {% elif r.offer_indicator_state == 'used' %}
@@ -581,7 +568,7 @@ function refreshAllData() {
                     </td>
                 </tr>
                 <tr class="detail-row">
-                    <td colspan="14">
+                    <td colspan="13">
                         <div class="detail-content">
                             {% if r.district %}
                             <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon" style="color:#6ea8fe"></i> <span class="chip-value">{{ r.district }}</span></span>
