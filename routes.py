@@ -4447,8 +4447,10 @@ def print_invoice(invoice_no):
     for item in all_items:
         if item.item_code in batch_item_codes:
             item.batch_id = True  # Mark as batch-picked
-        # Also track items assigned to batches but not yet picked
-        if item.locked_by_batch_id:
+        # Exclude if currently locked to a batch OR already recorded as batch-picked.
+        # Once a batch completes its locks are cleared (locked_by_batch_id → None),
+        # so we must also check batch_item_codes to avoid double-listing the item.
+        if item.locked_by_batch_id or item.item_code in batch_item_codes:
             batch_assigned_codes.add(item.item_code)
     
     # Process manually picked items (those not assigned to any batch)
