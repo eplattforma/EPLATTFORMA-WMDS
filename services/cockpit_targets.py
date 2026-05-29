@@ -607,6 +607,10 @@ def compute_achievement(customer_code: str, period: str) -> dict:
         actual_row = None
     actual = float(actual_row["actual"] or 0) if actual_row else 0.0
 
+    # For weekly_average the query returns a 28-day total; convert to per-week.
+    if period == "weekly_average":
+        actual = actual / 4.0
+
     state = get_target(customer_code)
     active = state.get("active") or {}
     target_map = {
@@ -622,7 +626,7 @@ def compute_achievement(customer_code: str, period: str) -> dict:
     gap = (target_f - actual) if target_f is not None else None
 
     if period == "weekly_average":
-        run_rate_projection = actual / 4.0
+        run_rate_projection = None  # rolling metric — no period-end projection
         period_total_target = target_f
     elif period == "ytd":
         run_rate_projection = (actual / days_in_period) * 365 if days_in_period else 0
