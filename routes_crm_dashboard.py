@@ -144,7 +144,7 @@ def customer_slot_dashboard():
     if sort_dir not in ("asc", "desc"):
         sort_dir = "asc"
     python_side_sort = sort_col in ("cycle", "action")
-    needs_python_eval = action_only or python_side_sort
+    needs_python_eval = action_only or python_side_sort or bool(tier_filter)
 
     try:
         page = max(int(request.args.get("page", 1)), 1)
@@ -229,6 +229,8 @@ def customer_slot_dashboard():
 
             CRMCustomerOpenOrders.open_order_amount,
             CRMCustomerOpenOrders.open_order_count,
+            func.coalesce(gp_sq.c.gp_4w, 0).label("gp_4w"),
+            func.coalesce(gp_sq.c.rev_4w, 0).label("rev_4w"),
         )
         .filter(PSCustomer.active.is_(True))
         .filter(PSCustomer.deleted_at.is_(None))
@@ -238,6 +240,7 @@ def customer_slot_dashboard():
         .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(CRMCustomerOpenOrders, CRMCustomerOpenOrders.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
+        .outerjoin(gp_sq, gp_sq.c.cc == PSCustomer.customer_code_365)
     )
 
     if search_q:
@@ -513,6 +516,8 @@ def customer_slot_dashboard():
             "r_login_days": r_login_days,
             "value_6m": float(r.value_6m or 0),
             "value_4w": float(r.value_4w or 0),
+            "gp_4w": float(r.gp_4w or 0),
+            "rev_4w": float(r.rev_4w or 0),
             "last_invoice_date": last_invoice_date,
             "r_invoice_days": r_invoice_days,
             "inv_cnt_90d": int(r.inv_cnt_90d or 0),
@@ -576,6 +581,23 @@ def customer_slot_dashboard():
     kpi_action_count = sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION")
     kpi_done_count = sum(1 for row in dashboard_rows if row["done_for_cycle"])
 
+    # Value 4w and GP% — recompute from in-memory rows when all rows are loaded
+    # so the KPIs always match the currently filtered/visible set (incl. tier filter).
+    # When needs_python_eval=False (no tier filter, no Python sort), the SQL kpi_row
+    # values are already correct for the SQL-side filtered set.
+    if needs_python_eval:
+        _v4w = sum(row.get("value_4w", 0) for row in dashboard_rows)
+        _gp = sum(row.get("gp_4w", 0) for row in dashboard_rows)
+        _rev = sum(row.get("rev_4w", 0) for row in dashboard_rows)
+        kpi_total_value_4w = _v4w
+        kpi_gp_pct_4w = round(_gp / _rev * 100, 1) if _rev else None
+    else:
+        kpi_total_value_4w = float(kpi_row.total_value_4w or 0)
+        kpi_gp_pct_4w = (
+            round(float(kpi_row.total_gp_4w) / float(kpi_row.total_rev_4w) * 100, 1)
+            if kpi_row.total_rev_4w else None
+        )
+
     if needs_python_eval:
         total_count = len(dashboard_rows)
         total_pages = max(1, (total_count + page_size - 1) // page_size)
@@ -615,11 +637,8 @@ def customer_slot_dashboard():
         kpi_done_count=kpi_done_count,
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
-        kpi_total_value_4w=float(kpi_row.total_value_4w or 0),
-        kpi_gp_pct_4w=(
-            round(float(kpi_row.total_gp_4w) / float(kpi_row.total_rev_4w) * 100, 1)
-            if kpi_row.total_rev_4w else None
-        ),
+        kpi_total_value_4w=kpi_total_value_4w,
+        kpi_gp_pct_4w=kpi_gp_pct_4w,
         offer_kpi=offer_kpi,
         tier_meta=TIER_META,
         kpi_tier_summary=kpi_tier_summary,
