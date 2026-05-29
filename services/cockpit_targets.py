@@ -641,7 +641,7 @@ def compute_achievement(customer_code: str, period: str) -> dict:
         period_total_target = target_f
 
     on_pace = None
-    if period_total_target:
+    if period_total_target and run_rate_projection is not None:
         on_pace = run_rate_projection >= period_total_target
 
     return {
@@ -650,7 +650,7 @@ def compute_achievement(customer_code: str, period: str) -> dict:
         "target": target_f,
         "pct": round(pct, 1) if pct is not None else None,
         "gap": round(gap, 2) if gap is not None else None,
-        "run_rate_projection": round(run_rate_projection, 2),
+        "run_rate_projection": round(run_rate_projection, 2) if run_rate_projection is not None else None,
         "on_pace": on_pace,
     }
 
