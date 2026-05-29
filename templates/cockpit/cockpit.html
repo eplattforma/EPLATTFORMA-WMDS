@@ -23,7 +23,10 @@
           <div class="text-muted small">
             {% if data.header.classification %}<span class="me-3"><i class="fas fa-tag me-1"></i>{{ data.header.classification }}</span>{% endif %}
             {% if data.header.district %}<span class="me-3"><i class="fas fa-map-marker-alt me-1"></i>{{ data.header.district }}</span>{% endif %}
-            {% if data.header.agent_username %}<span class="me-3"><i class="fas fa-user-tie me-1"></i>{{ data.header.agent_username|display_name }}</span>{% endif %}
+            {% if data.header.agent_display_name %}<span class="me-3"><i class="fas fa-user-tie me-1"></i>{{ data.header.agent_display_name }}
+              <a href="{{ url_for('crm_dashboard.customer_slot_dashboard', agent=data.header.agent_username) }}"
+                 class="ms-2 text-muted small" title="View all customers for this agent">View portfolio</a>
+            </span>{% endif %}
             {% if data.header.reporting_group %}<span class="me-3"><i class="fas fa-people-group me-1"></i>{{ data.header.reporting_group }}</span>{% endif %}
             {% if data.header.last_invoice_days is not none %}
               <span class="me-3"><i class="fas fa-file-invoice me-1"></i>last invoice {{ data.header.last_invoice_days }}d ago</span>

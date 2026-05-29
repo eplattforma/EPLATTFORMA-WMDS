@@ -314,6 +314,17 @@ function refreshAllData() {
                     <label class="form-check-label small" for="cartOnly">Has cart only</label>
                 </div>
             </div>
+            {% if all_agents %}
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Agent</label>
+                <select class="form-select form-select-sm" name="agent" style="min-width:160px">
+                    <option value="">All Agents</option>
+                    {% for ag in all_agents %}
+                    <option value="{{ ag.code }}" {% if filters.agent == ag.code %}selected{% endif %}>{{ ag.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
             <div class="col-auto pt-3">
                 <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
                     <i class="fas fa-redo me-1"></i>Reset
@@ -426,6 +437,7 @@ function refreshAllData() {
                     {% for col_key, col_label, col_class in [
                         ('customer', 'Customer', ''),
                         ('classification', 'Classification', ''),
+                        ('agent', 'Agent', ''),
                         ('orders', 'Orders', 'value-col'),
                         ('cart', 'Cart', ''),
                         ('login', 'Last Login', ''),
@@ -482,6 +494,14 @@ function refreshAllData() {
                                 {% endfor %}
                             </select>
                         </div>
+                    </td>
+                    <td class="small" onclick="event.stopPropagation()">
+                        {% if r.agent_name %}
+                        <a href="?agent={{ r.agent_code }}" class="text-decoration-none text-muted"
+                           title="Filter by {{ r.agent_name }}">{{ r.agent_name }}</a>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
                     </td>
                     <td class="value-col">
                         {% if r.open_order_amount > 0 %}
@@ -545,16 +565,23 @@ function refreshAllData() {
                         {% endif %}
                     </td>
                     <td>
-                        <div onclick="event.stopPropagation()">
+                        <div onclick="event.stopPropagation()" class="d-flex gap-1 align-items-center">
                             <a href="{{ url_for('communications.compose', id=r.customer_code_365, source='crm_dashboard') }}"
                                class="btn btn-outline-primary action-btn" title="Communications">
                                 <i class="fas fa-comment-dots me-1"></i>Comm
                             </a>
+                            {% if cockpit_enabled %}
+                            <a href="{{ url_for('cockpit.cockpit', customer_code=r.customer_code_365) }}"
+                               class="btn btn-outline-info action-btn" title="Open AM Cockpit for {{ r.customer_name }}"
+                               target="_blank">
+                                <i class="fas fa-chart-line"></i>
+                            </a>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
                 <tr class="detail-row">
-                    <td colspan="13">
+                    <td colspan="14">
                         <div class="detail-content">
                             {% if r.district %}
                             <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon" style="color:#6ea8fe"></i> <span class="chip-value">{{ r.district }}</span></span>

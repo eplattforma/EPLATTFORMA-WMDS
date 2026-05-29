@@ -137,6 +137,7 @@ def customer_slot_dashboard():
     has_cart_only = request.args.get("has_cart_only") == "1"
     logged_in_days = request.args.get("logged_in_days")
     search_q = request.args.get("q", "").strip()
+    agent_code = request.args.get("agent", "").strip()
     sort_col = request.args.get("sort", "")
     sort_dir = request.args.get("sort_dir", "asc")
     if sort_dir not in ("asc", "desc"):
@@ -251,6 +252,8 @@ def customer_slot_dashboard():
         ))
     if area:
         q = q.filter(CrmCustomerProfile.area == area)
+    if agent_code:
+        q = q.filter(PSCustomer.agent_code_365 == agent_code)
     if has_cart_only:
         q = q.filter(CrmAbandonedCartState.has_abandoned_cart.is_(True))
     if logged_in_days:
@@ -383,6 +386,23 @@ def customer_slot_dashboard():
         .all()
     )]
 
+    _agent_rows = (
+        db.session.query(PSCustomer.agent_code_365, PSCustomer.agent_name)
+        .filter(
+            PSCustomer.active.is_(True),
+            PSCustomer.deleted_at.is_(None),
+            PSCustomer.agent_code_365.isnot(None),
+            PSCustomer.agent_code_365 != "",
+        )
+        .distinct()
+        .order_by(PSCustomer.agent_name)
+        .all()
+    )
+    all_agents = [
+        {"code": r.agent_code_365, "name": r.agent_name or r.agent_code_365}
+        for r in _agent_rows
+    ]
+
     all_slots = sorted({
         f"{s.dow}-{s.week_code}"
         for s in db.session.query(CustomerDeliverySlot.dow, CustomerDeliverySlot.week_code).distinct().all()
@@ -477,6 +497,8 @@ def customer_slot_dashboard():
             "next_delivery": window_status["next_delivery"].strftime('%a %d-%b') if window_status["next_delivery"] else None,
             "next_delivery_date": window_status["next_delivery"] if window_status["next_delivery"] else None,
             "mobile_number": r.sms_number or r.mobile or "",
+            "agent_code": getattr(r, "agent_code_365", "") or "",
+            "agent_name": getattr(r, "agent_name", "") or "",
         })
         os_data = offer_summary_map.get(r.customer_code_365, {})
         dashboard_rows[-1]["has_special_pricing"] = os_data.get("has_special_pricing", False)
@@ -544,6 +566,7 @@ def customer_slot_dashboard():
         all_districts=all_districts,
         all_areas=all_areas,
         all_slots=all_slots,
+        all_agents=all_agents,
         open_orders_status=open_orders_status,
         page=page,
         page_size=page_size,
@@ -562,6 +585,7 @@ def customer_slot_dashboard():
             "has_cart_only": has_cart_only,
             "logged_in_days": logged_in_days or "",
             "q": search_q,
+            "agent": agent_code,
             "sort": sort_col,
             "sort_dir": sort_dir,
         },
