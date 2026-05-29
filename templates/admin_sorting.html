@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Picking Sort Settings - EPLATTFORMA WMDS System{% endblock %}
+{% block title %}Picking Settings - EPLATTFORMA WMDS System{% endblock %}
 
 {% block head %}
 {{ super() }}
@@ -36,7 +36,7 @@
 <div class="row mb-4">
     <div class="col-md-8">
         <h1 class="display-5">
-            <i class="fas fa-sort me-2"></i>Picking Sort Settings
+            <i class="fas fa-sort me-2"></i>Picking Settings
         </h1>
         <p class="text-muted">Configure how items are sorted during the picking process</p>
     </div>
@@ -49,6 +49,117 @@
         </a>
     </div>
 </div>
+
+{# ── Summer Mode ─────────────────────────────────────────────────────── #}
+<div class="card mb-4 {% if summer_mode_on %}border-warning{% else %}border-secondary{% endif %}">
+  <div class="card-header d-flex align-items-center justify-content-between
+              {% if summer_mode_on %}bg-warning bg-opacity-10{% endif %}">
+    <div>
+      <h5 class="mb-0">
+        <i class="fas fa-sun me-2 {% if summer_mode_on %}text-warning{% else %}text-muted{% endif %}"></i>
+        Summer Mode
+        {% if summer_mode_on %}
+          <span class="badge bg-warning text-dark ms-2">ON</span>
+        {% else %}
+          <span class="badge bg-secondary ms-2">OFF</span>
+        {% endif %}
+      </h5>
+      <div class="text-muted small mt-1">
+        When ON, items tagged as <strong>SENSITIVE</strong> are automatically
+        routed to a separate cooler picking queue and handled with cold-chain care.
+        Turn this on before summer. Turn it off when no longer needed.
+      </div>
+    </div>
+  </div>
+
+  <div class="card-body">
+
+    {# Main toggle — Summer Mode #}
+    <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
+      <div>
+        <div class="fw-bold">Summer Mode (SENSITIVE item routing)</div>
+        <div class="text-muted small">
+          Splits SENSITIVE items into a dedicated cooler picking queue.
+        </div>
+      </div>
+      <form method="POST" action="{{ url_for('admin_sorting_settings') }}" class="ms-3">
+        <input type="hidden" name="flag_key"   value="summer_cooler_mode_enabled">
+        <input type="hidden" name="flag_value" value="{{ 'false' if summer_mode_on else 'true' }}">
+        <input type="hidden" name="next"       value="{{ url_for('admin_sorting_settings') }}">
+        <button type="submit"
+                class="btn btn-sm {% if summer_mode_on %}btn-warning{% else %}btn-outline-secondary{% endif %}">
+          <i class="fas {% if summer_mode_on %}fa-toggle-on{% else %}fa-toggle-off{% endif %} me-1"></i>
+          {{ 'Turn OFF' if summer_mode_on else 'Turn ON' }}
+        </button>
+      </form>
+    </div>
+
+    {# Secondary cooler flags #}
+    <div class="mt-3">
+      <div class="text-muted small fw-bold mb-2 text-uppercase" style="letter-spacing:.5px">
+        Related settings
+      </div>
+
+      {# Cooler Picking UI #}
+      <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
+        <div>
+          <div class="small fw-bold">Cooler Picking UI</div>
+          <div class="text-muted" style="font-size:.8rem">
+            Shows the dedicated cooler picking screen for warehouse staff.
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('admin_sorting_settings') }}">
+          <input type="hidden" name="flag_key"   value="cooler_picking_enabled">
+          <input type="hidden" name="flag_value" value="{{ 'false' if cooler_picking_on else 'true' }}">
+          <input type="hidden" name="next"       value="{{ url_for('admin_sorting_settings') }}">
+          <button type="submit"
+                  class="btn btn-sm {% if cooler_picking_on %}btn-success{% else %}btn-outline-secondary{% endif %}">
+            {{ 'ON' if cooler_picking_on else 'OFF' }}
+          </button>
+        </form>
+      </div>
+
+      {# Cooler Label Printing #}
+      <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
+        <div>
+          <div class="small fw-bold">Cooler Label Printing</div>
+          <div class="text-muted" style="font-size:.8rem">
+            Enables printing of dedicated cooler box labels at pack time.
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('admin_sorting_settings') }}">
+          <input type="hidden" name="flag_key"   value="cooler_labels_enabled">
+          <input type="hidden" name="flag_value" value="{{ 'false' if cooler_labels_on else 'true' }}">
+          <input type="hidden" name="next"       value="{{ url_for('admin_sorting_settings') }}">
+          <button type="submit"
+                  class="btn btn-sm {% if cooler_labels_on %}btn-success{% else %}btn-outline-secondary{% endif %}">
+            {{ 'ON' if cooler_labels_on else 'OFF' }}
+          </button>
+        </form>
+      </div>
+
+      {# Driver Cooler Loading View #}
+      <div class="d-flex align-items-center justify-content-between py-2">
+        <div>
+          <div class="small fw-bold">Driver Cooler Loading View</div>
+          <div class="text-muted" style="font-size:.8rem">
+            Highlights cooler items on the driver's loading screen.
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('admin_sorting_settings') }}">
+          <input type="hidden" name="flag_key"   value="cooler_driver_view_enabled">
+          <input type="hidden" name="flag_value" value="{{ 'false' if cooler_driver_on else 'true' }}">
+          <input type="hidden" name="next"       value="{{ url_for('admin_sorting_settings') }}">
+          <button type="submit"
+                  class="btn btn-sm {% if cooler_driver_on %}btn-success{% else %}btn-outline-secondary{% endif %}">
+            {{ 'ON' if cooler_driver_on else 'OFF' }}
+          </button>
+        </form>
+      </div>
+
+    </div>{# /related settings #}
+  </div>{# /card-body #}
+</div>{# /Summer Mode card #}
 
 <div class="card shadow mb-4">
     <div class="card-header bg-primary">

@@ -2192,6 +2192,11 @@ def admin_sorting_settings():
     }
     
     if request.method == 'POST':
+        # Handle Summer Mode / cooler flag toggles
+        if request.form.get('flag_key'):
+            flag_response = _process_feature_flag_post()
+            if flag_response is not None:
+                return flag_response
         # Build the new sorting configuration from form data
         new_sorting = {}
         
@@ -2249,9 +2254,19 @@ def admin_sorting_settings():
     else:
         manual_priority_str = ''
     
-    return render_template('admin_sorting.html', 
+    # Read current Summer Mode / cooler flag values for display
+    summer_mode_on    = Setting.get(db.session, 'summer_cooler_mode_enabled',  'false') == 'true'
+    cooler_picking_on = Setting.get(db.session, 'cooler_picking_enabled',       'false') == 'true'
+    cooler_labels_on  = Setting.get(db.session, 'cooler_labels_enabled',        'false') == 'true'
+    cooler_driver_on  = Setting.get(db.session, 'cooler_driver_view_enabled',   'false') == 'true'
+
+    return render_template('admin_sorting.html',
                           sorting_config=sorting_config,
-                          manual_priority_str=manual_priority_str)
+                          manual_priority_str=manual_priority_str,
+                          summer_mode_on=summer_mode_on,
+                          cooler_picking_on=cooler_picking_on,
+                          cooler_labels_on=cooler_labels_on,
+                          cooler_driver_on=cooler_driver_on)
 
 FEATURE_FLAG_KEYS = {
     'permissions_enforcement_enabled',
@@ -2468,7 +2483,8 @@ def _process_feature_flag_post():
             f"by {current_user.username}",
             'success',
         )
-    return redirect(url_for('admin_settings'))
+    next_url = request.form.get('next') or url_for('admin_settings')
+    return redirect(next_url)
 
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
