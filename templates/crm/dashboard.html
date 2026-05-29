@@ -325,6 +325,17 @@ function refreshAllData() {
                 </select>
             </div>
             {% endif %}
+            {% if tier_meta %}
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Tier</label>
+                <select class="form-select form-select-sm" name="tier" style="min-width:130px">
+                    <option value="">All Tiers</option>
+                    {% for code, meta in tier_meta.items() %}
+                    <option value="{{ code }}" {% if filters.tier == code %}selected{% endif %}>{{ meta.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
             <div class="col-auto pt-3">
                 <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
                     <i class="fas fa-redo me-1"></i>Reset
@@ -403,6 +414,25 @@ function refreshAllData() {
             </div>
         </div>
         {% endif %}
+        {% if kpi_tier_summary %}
+        <div class="col-auto">
+            <div class="card px-3 py-2 border-secondary">
+                <div class="small text-muted mb-1">By Tier</div>
+                <div class="d-flex gap-2 flex-wrap">
+                    {% for code, meta in tier_meta.items() %}
+                    {% set count = kpi_tier_summary.get(code, 0) %}
+                    {% if count > 0 %}
+                    <a href="?{% if filters.classification %}{% for c in filters.classification %}classification={{ c }}&{% endfor %}{% endif %}{% if filters.agent %}agent={{ filters.agent }}&{% endif %}{% if filters.q %}q={{ filters.q }}&{% endif %}tier={{ code }}"
+                       class="badge bg-{{ meta.color }} text-decoration-none"
+                       title="{{ meta.description }}">
+                        <i class="fas {{ meta.icon }} me-1"></i>{{ meta.label }} {{ count }}
+                    </a>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
         <div class="col-auto d-flex align-items-center gap-2">
             <div class="d-flex align-items-center" style="background: rgba(255,255,255,0.08); border-radius: 6px; padding: 2px 8px; border: 1px solid rgba(255,255,255,0.12);">
                 <i class="fas fa-sort-amount-down me-1" style="font-size: 0.75rem; color: rgba(255,255,255,0.5);"></i>
@@ -437,6 +467,18 @@ function refreshAllData() {
                         ('customer', 'Customer', ''),
                         ('classification', 'Classification', ''),
                         ('agent', 'Agent', ''),
+                    ] %}
+                    <th class="{{ col_class }} sortable-header" data-sort="{{ col_key }}" onclick="sortTable(this)">
+                        {{ col_label }}
+                        {% if filters.sort == col_key %}
+                        <i class="fas {{ 'fa-sort-up' if filters.sort_dir == 'asc' else 'fa-sort-down' }} sort-icon active"></i>
+                        {% else %}
+                        <i class="fas fa-sort sort-icon"></i>
+                        {% endif %}
+                    </th>
+                    {% endfor %}
+                    <th>Tier</th>
+                    {% for col_key, col_label, col_class in [
                         ('orders', 'Orders', 'value-col'),
                         ('cart', 'Cart', ''),
                         ('login', 'Last Login', ''),
@@ -497,6 +539,21 @@ function refreshAllData() {
                         {% if r.agent_name %}
                         <a href="?agent={{ r.agent_code }}" class="text-decoration-none text-muted"
                            title="Filter by {{ r.agent_name }}">{{ r.agent_name }}</a>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td onclick="event.stopPropagation()">
+                        {% if r.tier is defined and r.tier_meta %}
+                        <a href="?{% if filters.agent %}agent={{ filters.agent }}&{% endif %}{% if filters.q %}q={{ filters.q }}&{% endif %}tier={{ r.tier }}"
+                           class="badge bg-{{ r.tier_meta.color }} text-decoration-none"
+                           title="{{ r.tier_meta.description }}"
+                           style="font-size:0.7rem;">
+                            <i class="fas {{ r.tier_meta.icon }} me-1"></i>{{ r.tier_meta.label }}
+                        </a>
+                        {% if r.trend and r.trend_meta %}
+                        <span class="text-{{ r.trend_meta.color }}" style="font-size:0.75rem;" title="{{ r.trend_meta.title }}">{{ r.trend_meta.label }}</span>
+                        {% endif %}
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}
@@ -568,7 +625,7 @@ function refreshAllData() {
                     </td>
                 </tr>
                 <tr class="detail-row">
-                    <td colspan="13">
+                    <td colspan="14">
                         <div class="detail-content">
                             {% if r.district %}
                             <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon" style="color:#6ea8fe"></i> <span class="chip-value">{{ r.district }}</span></span>

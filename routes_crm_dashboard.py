@@ -138,6 +138,7 @@ def customer_slot_dashboard():
     logged_in_days = request.args.get("logged_in_days")
     search_q = request.args.get("q", "").strip()
     agent_code = request.args.get("agent", "").strip()
+    tier_filter = request.args.get("tier", "").strip()
     sort_col = request.args.get("sort", "")
     sort_dir = request.args.get("sort_dir", "asc")
     if sort_dir not in ("asc", "desc"):
@@ -514,6 +515,20 @@ def customer_slot_dashboard():
         dashboard_rows[-1]["offer_sales_share_pct"] = os_data.get("offer_sales_share_pct", 0)
         dashboard_rows[-1]["offer_indicator_state"] = compute_offer_indicator(os_data)
 
+    # Compute customer tiers (pure-Python, no extra DB query)
+    try:
+        from services.crm_tier_service import classify_customers, tier_summary, TIER_META
+        dashboard_rows = classify_customers(dashboard_rows, db.session)
+        kpi_tier_summary = tier_summary(dashboard_rows)
+    except Exception as _te:
+        logger.warning("Tier classification failed: %s", _te)
+        kpi_tier_summary = {}
+        TIER_META = {}
+
+    # Apply tier filter AFTER classification (tier is computed in Python)
+    if tier_filter:
+        dashboard_rows = [r for r in dashboard_rows if r.get("tier") == tier_filter]
+
     if action_only:
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
@@ -576,6 +591,8 @@ def customer_slot_dashboard():
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
         offer_kpi=offer_kpi,
+        tier_meta=TIER_META,
+        kpi_tier_summary=kpi_tier_summary,
         filters={
             "slot": slot or "",
             "classification": classification or [],
@@ -586,6 +603,7 @@ def customer_slot_dashboard():
             "logged_in_days": logged_in_days or "",
             "q": search_q,
             "agent": agent_code,
+            "tier": tier_filter,
             "sort": sort_col,
             "sort_dir": sort_dir,
         },

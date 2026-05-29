@@ -2563,7 +2563,14 @@ def admin_settings():
         import json
         excluded_seasons = request.form.getlist('oos_excluded_seasons')
         save_setting('oos_excluded_seasons', json.dumps(excluded_seasons))
-        
+
+        # Tier threshold settings (from the tier section form)
+        from services.crm_tier_service import DEFAULTS as _TIER_DEFAULTS
+        for _key in _TIER_DEFAULTS.keys():
+            _raw = request.form.get(_key, "").strip()
+            if _raw:
+                save_setting(_key, _raw)
+
         db.session.commit()
         flash('Settings updated successfully', 'success')
         return redirect(url_for('admin_settings'))
@@ -2611,6 +2618,19 @@ def admin_settings():
     except (json.JSONDecodeError, TypeError):
         oos_excluded_seasons = []
     
+    # Tier threshold settings
+    from services.crm_tier_service import DEFAULTS as _TIER_DEFAULTS
+    tier_thresholds = {}
+    for _key, _default in _TIER_DEFAULTS.items():
+        _raw = Setting.get(db.session, _key, None)
+        if _raw is not None:
+            try:
+                tier_thresholds[_key] = float(_raw) if "." in str(_default) else int(_raw)
+            except (ValueError, TypeError):
+                tier_thresholds[_key] = _default
+        else:
+            tier_thresholds[_key] = _default
+
     # Feature Flags — current values + metadata + per-flag risk warnings.
     from services.settings_defaults import PHASE1_DEFAULTS
     feature_flag_values = {}
@@ -2641,6 +2661,7 @@ def admin_settings():
                          bank_beneficiary=bank_beneficiary,
                          all_seasons=all_seasons,
                          oos_excluded_seasons=oos_excluded_seasons,
+                         tier_thresholds=tier_thresholds,
                          feature_flag_metadata=FEATURE_FLAG_METADATA,
                          feature_flag_values=feature_flag_values,
                          high_risk_flag_warnings=HIGH_RISK_FLAG_WARNINGS)
