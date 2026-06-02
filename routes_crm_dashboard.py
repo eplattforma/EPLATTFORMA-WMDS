@@ -165,10 +165,10 @@ def customer_slot_dashboard():
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
             func.coalesce(func.sum(
-                case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_grand), else_=0)
+                case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_sub), else_=0)
             ), 0).label("value_6m"),
             func.coalesce(func.sum(
-                case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+                case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_sub), else_=0)
             ), 0).label("value_4w"),
             func.max(
                 case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
@@ -187,16 +187,13 @@ def customer_slot_dashboard():
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
             func.coalesce(func.sum(DwInvoiceLine.gross_profit), 0).label("gp_4w"),
-            func.coalesce(func.sum(
-                DwInvoiceLine.gross_profit / func.nullif(DwInvoiceLine.gross_margin_pct, 0)
-            ), 0).label("rev_4w"),
+            func.coalesce(func.sum(DwInvoiceLine.line_total_excl), 0).label("rev_4w"),
         )
         .join(DwInvoiceLine, DwInvoiceLine.invoice_no_365 == DwInvoiceHeader.invoice_no_365)
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
         .filter(~DwInvoiceHeader.invoice_type.like('%RETURN%'))
         .filter(DwInvoiceLine.gross_profit.isnot(None))
-        .filter(DwInvoiceLine.gross_margin_pct.isnot(None))
-        .filter(DwInvoiceLine.gross_margin_pct != 0)
+        .filter(DwInvoiceLine.line_total_excl.isnot(None))
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
@@ -701,7 +698,7 @@ def review_ordering():
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
             func.coalesce(func.sum(
-                case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+                case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_sub), else_=0)
             ), 0).label("value_4w"),
             func.max(
                 case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
