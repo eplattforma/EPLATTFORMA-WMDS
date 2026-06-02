@@ -174,7 +174,7 @@
         <div class="col-md-4">
           <label class="form-label fw-bold small">Box type</label>
           <select id="planBoxTypeId" class="form-select">
-            <option value="">— auto choose largest —</option>
+            <option value="">— auto: best fit combination —</option>
             {% for bt in box_types %}
             <option value="{{ bt.id }}">{{ bt.name }} ({{ (bt.internal_volume_cm3 * bt.fill_efficiency)|round|int }} cm³ usable)</option>
             {% endfor %}
