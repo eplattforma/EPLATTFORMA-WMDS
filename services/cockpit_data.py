@@ -1586,7 +1586,7 @@ def get_login_insights_fleet(top_n: int = 500) -> dict:
             l.customer_code_365,
             COALESCE(ps.company_name, l.customer_code_365) AS company_name,
             l.last_login_at,
-            SUM(i.total_grand)  AS recent_invoice_value,
+            SUM(i.total_sub)  AS recent_invoice_value,
             MAX(i.upload_date)  AS last_invoice_date
         FROM magento_customer_last_login_current l
         JOIN ps_customers ps ON ps.customer_code_365 = l.customer_code_365
