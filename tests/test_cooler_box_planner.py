@@ -40,17 +40,37 @@ class TestPlannerLogic:
     mocked DB calls."""
 
     def _plan_with_rows(self, rows, dim_map, box_volume=100_000, box_weight=20.0,
-                        box_type_id=None):
-        """Call the packer after mocking all DB/ORM interactions."""
+                        box_type_id=None, extra_box_types=None):
+        """Call the packer after mocking all DB/ORM interactions.
+
+        box_type_id=None  → auto mode  → cooler_box_types query uses fetchall()
+        box_type_id=<int> → manual mode → cooler_box_types query uses fetchone()
+
+        extra_box_types: list of (id, name, volume, efficiency, max_weight) tuples
+          added to the auto-mode fetchall result (sorted largest first).
+          When None, a single Standard Box is returned.
+        """
         from services import cooler_box_planner as planner
 
-        box_type_row = (1, "Standard Box", box_volume, 0.8, box_weight)
+        single_row = (1, "Standard Box", box_volume, 0.8, box_weight)
+
+        # Auto mode returns all active box types (largest → smallest).
+        auto_rows = ([single_row] + list(extra_box_types or [])
+                     if extra_box_types is None
+                     else list(extra_box_types))
+        if extra_box_types is None:
+            auto_rows = [single_row]
 
         def _execute(sql_obj, params=None):
             sql_text = str(sql_obj).lower() if hasattr(sql_obj, '_text') else str(sql_obj).lower()
             mock_result = MagicMock()
             if "cooler_box_types" in sql_text:
-                mock_result.fetchone.return_value = box_type_row
+                if box_type_id is None:
+                    # Auto mode: new code uses fetchall()
+                    mock_result.fetchall.return_value = auto_rows
+                else:
+                    # Manual mode: new code uses fetchone()
+                    mock_result.fetchone.return_value = single_row
                 return mock_result
             if "ps_items_dw" in sql_text:
                 result_rows = [
@@ -139,6 +159,73 @@ class TestPlannerLogic:
     def test_no_rows_returns_empty(self):
         plan = self._plan_with_rows([], {})
         assert plan == []
+
+    # ── 5b. Smart allocation: smallest fitting box is assigned ───────────
+    def test_auto_mode_assigns_smallest_fitting_box(self):
+        """Auto mode assigns the smallest box type whose capacity fits the
+        accumulated volume — not always the largest."""
+        # Three box types: Large(60L usable), Medium(22L usable), Small(6L usable)
+        # sorted largest → smallest as DB query returns them
+        box_types = [
+            (3, "Large",  60_000, 1.0, None),   # 60 000 cm³ usable
+            (2, "Medium", 22_000, 1.0, None),   # 22 000 cm³ usable
+            (1, "Small",   6_000, 1.0, None),   #  6 000 cm³ usable
+        ]
+        # Single stop, total vol = 5*5*5*10 = 1 250 cm³ × 2 items = 2 500 cm³
+        # → fits Small (6 000 cm³ usable), so Small must be chosen.
+        rows = [
+            _make_row(1, "INV001", "A001", 10, "C1", "Cust1", 1, 1, "Item A"),
+            _make_row(2, "INV001", "B001", 10, "C1", "Cust1", 1, 1, "Item B"),
+        ]
+        dims = {
+            "A001": {"length": 5, "width": 5, "height": 5, "weight": 0.1},
+            "B001": {"length": 5, "width": 5, "height": 5, "weight": 0.1},
+        }
+        plan = self._plan_with_rows(rows, dims, extra_box_types=box_types)
+        assert len(plan) == 1
+        assert plan[0]["box_type_name"] == "Small", (
+            f"Expected Small box (volume fits), got {plan[0]['box_type_name']}"
+        )
+
+    def test_auto_mode_skips_too_small_box(self):
+        """If volume exceeds Small but fits Medium, Medium is assigned."""
+        box_types = [
+            (3, "Large",  60_000, 1.0, None),
+            (2, "Medium", 22_000, 1.0, None),
+            (1, "Small",   6_000, 1.0, None),
+        ]
+        # vol = 10*10*10 * 10 items = 10 000 cm³ → Small(6 000) too small, Medium(22 000) fits
+        rows = [
+            _make_row(1, "INV001", "A001", 10, "C1", "Cust1", 1, 1, "Item A"),
+        ]
+        dims = {
+            "A001": {"length": 10, "width": 10, "height": 10, "weight": 0.5},
+        }
+        plan = self._plan_with_rows(rows, dims, extra_box_types=box_types)
+        assert len(plan) == 1
+        assert plan[0]["box_type_name"] == "Medium", (
+            f"Expected Medium box (Small too small), got {plan[0]['box_type_name']}"
+        )
+
+    def test_auto_mode_uses_large_when_needed(self):
+        """If volume exceeds Medium, Large is assigned."""
+        box_types = [
+            (3, "Large",  60_000, 1.0, None),
+            (2, "Medium", 22_000, 1.0, None),
+            (1, "Small",   6_000, 1.0, None),
+        ]
+        # vol = 30*30*30 * 1 = 27 000 cm³ → Medium(22 000) too small, Large(60 000) fits
+        rows = [
+            _make_row(1, "INV001", "A001", 1, "C1", "Cust1", 1, 1, "Item A"),
+        ]
+        dims = {
+            "A001": {"length": 30, "width": 30, "height": 30, "weight": 2.0},
+        }
+        plan = self._plan_with_rows(rows, dims, extra_box_types=box_types)
+        assert len(plan) == 1
+        assert plan[0]["box_type_name"] == "Large", (
+            f"Expected Large box (Medium too small), got {plan[0]['box_type_name']}"
+        )
 
     # ── 6. COALESCE: qty_picked preferred over qty_required ─────────────
     def test_uses_coalesce_qty(self):
@@ -321,10 +408,19 @@ class TestBoxAssignmentGuards:
 # ---------------------------------------------------------------------------
 
 class TestCoolerRoutePackComplete:
-    """Verify the five-condition completeness check."""
+    """Verify the six-condition completeness check.
+
+    Query order (matches blueprints/cooler_picking.py):
+      0 unsequenced
+      1 pending
+      2 planned  (cooler_box_items with status='planned')
+      3 unboxed
+      4 open_with_items
+      5 duplicates
+    """
 
     def _run(self, counts):
-        """counts = [unsequenced, pending, unboxed, open_with_items, duplicates]"""
+        """counts = [unsequenced, pending, planned, unboxed, open_with_items, duplicates]"""
         from blueprints.cooler_picking import _is_cooler_route_pack_complete
 
         call_count = [0]
@@ -345,22 +441,25 @@ class TestCoolerRoutePackComplete:
             return _is_cooler_route_pack_complete(1, "2026-05-12")
 
     def test_all_zero_returns_true(self):
-        assert self._run([0, 0, 0, 0, 0]) is True
+        assert self._run([0, 0, 0, 0, 0, 0]) is True
 
     def test_unsequenced_blocks_completion(self):
-        assert self._run([1, 0, 0, 0, 0]) is False
+        assert self._run([1, 0, 0, 0, 0, 0]) is False
 
     def test_pending_blocks_completion(self):
-        assert self._run([0, 1, 0, 0, 0]) is False
+        assert self._run([0, 1, 0, 0, 0, 0]) is False
+
+    def test_planned_blocks_completion(self):
+        assert self._run([0, 0, 1, 0, 0, 0]) is False
 
     def test_unboxed_picked_blocks_completion(self):
-        assert self._run([0, 0, 1, 0, 0]) is False
+        assert self._run([0, 0, 0, 1, 0, 0]) is False
 
     def test_open_box_with_items_blocks_completion(self):
-        assert self._run([0, 0, 0, 1, 0]) is False
+        assert self._run([0, 0, 0, 0, 1, 0]) is False
 
     def test_duplicate_queue_item_blocks_completion(self):
-        assert self._run([0, 0, 0, 0, 1]) is False
+        assert self._run([0, 0, 0, 0, 0, 1]) is False
 
 
 # ---------------------------------------------------------------------------
@@ -549,8 +648,9 @@ class TestConfirmBoxPlanSafety:
         assert "already_boxed" in source, (
             "confirm_box_plan must check whether the item is already boxed."
         )
-        assert "status != 'picked'" in source or \
-               "!= \"picked\"" in source or \
-               "!= 'picked'" in source, (
+        assert ("not in" in source and "picked" in source) or \
+               "status != 'picked'" in source or \
+               "!= 'picked'" in source or \
+               "!= \"picked\"" in source, (
             "confirm_box_plan must skip items whose status is no longer 'picked'."
         )

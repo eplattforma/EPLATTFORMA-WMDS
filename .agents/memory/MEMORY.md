@@ -1,0 +1,1 @@
+- [Cooler planner test mock pattern](cooler-planner-test-mock.md) — auto mode uses fetchall(); manual mode uses fetchone(); test helper must set both correctly.
