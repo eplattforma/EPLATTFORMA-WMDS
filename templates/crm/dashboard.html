@@ -496,6 +496,7 @@ function refreshAllData() {
                         {% endif %}
                     </th>
                     {% endfor %}
+                    <th class="text-end">GP% 4w</th>
                     <th>Offers</th>
                     <th>Comm</th>
                 </tr>
@@ -595,6 +596,11 @@ function refreshAllData() {
                     </td>
                     <td class="value-col">
                         {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="text-end">
+                        {% if r.gp_pct_4w is not none %}
+                        <span class="{% if r.gp_pct_4w >= 20 %}text-success{% elif r.gp_pct_4w >= 10 %}text-warning{% else %}text-danger{% endif %}">{{ r.gp_pct_4w }}%</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
                         {% if r.offer_indicator_state == 'none' %}

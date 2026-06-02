@@ -518,6 +518,8 @@ def customer_slot_dashboard():
             "value_4w": float(r.value_4w or 0),
             "gp_4w": float(r.gp_4w or 0),
             "rev_4w": float(r.rev_4w or 0),
+            "gp_pct_4w": (round(float(r.gp_4w) / float(r.rev_4w) * 100, 1)
+                          if r.rev_4w and float(r.rev_4w) > 0 else None),
             "last_invoice_date": last_invoice_date,
             "r_invoice_days": r_invoice_days,
             "inv_cnt_90d": int(r.inv_cnt_90d or 0),
