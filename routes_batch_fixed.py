@@ -1130,12 +1130,9 @@ def skip_batch_item(batch_id):
         # Flash success message
         flash(f'Item {current_item["item_code"]} skipped and will be picked later.', 'info')
         
-        # Redirect to the next item or completion
-        if batch_session.current_item_index >= len(items):
-            flash('All other items have been processed. Please resolve the skipped items.', 'warning')
-            # TODO: Create a dedicated "resolve skipped items" interface
-            return redirect(url_for('batch.batch_picking_view', batch_id=batch_id))
-        
+        # Always redirect to batch_picking_item — that view handles both cases:
+        # more items remaining → shows next item; end of list → re-queues
+        # skipped items, resets index to 0, shows first skipped item.
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
         
     except Exception as e:
