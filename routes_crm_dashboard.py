@@ -187,12 +187,16 @@ def customer_slot_dashboard():
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
             func.coalesce(func.sum(DwInvoiceLine.gross_profit), 0).label("gp_4w"),
-            func.coalesce(func.sum(DwInvoiceLine.line_net_value), 0).label("rev_4w"),
+            func.coalesce(func.sum(
+                DwInvoiceLine.gross_profit / func.nullif(DwInvoiceLine.gross_margin_pct, 0)
+            ), 0).label("rev_4w"),
         )
         .join(DwInvoiceLine, DwInvoiceLine.invoice_no_365 == DwInvoiceHeader.invoice_no_365)
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
         .filter(~DwInvoiceHeader.invoice_type.like('%RETURN%'))
         .filter(DwInvoiceLine.gross_profit.isnot(None))
+        .filter(DwInvoiceLine.gross_margin_pct.isnot(None))
+        .filter(DwInvoiceLine.gross_margin_pct != 0)
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
