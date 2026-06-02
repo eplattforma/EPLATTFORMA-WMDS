@@ -558,8 +558,12 @@
               <td>
                 {% if item.status == 'picked' %}
                   <span class="badge bg-success"><i class="fas fa-check me-1"></i>Picked</span>
+                {% elif item.status == 'pending' %}
+                  <span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Not yet picked</span>
+                {% elif item.status == 'exception' %}
+                  <span class="badge bg-danger"><i class="fas fa-times me-1"></i>Exception — not placed</span>
                 {% else %}
-                  <span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Planned</span>
+                  <span class="badge bg-secondary text-dark"><i class="fas fa-clock me-1"></i>Planned</span>
                 {% endif %}
               </td>
               {% if box.status == 'open' and has_permission('cooler.manage_boxes') %}
@@ -646,7 +650,18 @@
               {% else %}<span class="badge bg-info text-dark">{{ q.status }}</span>{% endif %}
             </td>
             <td>
-              {% if q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
+              {# Show box destination badge first if pre-planned or assigned #}
+              {% if assigned_to_box and q.queue_item_id in assigned_to_box %}
+                <span class="badge bg-primary fs-6 px-3 py-2">
+                  <i class="fas fa-box me-1"></i>Box {{ assigned_to_box[q.queue_item_id] }}
+                </span>
+                {% if q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
+                <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
+                  <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+                  <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-hand-rock me-1"></i>Pick</button>
+                </form>
+                {% endif %}
+              {% elif q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
                 <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
                   <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
                   <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-hand-rock me-1"></i>Pick</button>
@@ -654,11 +669,7 @@
               {% elif q.status == 'pending' and batch_in_progress %}
                 <span class="text-muted small"><i class="fas fa-boxes me-1"></i>via batch</span>
               {% elif q.status == 'picked' %}
-                {% if assigned_to_box and assigned_to_box.get(q.queue_item_id) %}
-                  <span class="badge bg-success"><i class="fas fa-box me-1"></i>Box #{{ assigned_to_box[q.queue_item_id] }}</span>
-                {% else %}
-                  <span class="text-muted small"><i class="fas fa-clock me-1"></i>Unboxed</span>
-                {% endif %}
+                <span class="text-muted small"><i class="fas fa-clock me-1"></i>Unboxed</span>
               {% else %}
                 <span class="text-muted small">—</span>
               {% endif %}

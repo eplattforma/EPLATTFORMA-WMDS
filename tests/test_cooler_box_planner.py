@@ -40,7 +40,7 @@ class TestPlannerLogic:
     mocked DB calls."""
 
     def _plan_with_rows(self, rows, dim_map, box_volume=100_000, box_weight=20.0,
-                        box_type_id=None, extra_box_types=None):
+                        box_type_id=None, extra_box_types=None, include_pending=False):
         """Call the packer after mocking all DB/ORM interactions.
 
         box_type_id=None  → auto mode  → cooler_box_types query uses fetchall()
@@ -90,7 +90,8 @@ class TestPlannerLogic:
 
         with patch.object(planner, "db", mock_db):
             return planner.generate_box_plan(route_id=1, delivery_date="2026-05-12",
-                                             box_type_id=box_type_id)
+                                             box_type_id=box_type_id,
+                                             include_pending=include_pending)
 
     # ── 1. All stops fit in one box ──────────────────────────────────────
     def test_three_stops_fit_one_box(self):
@@ -206,6 +207,16 @@ class TestPlannerLogic:
         assert plan[0]["box_type_name"] == "Medium", (
             f"Expected Medium box (Small too small), got {plan[0]['box_type_name']}"
         )
+
+    def test_include_pending_plans_pending_items(self):
+        """include_pending=True returns a plan even for pending (un-picked) items."""
+        rows = [
+            _make_row(1, "INV001", "A001", 3, "C1", "Cust1", 5, 5, "Item A"),
+        ]
+        dims = {"A001": {"length": 10, "width": 10, "height": 10, "weight": 0.5}}
+        plan = self._plan_with_rows(rows, dims, include_pending=True)
+        assert len(plan) == 1
+        assert plan[0]["stop_max"] == 5
 
     def test_auto_mode_uses_large_when_needed(self):
         """If volume exceeds Medium, Large is assigned."""

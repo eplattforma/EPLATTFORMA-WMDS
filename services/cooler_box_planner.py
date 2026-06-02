@@ -48,8 +48,8 @@ def _make_box_type(row):
     }
 
 
-def generate_box_plan(route_id, delivery_date, box_type_id=None):
-    """Generate a box plan for all picked-but-unboxed cooler items on a route.
+def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending=False):
+    """Generate a box plan for cooler items on a route.
 
     Auto mode (box_type_id=None):
       - Loads all active box types.
@@ -62,6 +62,13 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
 
     Manual mode (box_type_id supplied):
       - Uses only the specified box type (existing behaviour).
+
+    include_pending=False (default):
+      - Only plans for items already picked (status = 'picked').
+    include_pending=True:
+      - Plans for both picked and pending items, using COALESCE qty which
+        falls back to qty_required for unstarted items. Use this for
+        pre-planning boxes before picking starts.
 
     Returns [] when there are no eligible items or no active box types.
     Returns {"ok": False, "plan": [], "message": "..."} when sequencing is missing.
@@ -111,7 +118,12 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
     boundary_capacity = largest["usable_capacity"]
     boundary_weight   = largest["max_weight"] if largest["max_weight"] else None
 
-    # ── Fetch picked-but-unboxed cooler queue rows ───────────────────────────
+    # ── Fetch cooler queue rows (picked, or picked+pending for pre-planning) ──
+    _status_filter = (
+        "  AND bpq.status IN ('picked', 'pending') "
+        if include_pending
+        else "  AND bpq.status = 'picked' "
+    )
     rows = db.session.execute(
         text(
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, "
@@ -128,7 +140,7 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
             "LEFT JOIN invoice_items ii "
             "       ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status = 'picked' "
+            + _status_filter +
             "  AND i.route_id = :rid "
             "  AND s.delivery_date = :dd "
             "  AND NOT EXISTS ("
