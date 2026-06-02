@@ -2487,6 +2487,17 @@ def _process_feature_flag_post():
     return redirect(next_url)
 
 
+@app.route('/admin/cron-logs')
+@login_required
+def admin_cron_logs():
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    from models import CronRunLog
+    logs = CronRunLog.query.order_by(CronRunLog.started_at.desc()).limit(100).all()
+    return render_template('admin/cron_logs.html', logs=logs)
+
+
 @app.route('/admin/settings', methods=['GET', 'POST'])
 @login_required
 def admin_settings():

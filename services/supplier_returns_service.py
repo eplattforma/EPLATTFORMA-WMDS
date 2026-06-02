@@ -137,37 +137,41 @@ def _write_stock_to_db(ps365_rows: List[Dict[str, Any]]) -> None:
     dw_map   = {d.item_code_365: d for d in dw_items}
     now      = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    batch = []
     for r in ps365_rows:
         code = r["item_code_365"]
         dw   = dw_map.get(code)
-
-        db.session.execute(text("""
-            INSERT INTO supplier_returns_stock_cache
-                (item_code_365, item_name, stock_cases, supplier_code_365,
-                 supplier_name, selling_qty, cost_price, barcode, last_synced_at)
-            VALUES
-                (:code, :name, :stock, :sup_code,
-                 :sup_name, :selling_qty, :cost_price, :barcode, :now)
-            ON CONFLICT (item_code_365) DO UPDATE SET
-                item_name         = EXCLUDED.item_name,
-                stock_cases       = EXCLUDED.stock_cases,
-                supplier_code_365 = EXCLUDED.supplier_code_365,
-                supplier_name     = EXCLUDED.supplier_name,
-                selling_qty       = EXCLUDED.selling_qty,
-                cost_price        = EXCLUDED.cost_price,
-                barcode           = EXCLUDED.barcode,
-                last_synced_at    = EXCLUDED.last_synced_at
-        """), {
-            "code":        code,
-            "name":        (dw.item_name or r["item_name"]) if dw else r["item_name"],
-            "stock":       float(r["stock_cases"]),
-            "sup_code":    (dw.supplier_code_365 or "").strip() if dw else "",
-            "sup_name":    (dw.supplier_name     or "").strip() if dw else "",
-            "selling_qty": float(dw.selling_qty) if dw and dw.selling_qty is not None else None,
-            "cost_price":  float(dw.cost_price)  if dw and dw.cost_price  is not None else None,
-            "barcode":     (dw.barcode or "").strip() if dw else "",
-            "now":         now,
+        batch.append({
+            "code":               code,
+            "name":               (dw.item_name or r["item_name"]) if dw else r["item_name"],
+            "stock":              float(r["stock_cases"]),
+            "sup_code":           (dw.supplier_code_365 or "").strip() if dw else "",
+            "sup_name":           (dw.supplier_name     or "").strip() if dw else "",
+            "selling_qty":        float(dw.selling_qty) if dw and dw.selling_qty is not None else None,
+            "cost_price":         float(dw.cost_price)  if dw and dw.cost_price  is not None else None,
+            "barcode":            (dw.barcode or "").strip() if dw else "",
+            "supplier_item_code": (dw.supplier_item_code or "").strip() if dw else "",
+            "now":                now,
         })
+
+    db.session.execute(text("""
+        INSERT INTO supplier_returns_stock_cache
+            (item_code_365, item_name, stock_cases, supplier_code_365,
+             supplier_name, selling_qty, cost_price, barcode, supplier_item_code, last_synced_at)
+        VALUES
+            (:code, :name, :stock, :sup_code,
+             :sup_name, :selling_qty, :cost_price, :barcode, :supplier_item_code, :now)
+        ON CONFLICT (item_code_365) DO UPDATE SET
+            item_name           = EXCLUDED.item_name,
+            stock_cases         = EXCLUDED.stock_cases,
+            supplier_code_365   = EXCLUDED.supplier_code_365,
+            supplier_name       = EXCLUDED.supplier_name,
+            selling_qty         = EXCLUDED.selling_qty,
+            cost_price          = EXCLUDED.cost_price,
+            barcode             = EXCLUDED.barcode,
+            supplier_item_code  = EXCLUDED.supplier_item_code,
+            last_synced_at      = EXCLUDED.last_synced_at
+    """), batch)
 
     # Remove items no longer in store 100
     db.session.execute(text("""
@@ -190,13 +194,14 @@ def _read_stock_from_db() -> List[Dict[str, Any]]:
     rows = db.session.execute(text("""
         SELECT item_code_365, item_name, stock_cases,
                supplier_code_365, supplier_name,
-               selling_qty, cost_price, barcode, last_synced_at
+               selling_qty, cost_price, barcode, supplier_item_code, last_synced_at
         FROM   supplier_returns_stock_cache
         WHERE  stock_cases > 0
         ORDER  BY item_code_365
     """)).fetchall()
 
     result = []
+    max_synced = None
     for r in rows:
         stock       = _dec(r.stock_cases)
         selling_qty = _dec(r.selling_qty) if r.selling_qty is not None else None
@@ -216,18 +221,12 @@ def _read_stock_from_db() -> List[Dict[str, Any]]:
             "supplier_code_365": (r.supplier_code_365 or "").strip(),
             "supplier_name":     (r.supplier_name     or "").strip(),
             "barcode":           (r.barcode or "").strip() if r.barcode else "",
+            "supplier_item_code": (r.supplier_item_code or "").strip() if r.supplier_item_code else "",
             "last_synced_at":    r.last_synced_at,
         })
-    return result
-
-
-def _get_last_synced_at() -> Optional[datetime]:
-    from app import db
-    from sqlalchemy import text
-    row = db.session.execute(text(
-        "SELECT MAX(last_synced_at) FROM supplier_returns_stock_cache"
-    )).fetchone()
-    return row[0] if row and row[0] else None
+        if r.last_synced_at and (max_synced is None or r.last_synced_at > max_synced):
+            max_synced = r.last_synced_at
+    return result, max_synced
 
 
 # ---------------------------------------------------------------------------
@@ -501,15 +500,15 @@ def get_returns_stock(force_refresh: bool = False) -> Dict[str, Any]:
                     if code and out > 0:
                         pending_qty[code] = pending_qty.get(code, Decimal("0")) + out
 
+    last_synced = None
     try:
-        db_rows = _read_stock_from_db()
+        db_rows, last_synced = _read_stock_from_db()
     except Exception as e:
         logger.exception("[Returns] DB read failed")
         db_rows   = []
         error_msg = error_msg or str(e)
 
     groups        = _apply_pending_and_group(db_rows, pending_qty)
-    last_synced   = _get_last_synced_at()
     fetched_str   = last_synced.strftime("%d/%m/%Y %H:%M") if last_synced else None
     total_value   = round(sum(g["total_value"] for g in groups), 2)
     total_items   = sum(len(g["item_rows"]) for g in groups)

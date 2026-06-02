@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Cron Run Log — Admin{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="d-flex align-items-center mb-4">
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm me-3">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <h4 class="mb-0"><i class="fas fa-clock me-2"></i>Cron Run Log</h4>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            {% if logs %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Job</th>
+                            <th>Started</th>
+                            <th>Finished</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr class="{{ 'table-danger' if log.status == 'failed' else '' }}">
+                            <td class="font-monospace small">{{ log.job_name }}</td>
+                            <td class="small">{{ log.started_at.strftime('%Y-%m-%d %H:%M') if log.started_at else '—' }}</td>
+                            <td class="small">{{ log.finished_at.strftime('%H:%M:%S') if log.finished_at else '—' }}</td>
+                            <td class="small text-muted">
+                                {% if log.finished_at and log.started_at %}
+                                {{ ((log.finished_at - log.started_at).total_seconds()|int) }}s
+                                {% else %}—{% endif %}
+                            </td>
+                            <td>
+                                {% if log.status == 'success' %}
+                                    <span class="badge bg-success">success</span>
+                                {% else %}
+                                    <span class="badge bg-danger">failed</span>
+                                {% endif %}
+                            </td>
+                            <td class="small text-muted">{{ log.message or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-4 text-muted">No cron run log entries yet.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -595,6 +595,7 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
             if item:
                 if item.cost_price != updates[code]:
                     item.cost_price = updates[code]
+                    item.cost_price_updated_at = get_utc_now()
                     rows_updated += 1
 
     db.session.commit()

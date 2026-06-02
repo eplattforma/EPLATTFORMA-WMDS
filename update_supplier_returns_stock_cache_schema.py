@@ -33,6 +33,11 @@ def update_supplier_returns_stock_cache_schema():
             ALTER TABLE supplier_returns_stock_cache
             ADD COLUMN IF NOT EXISTS barcode VARCHAR(64)
         """))
+        # V9 — supplier_item_code avoids extra DwItem query in print_slip
+        db.session.execute(text("""
+            ALTER TABLE supplier_returns_stock_cache
+            ADD COLUMN IF NOT EXISTS supplier_item_code VARCHAR(100) NOT NULL DEFAULT ''
+        """))
         db.session.commit()
         logger.info("supplier_returns_stock_cache schema ensured")
     except Exception as e:

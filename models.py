@@ -3517,6 +3517,20 @@ class Supplier(db.Model):
 
 
 
+class CronRunLog(db.Model):
+    __tablename__ = 'cron_run_log'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    job_name    = db.Column(db.String(100), nullable=False)
+    started_at  = db.Column(db.DateTime, nullable=False)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    status      = db.Column(db.String(20), nullable=False)  # 'success' | 'failed'
+    message     = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f"<CronRunLog {self.job_name} {self.status} {self.started_at}>"
+
+
 class SupplierReturnPoTracking(db.Model):
     """
     Tracks every return PO cart code sent from this system to PS365.

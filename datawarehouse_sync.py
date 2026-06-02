@@ -1803,8 +1803,15 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
                         items_updated=total_upd,
                         details=f"Range: {date_range_str}. Headers: {h_ins}/{h_upd}, Lines: {l_ins}/{l_upd}, Stores: {s_ins}/{s_upd}, Cashiers: {u_ins}/{u_upd}. MV refresh: {mv_status}")
 
-        return h_ins, h_upd
-        
+        return {
+            "headers_inserted": h_ins,
+            "headers_updated":  h_upd,
+            "lines_inserted":   l_ins,
+            "lines_updated":    l_upd,
+            "stores_inserted":  s_ins,
+            "cashiers_inserted": u_ins,
+        }
+
     except KeyboardInterrupt:
         _update_invoice_sync_status(session, "FAILED", "Sync interrupted (timeout or external termination)")
         fail_sync_log(session, slog, "Sync interrupted (timeout or external termination)")

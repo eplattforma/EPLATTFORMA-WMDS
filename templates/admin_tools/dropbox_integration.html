@@ -408,6 +408,17 @@
                                         {{ log.error_message or '' }}
                                     </td>
                                 </tr>
+                                {% set _lmd = log.metadata_json or {} %}
+                                {% if _lmd.get('unmatched_count', 0) > 0 %}
+                                <tr class="table-warning">
+                                    <td colspan="6" class="py-1 border-top-0">
+                                        <span class="small">
+                                            <strong>⚠ {{ _lmd.get('unmatched_count') }} unmatched item code(s)</strong> — cost not updated (not found in ps_items_dw):
+                                            <span class="font-monospace">{{ (_lmd.get('unmatched_codes') or [])[:20]|join(', ') }}{% if _lmd.get('unmatched_count', 0) > 20 %} … and {{ _lmd.get('unmatched_count', 0) - 20 }} more{% endif %}</span>
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endif %}
                                 {% endfor %}
                             </tbody>
                         </table>
