@@ -187,7 +187,9 @@ def customer_slot_dashboard():
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
             func.coalesce(func.sum(DwInvoiceLine.gross_profit), 0).label("gp_4w"),
-            func.coalesce(func.sum(DwInvoiceLine.line_total_excl), 0).label("rev_4w"),
+            func.coalesce(func.sum(
+                DwInvoiceLine.line_total_excl - func.coalesce(DwInvoiceLine.line_total_discount, 0)
+            ), 0).label("rev_4w"),
         )
         .join(DwInvoiceLine, DwInvoiceLine.invoice_no_365 == DwInvoiceHeader.invoice_no_365)
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)

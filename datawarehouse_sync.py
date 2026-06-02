@@ -1068,7 +1068,7 @@ def _get_item_cost_map(session, item_codes: list) -> dict:
     }
 
 
-def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_cost_map):
+def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_cost_map, line_total_discount=0):
     empty = {
         "unit_cost_snapshot": None,
         "line_cost_total": None,
@@ -1089,15 +1089,17 @@ def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_
     if unit_cost is None:
         return empty
 
-    qty = float(quantity or 0)
-    revenue_excl = float(line_total_excl or 0)
+    qty      = float(quantity or 0)
+    pre_disc = float(line_total_excl or 0)
+    discount = float(line_total_discount or 0)
+    net_revenue = pre_disc - discount   # revenue after discount, excl VAT
 
     line_cost_total = qty * unit_cost
-    gross_profit = revenue_excl - line_cost_total
+    gross_profit    = net_revenue - line_cost_total
 
     gross_margin_pct = None
-    if revenue_excl not in (None, 0):
-        gross_margin_pct = gross_profit / revenue_excl
+    if net_revenue not in (None, 0):
+        gross_margin_pct = gross_profit / net_revenue
 
     return {
         "unit_cost_snapshot": unit_cost,
