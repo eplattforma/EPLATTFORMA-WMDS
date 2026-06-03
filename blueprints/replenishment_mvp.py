@@ -741,7 +741,7 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
     import email.utils
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Purchase Order - {run.supplier_name} - {len(order_lines)} items"
-    msg["From"] = SMTP_EMAIL
+    msg["From"] = f"Purchase Orders <{SMTP_EMAIL}>"
     msg["To"] = RECIPIENT
     msg["Date"] = email.utils.formatdate(localtime=True)
     msg["Message-ID"] = email.utils.make_msgid(
@@ -762,7 +762,10 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
 
     try:
         logger.info(f"Attempting to connect to SMTP {SMTP_HOST}:{SMTP_PORT}")
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
             logger.info(f"SMTP connection established, logging in as {SMTP_EMAIL}")
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
             logger.info(f"SMTP login successful, sending to {all_recipients}")
