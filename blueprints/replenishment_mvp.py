@@ -738,10 +738,16 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
     text_body = content["text_body"]
     html_body = content["html_body"]
 
+    import email.utils
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items"
+    msg["Subject"] = f"Purchase Order - {run.supplier_name} - {len(order_lines)} items"
     msg["From"] = SMTP_EMAIL
     msg["To"] = RECIPIENT
+    msg["Date"] = email.utils.formatdate(localtime=True)
+    msg["Message-ID"] = email.utils.make_msgid(
+        domain=SMTP_EMAIL.split("@")[-1] if "@" in SMTP_EMAIL else "wmds"
+    )
+    msg["Reply-To"] = SMTP_EMAIL
     if cc_list:
         msg["Cc"] = ", ".join(cc_list)
 
@@ -760,8 +766,11 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
             logger.info(f"SMTP connection established, logging in as {SMTP_EMAIL}")
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
             logger.info(f"SMTP login successful, sending to {all_recipients}")
-            server.sendmail(SMTP_EMAIL, all_recipients, msg.as_string())
-            logger.info(f"SMTP sendmail completed for {all_recipients}")
+            failed = server.sendmail(SMTP_EMAIL, all_recipients, msg.as_string())
+            if failed:
+                logger.error(f"SMTP partial failure — rejected recipients: {failed}")
+            else:
+                logger.info(f"SMTP sendmail completed — all {len(all_recipients)} recipient(s) accepted")
         logger.info(f"PO email sent to {all_recipients} for PO {po_code}")
         return True, None
     except smtplib.SMTPAuthenticationError as e:
