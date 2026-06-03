@@ -1,1 +1,2 @@
 - [Cooler planner test mock pattern](cooler-planner-test-mock.md) — auto mode uses fetchall(); manual mode uses fetchone(); test helper must set both correctly.
+- [SMTP Brevo relay setup](smtp-brevo-setup.md) — Brevo needs separate SMTP_FROM secret for the visible From address; SMTP_EMAIL is the auth key only.
