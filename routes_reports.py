@@ -510,13 +510,15 @@ def reserved_stock_777_send_po():
 
 def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
     """Send PO email to supplier"""
+    import email.utils as _eu
     SMTP_HOST = os.getenv("SMTP_HOST", "")
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")       # auth credential
+    SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_EMAIL  # visible From
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-    
+
     logger.info(f"Attempting to send PO email: to={to}, cc={cc}, po_code={po_code}")
-    
+
     if not all([SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD]):
         logger.error(f"SMTP not configured: HOST={bool(SMTP_HOST)}, EMAIL={bool(SMTP_EMAIL)}, PASS={bool(SMTP_PASSWORD)}")
         return {"success": False, "error": "SMTP not configured"}
@@ -595,21 +597,31 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
         
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"Purchase Order {po_code} - Supplier {season_code}"
-        msg["From"] = SMTP_EMAIL
+        msg["From"] = f"Purchase Orders <{SMTP_FROM}>"
         msg["To"] = to
+        msg["Date"] = _eu.formatdate(localtime=True)
+        msg["Message-ID"] = _eu.make_msgid(domain=SMTP_FROM.split("@")[-1] if "@" in SMTP_FROM else "wmds")
+        msg["Reply-To"] = SMTP_FROM
         if cc:
             msg["Cc"] = cc
-        
+
         msg.attach(MIMEText(html_body, "html"))
-        
+
         recipients = [to]
         if cc:
             recipients.extend([c.strip() for c in cc.split(",") if c.strip()])
-        
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, recipients, msg.as_string())
-        
+            failed = server.sendmail(SMTP_EMAIL, recipients, msg.as_string())
+            if failed:
+                logger.error(f"SMTP partial failure for {po_code} — rejected: {failed}")
+            else:
+                logger.info(f"SMTP sendmail completed — all {len(recipients)} recipient(s) accepted")
+
         logger.info(f"Sent PO email for {po_code} to {to} (cc: {cc})")
         return {"success": True}
         
@@ -789,11 +801,13 @@ def reserved_stock_777_email_order():
         flash("Access denied.", "danger")
         return redirect(url_for("reports.reserved_stock_777"))
     
+    import email.utils as _eu
     SMTP_HOST = os.getenv("SMTP_HOST", "")
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")       # auth credential
+    SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_EMAIL  # visible From
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-    
+
     if not all([SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD]):
         flash("SMTP not configured. Please set SMTP_HOST, SMTP_EMAIL, and SMTP_PASSWORD.", "danger")
         return redirect(url_for("reports.reserved_stock_777"))
@@ -912,9 +926,12 @@ def reserved_stock_777_email_order():
         
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = SMTP_EMAIL
+        msg["From"] = f"Purchase Orders <{SMTP_FROM}>"
         msg["To"] = recipient_email
-        
+        msg["Date"] = _eu.formatdate(localtime=True)
+        msg["Message-ID"] = _eu.make_msgid(domain=SMTP_FROM.split("@")[-1] if "@" in SMTP_FROM else "wmds")
+        msg["Reply-To"] = SMTP_FROM
+
         text_content = f"Purchase Order - {supplier_filter or 'All Suppliers'}\n\n"
         text_content += f"Date: {now.strftime('%Y-%m-%d %H:%M')}\n"
         text_content += f"Requested by: {current_user.username}\n\n"
@@ -927,10 +944,17 @@ def reserved_stock_777_email_order():
         msg.attach(MIMEText(text_content, "plain"))
         msg.attach(MIMEText(html_content, "html"))
         
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, recipient_email, msg.as_string())
-        
+            failed = server.sendmail(SMTP_EMAIL, recipient_email, msg.as_string())
+            if failed:
+                logger.error(f"SMTP partial failure — rejected: {failed}")
+            else:
+                logger.info(f"SMTP sendmail completed — all recipient(s) accepted")
+
         flash(f"Order email sent successfully to {recipient_email} ({len(order_lines)} items)", "success")
         logger.info(f"Sent order email to {recipient_email} with {len(order_lines)} items for supplier {supplier_filter}")
     
