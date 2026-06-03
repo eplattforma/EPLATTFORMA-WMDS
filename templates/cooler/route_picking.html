@@ -392,7 +392,7 @@
             <input type="hidden" name="_html_form" value="1">
             <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
             <button class="btn btn-success" type="submit">
-              <i class="fas fa-check me-1"></i>Prepare Cooler Route
+              <i class="fas fa-check me-1"></i>Confirm Cooler Route
             </button>
           </form>
           {% endif %}
@@ -630,7 +630,7 @@
   </h4>
   {% if not sequenced %}
     <div class="alert alert-info">
-      No items ready yet — click <strong>Prepare Cooler Route</strong> above to load the pick list.
+      No items ready yet — click <strong>Confirm Cooler Route</strong> above to load the pick list.
     </div>
   {% else %}
     <div class="table-responsive" id="rtpViewStop">
@@ -667,14 +667,27 @@
                   <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
                   <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-hand-rock me-1"></i>Pick</button>
                 </form>
+                <form method="post" action="{{ url_for('cooler.queue_skip', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
+                  <input type="hidden" name="_html_form" value="1">
+                  <button type="submit" class="btn btn-sm btn-outline-warning" title="Skip this item"><i class="fas fa-forward me-1"></i>Skip</button>
+                </form>
                 {% endif %}
               {% elif q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
                 <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
                   <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
                   <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-hand-rock me-1"></i>Pick</button>
                 </form>
+                <form method="post" action="{{ url_for('cooler.queue_skip', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
+                  <input type="hidden" name="_html_form" value="1">
+                  <button type="submit" class="btn btn-sm btn-outline-warning" title="Skip this item"><i class="fas fa-forward me-1"></i>Skip</button>
+                </form>
               {% elif q.status == 'pending' and batch_in_progress %}
                 <span class="text-muted small"><i class="fas fa-boxes me-1"></i>via batch</span>
+              {% elif q.status == 'exception' and has_permission('cooler.pick') %}
+                <form method="post" action="{{ url_for('cooler.queue_resume', queue_item_id=q.queue_item_id) }}" class="d-inline">
+                  <input type="hidden" name="_html_form" value="1">
+                  <button type="submit" class="btn btn-sm btn-outline-success"><i class="fas fa-redo me-1"></i>Resume</button>
+                </form>
               {% elif q.status == 'picked' %}
                 <span class="text-muted small"><i class="fas fa-clock me-1"></i>Unboxed</span>
               {% else %}
@@ -757,7 +770,7 @@
       <span class="badge bg-warning text-dark">{{ unsequenced|length }}</span>
     </h4>
     <div class="alert alert-warning small mb-2">
-      These items cannot be picked until <strong>Prepare Cooler Route</strong> is clicked.
+      These items cannot be picked until <strong>Confirm Cooler Route</strong> is clicked.
       Late additions land here automatically.
     </div>
     <table class="table table-sm table-bordered">

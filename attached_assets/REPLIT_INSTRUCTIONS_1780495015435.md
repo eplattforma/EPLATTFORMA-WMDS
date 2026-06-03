@@ -1,3 +1,14 @@
+# Cooler Picking — Implementation Instructions for Replit
+
+Please apply the following changes to the WMDS project. There are **3 files to replace completely**. Do not change any other files. After applying, restart the server and confirm there are no import errors.
+
+---
+
+## FILE 1 — Replace `services/cooler_box_planner.py` entirely
+
+Replace the entire file with this content:
+
+```python
 """Cooler box plan generator.
 
 Groups picked, unboxed cooler queue rows into physical boxes based on
@@ -363,177 +374,313 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
 
 
 def pre_pick_estimate(route_id, delivery_date):
-    """Return a volume/box estimate for a route BEFORE (or during) picking.
-
-    Reads ALL cooler queue rows (pending + picked + exception) so managers
-    can see recommended box sizes before picking starts.  Called by the
-    route_list view.
-    """
-    _EMPTY = {
-        "total_items": 0, "total_volume_l": 0,
-        "missing_dimension_items": [], "stops": [],
-        "box_plan": [], "recommended_box_type": None,
-        "all_dims_present": True,
-    }
-
-    try:
-        route_id = int(route_id)
-    except (TypeError, ValueError):
-        return _EMPTY
+    """Lightweight volume/weight estimate for the route-list screen."""
+    route_id = int(route_id)
     delivery_date = str(delivery_date)
 
     rows = db.session.execute(
         text(
             "SELECT bpq.item_code, "
-            "       COALESCE(bpq.qty_picked, bpq.qty_required, 1) AS qty, "
-            "       COALESCE(rs.seq_no, 0) AS stop_no, "
-            "       i.customer_name "
+            "       COALESCE(bpq.qty_required, 1) AS qty "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
             "JOIN shipments s ON s.id = i.route_id "
-            "LEFT JOIN route_stop_invoice rsi "
-            "       ON rsi.invoice_no = bpq.invoice_no AND rsi.is_active = TRUE "
-            "LEFT JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND i.route_id = :r "
-            "  AND s.delivery_date = :d "
-            "ORDER BY stop_no"
+            "  AND i.route_id = :rid "
+            "  AND s.delivery_date = :dd"
         ),
-        {"r": route_id, "d": delivery_date},
+        {"rid": route_id, "dd": delivery_date},
     ).fetchall()
 
     if not rows:
-        return _EMPTY
+        return None
 
     item_codes = list({r[0] for r in rows})
     dim_map = {}
-    if item_codes:
-        try:
-            dim_rows = db.session.execute(
-                text(
-                    "SELECT item_code_365, item_length, item_width, item_height "
-                    "FROM ps_items_dw "
-                    "WHERE item_code_365 = ANY(:codes)"
-                ),
-                {"codes": item_codes},
-            ).fetchall()
-            for dr in dim_rows:
-                dim_map[dr[0]] = (_num(dr[1]) or 0.0, _num(dr[2]) or 0.0, _num(dr[3]) or 0.0)
-        except Exception as exc:
-            logger.warning("pre_pick_estimate: dimension lookup failed: %s", exc)
-
-    box_type_rows = []
     try:
-        box_type_rows = db.session.execute(
+        dim_rows = db.session.execute(
             text(
-                "SELECT id, name, internal_volume_cm3, fill_efficiency "
-                "FROM cooler_box_types WHERE is_active = true "
-                "ORDER BY internal_volume_cm3"
-            )
+                "SELECT item_code_365, item_length, item_width, item_height, item_weight "
+                "FROM ps_items_dw WHERE item_code_365 = ANY(:codes)"
+            ),
+            {"codes": item_codes},
         ).fetchall()
-    except Exception as exc:
-        logger.warning("pre_pick_estimate: box types lookup failed: %s", exc)
+        for dr in dim_rows:
+            dim_map[dr[0]] = {
+                "length": _num(dr[1]),
+                "width": _num(dr[2]),
+                "height": _num(dr[3]),
+                "weight": _num(dr[4]),
+            }
+    except Exception:
+        pass
 
-    box_types = [
-        {
-            "id": r[0], "name": r[1],
-            "capacity_cm3": (_num(r[2]) or 0.0) * (_num(r[3]) or 1.0),
-        }
-        for r in box_type_rows
-    ]
-    if not box_types:
-        return _EMPTY
+    total_vol = 0.0
+    total_wt = 0.0
+    missing = 0
+    for r in rows:
+        qty = _num(r[1]) or 1.0
+        dims = dim_map.get(r[0], {})
+        l, w, h = dims.get("length"), dims.get("width"), dims.get("height")
+        wt = dims.get("weight")
+        if l is not None and w is not None and h is not None:
+            total_vol += l * w * h * qty
+        else:
+            missing += 1
+        if wt is not None:
+            total_wt += wt * qty
 
-    stop_map = defaultdict(list)
-    missing = []
-    for item_code, qty, stop_no, customer_name in rows:
-        l, w, h = dim_map.get(item_code, (0.0, 0.0, 0.0))
-        vol = l * w * h * float(qty or 1)
-        if l == 0 or w == 0 or h == 0:
-            if not any(m["item_code"] == item_code for m in missing):
-                missing.append({"item_code": item_code})
-            vol = 0.0
-        stop_map[int(stop_no or 0)].append({
-            "item_code": item_code,
-            "quantity": qty,
-            "customer_name": customer_name,
-            "volume_cm3": vol,
-        })
-
-    sorted_stops_lifo = sorted(stop_map.keys(), reverse=True)
-
-    stop_summary = []
-    for sn in sorted(stop_map.keys()):
-        items = stop_map[sn]
-        vol_l = round(sum(i["volume_cm3"] for i in items) / 1000, 2)
-        missing_count = sum(
-            1 for i in items if dim_map.get(i["item_code"], (0, 0, 0))[0] == 0
-        )
-        stop_summary.append({
-            "stop_no": sn,
-            "customer_names": list({i["customer_name"] for i in items if i["customer_name"]}),
-            "item_count": sum(int(i["quantity"] or 1) for i in items),
-            "volume_l": vol_l,
-            "missing_dims": missing_count,
-        })
-
-    largest_box = box_types[-1]
-    box_plan_raw = []
-    current_stops, current_vol, current_missing = [], 0.0, 0
-
-    for stop_no in sorted_stops_lifo:
-        items = stop_map[stop_no]
-        stop_vol = sum(i["volume_cm3"] for i in items)
-        stop_miss = sum(
-            1 for i in items if dim_map.get(i["item_code"], (0, 0, 0))[0] == 0
-        )
-        if current_stops and (current_vol + stop_vol) > largest_box["capacity_cm3"]:
-            box_plan_raw.append((current_stops[:], current_vol, current_missing))
-            current_stops, current_vol, current_missing = [], 0.0, 0
-        current_stops.append(stop_no)
-        current_vol += stop_vol
-        current_missing += stop_miss
-
-    if current_stops:
-        box_plan_raw.append((current_stops, current_vol, current_missing))
-
-    rendered_boxes = []
-    for stop_list, vol_cm3, miss in box_plan_raw:
-        fitting = next((b for b in box_types if b["capacity_cm3"] >= vol_cm3), None)
-        chosen = fitting or box_types[-1]
-        over = vol_cm3 > chosen["capacity_cm3"]
-        fill_pct = round(vol_cm3 / chosen["capacity_cm3"] * 100) if chosen["capacity_cm3"] else 0
-        stops_sorted = sorted(stop_list)
-        stops_display = (
-            f"Stop {stops_sorted[0]}" if len(stops_sorted) == 1
-            else f"Stops {stops_sorted[-1]}\u2192{stops_sorted[0]}"
-        )
-        rendered_boxes.append({
-            "box_type_name": chosen["name"],
-            "stops_display": stops_display,
-            "estimated_volume_l": round(vol_cm3 / 1000, 2),
-            "estimated_fill_pct": fill_pct,
-            "over_capacity": over,
-            "missing_dims": miss,
-        })
-
-    total_vol = sum(
-        sum(i["volume_cm3"] for i in items) for items in stop_map.values()
-    )
-    max_stop_vol = max(
-        sum(i["volume_cm3"] for i in items) for items in stop_map.values()
-    ) if stop_map else 0
-    rec = next(
-        (b for b in box_types if b["capacity_cm3"] >= max_stop_vol),
-        box_types[-1],
-    )
+    total = len(rows)
+    pct = round((total - missing) / total * 100) if total else 0
+    label = "good" if pct >= 80 else "limited" if pct >= 40 else "poor"
 
     return {
-        "total_items": sum(int(r[1] or 1) for r in rows),
-        "total_volume_l": round(total_vol / 1000, 2),
-        "missing_dimension_items": missing,
-        "all_dims_present": len(missing) == 0,
-        "stops": stop_summary,
-        "box_plan": rendered_boxes,
-        "recommended_box_type": rec["name"],
+        "total_volume_l": round(total_vol / 1000, 1),
+        "total_weight_kg": round(total_wt, 1),
+        "item_count": total,
+        "missing_dimension_count": missing,
+        "data_quality_pct": pct,
+        "data_quality_label": label,
     }
+```
+
+---
+
+## FILE 2 — Add 3 new functions to `blueprints/cooler_picking.py`
+
+Find this exact line in the file:
+
+```python
+@cooler_bp.route("/route/<route_id>/pack-stop", methods=["POST"])
+```
+
+Insert the following block of code **immediately before** that line (keep the existing `pack_stop` function unchanged below it):
+
+```python
+@cooler_bp.route("/box/<int:from_box_id>/move-item", methods=["POST"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def box_move_item(from_box_id):
+    """Move an item from one open cooler box to another open cooler box."""
+    from_box = _fetch_box(from_box_id)
+    if from_box is None:
+        abort(404)
+    if from_box["status"] != "open":
+        return jsonify({"error": f"Source box #{from_box_id} is {from_box['status']}; "
+                                  "only open boxes support item moves."}), 400
+
+    data = request.get_json(silent=True) or request.form
+    try:
+        queue_item_id = int(data.get("queue_item_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "queue_item_id is required and must be int"}), 400
+    try:
+        to_box_id = int(data.get("to_box_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "to_box_id is required and must be int"}), 400
+
+    if to_box_id == from_box_id:
+        return jsonify({"error": "Source and destination box are the same."}), 400
+
+    to_box = _fetch_box(to_box_id)
+    if to_box is None:
+        return jsonify({"error": f"Destination box #{to_box_id} not found."}), 404
+    if to_box["status"] != "open":
+        return jsonify({"error": f"Destination box #{to_box_id} is {to_box['status']}; "
+                                  "only open boxes accept items."}), 400
+
+    if int(from_box["route_id"]) != int(to_box["route_id"]) or \
+            str(from_box["delivery_date"]) != str(to_box["delivery_date"]):
+        return jsonify({"error": "Cannot move items between boxes on different routes or dates."}), 400
+
+    src_row = db.session.execute(
+        text(
+            "SELECT id, invoice_no, item_code, customer_code, customer_name, "
+            "       route_stop_id, delivery_sequence, item_name, expected_qty, "
+            "       picked_qty, picked_by, picked_at, status "
+            "FROM cooler_box_items "
+            "WHERE cooler_box_id = :bid AND queue_item_id = :qid LIMIT 1"
+        ),
+        {"bid": from_box_id, "qid": queue_item_id},
+    ).fetchone()
+    if src_row is None:
+        return jsonify({"error": f"Queue item {queue_item_id} not found in box #{from_box_id}."}), 404
+
+    dup = db.session.execute(
+        text("SELECT 1 FROM cooler_box_items WHERE cooler_box_id = :bid AND queue_item_id = :qid LIMIT 1"),
+        {"bid": to_box_id, "qid": queue_item_id},
+    ).fetchone()
+    if dup is not None:
+        return jsonify({"error": f"Item is already in destination box #{to_box_id}."}), 409
+
+    now = get_utc_now()
+    db.session.execute(
+        text("DELETE FROM cooler_box_items WHERE cooler_box_id = :bid AND queue_item_id = :qid"),
+        {"bid": from_box_id, "qid": queue_item_id},
+    )
+    db.session.execute(
+        text(
+            "INSERT INTO cooler_box_items "
+            "(cooler_box_id, invoice_no, customer_code, customer_name, "
+            " route_stop_id, delivery_sequence, item_code, item_name, "
+            " expected_qty, picked_qty, picked_by, picked_at, "
+            " queue_item_id, status, created_at, updated_at) "
+            "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+            "        :exp, :pq, :who, :pat, :qid, :st, :now, :now)"
+        ),
+        {
+            "bid": to_box_id,
+            "inv": src_row[1], "cc": src_row[3], "cn": src_row[4],
+            "rsid": src_row[5], "seq": src_row[6],
+            "ic": src_row[2], "iname": src_row[7],
+            "exp": src_row[8], "pq": src_row[9],
+            "who": src_row[10], "pat": src_row[11],
+            "qid": queue_item_id, "st": src_row[12],
+            "now": now,
+        },
+    )
+    _audit(
+        "cooler.item_moved",
+        f"Queue #{queue_item_id} invoice={src_row[1]} item={src_row[2]} "
+        f"moved from box #{from_box_id} → box #{to_box_id} by {_username()}",
+        invoice_no=src_row[1], item_code=src_row[2],
+    )
+    db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Item moved to Box #{to_box['box_no']}.", "success")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=from_box["route_id"],
+                                delivery_date=str(from_box["delivery_date"])))
+
+    return jsonify({
+        "queue_item_id": queue_item_id,
+        "from_box_id": from_box_id,
+        "to_box_id": to_box_id,
+        "status": "moved",
+    }), 200
+
+
+@cooler_bp.route("/queue/<int:queue_item_id>/skip", methods=["POST"])
+@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag
+def queue_skip(queue_item_id):
+    """Skip a pending cooler item — mark as exception so it can be resumed later."""
+    row = db.session.execute(
+        text(
+            "SELECT invoice_no, item_code, status, pick_zone_type "
+            "FROM batch_pick_queue WHERE id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if row is None:
+        abort(404)
+    if row[3] != "cooler":
+        return jsonify({"error": "Not a cooler queue row."}), 400
+    if row[2] != "pending":
+        return jsonify({"error": f"Only pending items can be skipped (status={row[2]})."}), 400
+
+    now = get_utc_now()
+    db.session.execute(
+        text(
+            "UPDATE batch_pick_queue "
+            "SET status = 'exception', updated_at = :now "
+            "WHERE id = :qid AND status = 'pending'"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
+    _audit(
+        "cooler.item_skipped",
+        f"Cooler queue #{queue_item_id} invoice={row[0]} item={row[1]} "
+        f"skipped by {_username()} (__skip__)",
+        invoice_no=row[0], item_code=row[1],
+    )
+    db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Item {row[1]} skipped — it appears in the Skipped section below.", "info")
+        return _redirect_to_picking_from_queue(queue_item_id)
+
+    return jsonify({"queue_item_id": queue_item_id, "status": "exception",
+                    "reason": "__skip__"}), 200
+
+
+@cooler_bp.route("/queue/<int:queue_item_id>/resume", methods=["POST"])
+@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag
+def queue_resume(queue_item_id):
+    """Resume a skipped or exception cooler item — reset back to pending."""
+    row = db.session.execute(
+        text(
+            "SELECT invoice_no, item_code, status, pick_zone_type "
+            "FROM batch_pick_queue WHERE id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if row is None:
+        abort(404)
+    if row[3] != "cooler":
+        return jsonify({"error": "Not a cooler queue row."}), 400
+    if row[2] != "exception":
+        return jsonify({"error": f"Only exception items can be resumed (status={row[2]})."}), 400
+
+    now = get_utc_now()
+    db.session.execute(
+        text(
+            "UPDATE batch_pick_queue "
+            "SET status = 'pending', updated_at = :now "
+            "WHERE id = :qid AND status = 'exception'"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
+    _audit(
+        "cooler.item_resumed",
+        f"Cooler queue #{queue_item_id} invoice={row[0]} item={row[1]} "
+        f"resumed (exception → pending) by {_username()}",
+        invoice_no=row[0], item_code=row[1],
+    )
+    db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Item {row[1]} resumed — it is back in the pick list.", "success")
+        return _redirect_to_picking_from_queue(queue_item_id)
+
+    return jsonify({"queue_item_id": queue_item_id, "status": "pending"}), 200
+
+```
+
+---
+
+## FILE 3 — Replace `templates/cooler/route_picking.html` entirely
+
+Replace the entire file with the content in the file `templates/cooler/route_picking.html` from the uploaded project folder. (The file has already been rewritten — just make sure Replit uses the new version, not the old one.)
+
+If Replit cannot read the file directly, paste the content from the file provided.
+
+---
+
+## Summary of what changed and why
+
+| Change | Where | Why |
+|--------|--------|-----|
+| **"Prepare Cooler Route" renamed to "Confirm Cooler Route"** | Template | Clearer language |
+| **Multi-box-type packing** | `cooler_box_planner.py` | Auto selects smallest fitting box per stop group; large stops → large box, small stops → small box |
+| **LIFO loading order** | `cooler_box_planner.py` | Last-delivery stops go in Box 1 (loaded first, bottom of truck); first-delivery stops on top |
+| **`has_dimensions` flag per item** | `cooler_box_planner.py` | Items missing L×W×H are flagged with a ⚠️ "No dims" badge in the box plan preview |
+| **`pre_pick_estimate` function** | `cooler_box_planner.py` | Was missing (caused a crash on the route list page) — now implemented |
+| **4-step wizard UI** | Template | Step 1 Confirm → Step 2 Pick → Step 3 Boxes → Step 4 Close/Dispatch |
+| **Skip / Resume buttons** | Template + `cooler_picking.py` | Picker can skip a pending item; it goes to a "Skipped" section and can be resumed |
+| **Move item between boxes** | Template + `cooler_picking.py` | Each open box's item list shows a move dropdown to transfer an item to another open box |
+| **Dimension warning in plan preview** | Template JS | Shows a "No dims" badge on each item missing dimensions and a total count at the top |
+
+---
+
+## No database migrations needed
+
+All changes are Python/Jinja2 only. No new tables or columns are required.

@@ -1367,7 +1367,6 @@ def pre_plan_boxes(route_id, delivery_date):
     result = generate_box_plan(
         route_id_int, delivery_date,
         box_type_id=box_type_id,
-        include_pending=True,
     )
 
     if isinstance(result, dict) and not result.get("ok", True):
@@ -2351,6 +2350,203 @@ def queue_assign_box(queue_item_id):
     db.session.commit()
     flash(f"Assigned {item_code} to Box #{box['box_no']}.", "success")
     return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
+
+
+@cooler_bp.route("/box/<int:from_box_id>/move-item", methods=["POST"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def box_move_item(from_box_id):
+    """Move an item from one open cooler box to another open cooler box."""
+    from_box = _fetch_box(from_box_id)
+    if from_box is None:
+        abort(404)
+    if from_box["status"] != "open":
+        return jsonify({"error": f"Source box #{from_box_id} is {from_box['status']}; "
+                                  "only open boxes support item moves."}), 400
+
+    data = request.get_json(silent=True) or request.form
+    try:
+        queue_item_id = int(data.get("queue_item_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "queue_item_id is required and must be int"}), 400
+    try:
+        to_box_id = int(data.get("to_box_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "to_box_id is required and must be int"}), 400
+
+    if to_box_id == from_box_id:
+        return jsonify({"error": "Source and destination box are the same."}), 400
+
+    to_box = _fetch_box(to_box_id)
+    if to_box is None:
+        return jsonify({"error": f"Destination box #{to_box_id} not found."}), 404
+    if to_box["status"] != "open":
+        return jsonify({"error": f"Destination box #{to_box_id} is {to_box['status']}; "
+                                  "only open boxes accept items."}), 400
+
+    if int(from_box["route_id"]) != int(to_box["route_id"]) or \
+            str(from_box["delivery_date"]) != str(to_box["delivery_date"]):
+        return jsonify({"error": "Cannot move items between boxes on different routes or dates."}), 400
+
+    src_row = db.session.execute(
+        text(
+            "SELECT id, invoice_no, item_code, customer_code, customer_name, "
+            "       route_stop_id, delivery_sequence, item_name, expected_qty, "
+            "       picked_qty, picked_by, picked_at, status "
+            "FROM cooler_box_items "
+            "WHERE cooler_box_id = :bid AND queue_item_id = :qid LIMIT 1"
+        ),
+        {"bid": from_box_id, "qid": queue_item_id},
+    ).fetchone()
+    if src_row is None:
+        return jsonify({"error": f"Queue item {queue_item_id} not found in box #{from_box_id}."}), 404
+
+    dup = db.session.execute(
+        text("SELECT 1 FROM cooler_box_items WHERE cooler_box_id = :bid AND queue_item_id = :qid LIMIT 1"),
+        {"bid": to_box_id, "qid": queue_item_id},
+    ).fetchone()
+    if dup is not None:
+        return jsonify({"error": f"Item is already in destination box #{to_box_id}."}), 409
+
+    now = get_utc_now()
+    db.session.execute(
+        text("DELETE FROM cooler_box_items WHERE cooler_box_id = :bid AND queue_item_id = :qid"),
+        {"bid": from_box_id, "qid": queue_item_id},
+    )
+    db.session.execute(
+        text(
+            "INSERT INTO cooler_box_items "
+            "(cooler_box_id, invoice_no, customer_code, customer_name, "
+            " route_stop_id, delivery_sequence, item_code, item_name, "
+            " expected_qty, picked_qty, picked_by, picked_at, "
+            " queue_item_id, status, created_at, updated_at) "
+            "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+            "        :exp, :pq, :who, :pat, :qid, :st, :now, :now)"
+        ),
+        {
+            "bid": to_box_id,
+            "inv": src_row[1], "cc": src_row[3], "cn": src_row[4],
+            "rsid": src_row[5], "seq": src_row[6],
+            "ic": src_row[2], "iname": src_row[7],
+            "exp": src_row[8], "pq": src_row[9],
+            "who": src_row[10], "pat": src_row[11],
+            "qid": queue_item_id, "st": src_row[12],
+            "now": now,
+        },
+    )
+    _audit(
+        "cooler.item_moved",
+        f"Queue #{queue_item_id} invoice={src_row[1]} item={src_row[2]} "
+        f"moved from box #{from_box_id} → box #{to_box_id} by {_username()}",
+        invoice_no=src_row[1], item_code=src_row[2],
+    )
+    db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Item moved to Box #{to_box['box_no']}.", "success")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=from_box["route_id"],
+                                delivery_date=str(from_box["delivery_date"])))
+
+    return jsonify({
+        "queue_item_id": queue_item_id,
+        "from_box_id": from_box_id,
+        "to_box_id": to_box_id,
+        "status": "moved",
+    }), 200
+
+
+@cooler_bp.route("/queue/<int:queue_item_id>/skip", methods=["POST"])
+@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag
+def queue_skip(queue_item_id):
+    """Skip a pending cooler item — mark as exception so it can be resumed later."""
+    row = db.session.execute(
+        text(
+            "SELECT invoice_no, item_code, status, pick_zone_type "
+            "FROM batch_pick_queue WHERE id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if row is None:
+        abort(404)
+    if row[3] != "cooler":
+        return jsonify({"error": "Not a cooler queue row."}), 400
+    if row[2] != "pending":
+        return jsonify({"error": f"Only pending items can be skipped (status={row[2]})."}), 400
+
+    now = get_utc_now()
+    db.session.execute(
+        text(
+            "UPDATE batch_pick_queue "
+            "SET status = 'exception', updated_at = :now "
+            "WHERE id = :qid AND status = 'pending'"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
+    _audit(
+        "cooler.item_skipped",
+        f"Cooler queue #{queue_item_id} invoice={row[0]} item={row[1]} "
+        f"skipped by {_username()} (__skip__)",
+        invoice_no=row[0], item_code=row[1],
+    )
+    db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Item {row[1]} skipped — it appears in the Skipped section below.", "info")
+        return _redirect_to_picking_from_queue(queue_item_id)
+
+    return jsonify({"queue_item_id": queue_item_id, "status": "exception",
+                    "reason": "__skip__"}), 200
+
+
+@cooler_bp.route("/queue/<int:queue_item_id>/resume", methods=["POST"])
+@login_required
+@require_permission("cooler.pick")
+@_require_cooler_pick
+@_require_picking_flag
+def queue_resume(queue_item_id):
+    """Resume a skipped or exception cooler item — reset back to pending."""
+    row = db.session.execute(
+        text(
+            "SELECT invoice_no, item_code, status, pick_zone_type "
+            "FROM batch_pick_queue WHERE id = :qid"
+        ),
+        {"qid": queue_item_id},
+    ).fetchone()
+    if row is None:
+        abort(404)
+    if row[3] != "cooler":
+        return jsonify({"error": "Not a cooler queue row."}), 400
+    if row[2] != "exception":
+        return jsonify({"error": f"Only exception items can be resumed (status={row[2]})."}), 400
+
+    now = get_utc_now()
+    db.session.execute(
+        text(
+            "UPDATE batch_pick_queue "
+            "SET status = 'pending', updated_at = :now "
+            "WHERE id = :qid AND status = 'exception'"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
+    _audit(
+        "cooler.item_resumed",
+        f"Cooler queue #{queue_item_id} invoice={row[0]} item={row[1]} "
+        f"resumed (exception → pending) by {_username()}",
+        invoice_no=row[0], item_code=row[1],
+    )
+    db.session.commit()
+
+    if request.form.get("_html_form"):
+        flash(f"Item {row[1]} resumed — it is back in the pick list.", "success")
+        return _redirect_to_picking_from_queue(queue_item_id)
+
+    return jsonify({"queue_item_id": queue_item_id, "status": "pending"}), 200
 
 
 @cooler_bp.route("/route/<route_id>/pack-stop", methods=["POST"])
