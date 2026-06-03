@@ -2882,6 +2882,8 @@ class ReplenishmentSupplier(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     supplier_code = db.Column(db.String(50), nullable=False, unique=True)
     supplier_name = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), nullable=True)
+    email_cc = db.Column(db.String(500), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sort_order = db.Column(db.Integer, nullable=True)
     notes = db.Column(db.Text, nullable=True)

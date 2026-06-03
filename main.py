@@ -403,6 +403,9 @@ app.register_blueprint(admin_job_runs_bp)
 from routes_admin_batch_phase4 import admin_batch_phase4_bp
 app.register_blueprint(admin_batch_phase4_bp)
 
+from routes_admin_suppliers import admin_suppliers_bp
+app.register_blueprint(admin_suppliers_bp)
+
 # ── Cockpit (Ticket 1 scaffold) ──────────────────────────────────────
 # Master flag ``cockpit_enabled`` (default false in services/settings_defaults.py)
 # hides every /cockpit/... route with HTTP 404 until the operator flips it on.
@@ -674,6 +677,22 @@ if _db_available:
         logging.info("is_resolved column ensured on picking_exceptions table")
     except Exception as e:
         logging.error(f"Error adding is_resolved column: {str(e)}")
+
+    try:
+        from sqlalchemy import text as _rs_text
+        from app import db as _rs_db
+        _rs_db.session.execute(_rs_text(
+            "ALTER TABLE replenishment_suppliers "
+            "ADD COLUMN IF NOT EXISTS email VARCHAR(255)"
+        ))
+        _rs_db.session.execute(_rs_text(
+            "ALTER TABLE replenishment_suppliers "
+            "ADD COLUMN IF NOT EXISTS email_cc VARCHAR(500)"
+        ))
+        _rs_db.session.commit()
+        logging.info("email/email_cc columns ensured on replenishment_suppliers table")
+    except Exception as e:
+        logging.error(f"Error adding email columns to replenishment_suppliers: {str(e)}")
 
     try:
         from update_sms_schema import update_sms_schema
