@@ -1367,6 +1367,7 @@ def pre_plan_boxes(route_id, delivery_date):
     result = generate_box_plan(
         route_id_int, delivery_date,
         box_type_id=box_type_id,
+        include_pending=True,
     )
 
     if isinstance(result, dict) and not result.get("ok", True):

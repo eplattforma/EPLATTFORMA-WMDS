@@ -115,8 +115,17 @@ def _pick_box_type(box_types, needed_volume, needed_weight):
     return sorted_asc[-1]
 
 
-def generate_box_plan(route_id, delivery_date, box_type_id=None):
-    """Generate a box plan for all picked-but-unboxed cooler items on a route.
+def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending=False):
+    """Generate a box plan for cooler items on a route.
+
+    When ``include_pending=False`` (default) only already-picked items that
+    are not yet in a box are included — used by the post-pick box-plan flow
+    on the packing screen.
+
+    When ``include_pending=True`` both pending and picked unboxed items are
+    included, using ``COALESCE(qty_picked, qty_required, 1)`` for qty — used
+    by the pre-plan flow on the route-list screen (plan boxes before picking
+    starts).
 
     Returns [] when there are no eligible items or no active box types.
     Returns a dict ``{"ok": False, "message": "..."}`` if items lack
@@ -129,6 +138,8 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
     if not box_types:
         logger.warning("generate_box_plan: no active box type found")
         return []
+
+    status_filter = "bpq.status IN ('picked', 'pending')" if include_pending else "bpq.status = 'picked'"
 
     rows = db.session.execute(
         text(
@@ -146,7 +157,7 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
             "LEFT JOIN invoice_items ii "
             "       ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status = 'picked' "
+            "  AND {status_filter} "
             "  AND i.route_id = :rid "
             "  AND s.delivery_date = :dd "
             "  AND NOT EXISTS ("
@@ -154,7 +165,8 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None):
             "        WHERE cbi.queue_item_id = bpq.id"
             "  ) "
             "ORDER BY COALESCE(rs.seq_no, 0) {order}, bpq.invoice_no, bpq.item_code".format(
-                order="DESC" if STOP_ORDER == "last_first" else "ASC"
+                status_filter=status_filter,
+                order="DESC" if STOP_ORDER == "last_first" else "ASC",
             )
         ),
         {"rid": route_id, "dd": delivery_date, "truthy": True},
