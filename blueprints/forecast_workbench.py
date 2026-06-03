@@ -1824,6 +1824,7 @@ def _build_forecast_supplier_email_payload(supplier_code):
 def supplier_email_preview(supplier_code):
     from datetime import datetime, timezone
     from blueprints.replenishment_mvp import _build_po_email_content
+    from models import ReplenishmentSupplier
 
     if not supplier_code or supplier_code == 'UNMAPPED':
         return jsonify({"error": "A real supplier code is required."}), 400
@@ -1831,6 +1832,10 @@ def supplier_email_preview(supplier_code):
     run_shim, order_lines, po_code_or_err = _build_forecast_supplier_email_payload(supplier_code)
     if run_shim is None:
         return jsonify({"error": po_code_or_err}), 400
+
+    sup = ReplenishmentSupplier.query.filter_by(supplier_code=supplier_code).first()
+    supplier_email = (sup.email or "") if sup else ""
+    supplier_email_cc = (sup.email_cc or "") if sup else ""
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
     content = _build_po_email_content(
@@ -1841,6 +1846,8 @@ def supplier_email_preview(supplier_code):
         "subject": f"PO {po_code_or_err} - {run_shim.supplier_name} - {len(order_lines)} items",
         "text_body": content["text_body"],
         "html_body": content["html_body"],
+        "supplier_email": supplier_email,
+        "supplier_email_cc": supplier_email_cc,
     })
 
 
@@ -1854,10 +1861,12 @@ def supplier_email_order(supplier_code):
         flash("A real supplier code is required to email an order.", "error")
         return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
 
-    recipient_email = (request.form.get("recipient_email") or "eplattforma@gmail.com").strip()
+    recipient_email = (request.form.get("recipient_email") or "").strip()
     if not recipient_email:
         flash("Recipient email is required.", "warning")
         return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    email_cc = (request.form.get("email_cc") or "").strip() or None
 
     run_shim, order_lines, po_code_or_err = _build_forecast_supplier_email_payload(supplier_code)
     if run_shim is None:
@@ -1865,9 +1874,10 @@ def supplier_email_order(supplier_code):
         return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    ok, err = _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email)
+    ok, err = _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email, cc=email_cc)
     if ok:
-        flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
+        cc_note = f" (CC: {email_cc})" if email_cc else ""
+        flash(f"Order email sent to {recipient_email}{cc_note} — {len(order_lines)} items.", "success")
     else:
         flash(f"Failed to send order email: {err}", "error")
     return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))

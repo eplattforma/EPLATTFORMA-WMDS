@@ -618,7 +618,7 @@ Total Items: {len(order_lines)}
     return {"text_body": text_body, "html_body": html_body}
 
 
-def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gmail.com"):
+def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None):
     import os
     import smtplib
     from email.mime.text import MIMEText
@@ -630,7 +630,15 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gm
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
     RECIPIENT = recipient
 
-    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, order_lines={len(order_lines)}")
+    # Build CC list from comma-separated string or list
+    cc_list = []
+    if cc:
+        if isinstance(cc, str):
+            cc_list = [a.strip() for a in cc.split(",") if a.strip()]
+        else:
+            cc_list = [a.strip() for a in cc if a.strip()]
+
+    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, CC={cc_list}, order_lines={len(order_lines)}")
 
     content = _build_po_email_content(run, order_lines, po_code, sent_at)
     text_body = content["text_body"]
@@ -640,7 +648,9 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gm
     msg["Subject"] = f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items"
     msg["From"] = SMTP_EMAIL
     msg["To"] = RECIPIENT
-    
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+
     msg.attach(MIMEText(text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
@@ -648,24 +658,26 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gm
         logger.error("SMTP not configured (SMTP_HOST/SMTP_EMAIL/SMTP_PASSWORD missing)")
         return False, "SMTP not configured on server."
 
+    all_recipients = [RECIPIENT] + cc_list
+
     try:
         logger.info(f"Attempting to connect to SMTP {SMTP_HOST}:{SMTP_PORT}")
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
             logger.info(f"SMTP connection established, logging in as {SMTP_EMAIL}")
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            logger.info(f"SMTP login successful, sending to {RECIPIENT}")
-            server.sendmail(SMTP_EMAIL, RECIPIENT, msg.as_string())
-            logger.info(f"SMTP sendmail completed for {RECIPIENT}")
-        logger.info(f"PO email sent to {RECIPIENT} for PO {po_code}")
+            logger.info(f"SMTP login successful, sending to {all_recipients}")
+            server.sendmail(SMTP_EMAIL, all_recipients, msg.as_string())
+            logger.info(f"SMTP sendmail completed for {all_recipients}")
+        logger.info(f"PO email sent to {all_recipients} for PO {po_code}")
         return True, None
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"SMTP authentication failed: {e}")
         return False, f"SMTP authentication failed: {e}"
     except smtplib.SMTPException as e:
-        logger.error(f"SMTP error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}")
+        logger.error(f"SMTP error sending PO email to {all_recipients}: {type(e).__name__}: {e}")
         return False, f"SMTP error: {type(e).__name__}: {e}"
     except Exception as e:
-        logger.error(f"Error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(f"Error sending PO email to {all_recipients}: {type(e).__name__}: {e}", exc_info=True)
         return False, f"Error sending email: {type(e).__name__}: {e}"
 
 

@@ -1985,6 +1985,8 @@ function previewSupplierEmail(supplierCode) {
     const subjectEl = document.getElementById('emailSubject');
     const bodyEl = document.getElementById('emailBody');
     const sendBtn = document.getElementById('sendEmailBtn');
+    const recipientEl = document.getElementById('emailRecipient');
+    const ccEl = document.getElementById('emailCc');
     subjectEl.value = 'Loading…';
     bodyEl.value = 'Loading preview…';
     sendBtn.disabled = true;
@@ -1999,6 +2001,8 @@ function previewSupplierEmail(supplierCode) {
             }
             subjectEl.value = data.subject || '';
             bodyEl.value = data.text_body || '';
+            if (data.supplier_email) recipientEl.value = data.supplier_email;
+            if (data.supplier_email_cc) ccEl.value = data.supplier_email_cc;
             sendBtn.disabled = false;
         })
         .catch(e => {
@@ -2008,8 +2012,10 @@ function previewSupplierEmail(supplierCode) {
 
 function sendSupplierEmail(supplierCode) {
     const recipient = document.getElementById('emailRecipient').value.trim();
+    const cc = document.getElementById('emailCc').value.trim();
     if (!recipient) { alert('Recipient email required.'); return; }
-    if (!confirm(`Send order email to ${recipient} for supplier ${supplierCode}?`)) return;
+    const ccNote = cc ? ` (CC: ${cc})` : '';
+    if (!confirm(`Send order email to ${recipient}${ccNote} for supplier ${supplierCode}?`)) return;
 
     const form = document.createElement('form');
     form.method = 'POST';
@@ -2019,6 +2025,13 @@ function sendSupplierEmail(supplierCode) {
     input.name = 'recipient_email';
     input.value = recipient;
     form.appendChild(input);
+    if (cc) {
+        const ccInput = document.createElement('input');
+        ccInput.type = 'hidden';
+        ccInput.name = 'email_cc';
+        ccInput.value = cc;
+        form.appendChild(ccInput);
+    }
     document.body.appendChild(form);
     form.submit();
 }
@@ -2034,7 +2047,11 @@ function sendSupplierEmail(supplierCode) {
       <div class="modal-body">
         <div class="mb-3">
           <label class="form-label small">Recipient</label>
-          <input type="email" id="emailRecipient" class="form-control form-control-sm" value="eplattforma@gmail.com">
+          <input type="email" id="emailRecipient" class="form-control form-control-sm" placeholder="Loaded from supplier record…">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">CC <span class="text-muted">(comma-separated, optional)</span></label>
+          <input type="text" id="emailCc" class="form-control form-control-sm" placeholder="Loaded from supplier record…">
         </div>
         <div class="mb-3">
           <label class="form-label small">Subject</label>
