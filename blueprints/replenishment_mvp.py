@@ -629,18 +629,14 @@ def _build_po_email_content(run, order_lines, po_code, sent_at,
         for col in column_config
     )
     header_html += (
-        "<th style='background:#4472C4;color:white;padding:8px;border:1px solid #ddd;text-align:right;'>Case Qty</th>"
         f"<th style='background:#4472C4;color:white;padding:8px;border:1px solid #ddd;text-align:right;'>{qty_label}</th>"
     )
     header_text = " | ".join(col["label"] for col in column_config)
-    header_text += f" | Case Qty | {qty_label}"
+    header_text += f" | {qty_label}"
 
     rows_html = ""
     rows_text = ""
     for idx, line in enumerate(sorted(order_lines, key=lambda l: l.item_code_365), start=1):
-        case_qty = (int(float(line.case_qty_units))
-                    if float(line.case_qty_units) == int(float(line.case_qty_units))
-                    else float(line.case_qty_units))
         final_cases = (int(float(line.final_cases))
                        if float(line.final_cases) == int(float(line.final_cases))
                        else float(line.final_cases))
@@ -659,12 +655,11 @@ def _build_po_email_content(run, order_lines, po_code, sent_at,
             for col in column_config
         )
         row_cells += (
-            f"<td style='padding:8px;border:1px solid #ddd;background:{bg};text-align:right;'>{case_qty}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;background:{bg};text-align:right;'>{final_cases}</td>"
         )
         rows_html += f"<tr>{row_cells}</tr>"
         text_vals = " | ".join(str(dw_with_fallback.get(col["key"], "")) for col in column_config)
-        rows_text += f"{idx}. {text_vals} | {case_qty} | {final_cases}\n"
+        rows_text += f"{idx}. {text_vals} | {final_cases}\n"
 
     html_body = f"""
     <html><head><style>
