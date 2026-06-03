@@ -717,7 +717,8 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
 
     SMTP_HOST = os.getenv("SMTP_HOST", "")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")       # auth credential (may be Brevo key)
+    SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_EMAIL  # visible From address
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
     RECIPIENT = recipient
 
@@ -729,7 +730,7 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
         else:
             cc_list = [a.strip() for a in cc if a.strip()]
 
-    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, CC={cc_list}, order_lines={len(order_lines)}")
+    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, SMTP_FROM={SMTP_FROM}, RECIPIENT={RECIPIENT}, CC={cc_list}, order_lines={len(order_lines)}")
 
     content = _build_po_email_content(run, order_lines, po_code, sent_at,
                                        qty_label=qty_label,
@@ -741,13 +742,13 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
     import email.utils
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Purchase Order - {run.supplier_name} - {len(order_lines)} items"
-    msg["From"] = f"Purchase Orders <{SMTP_EMAIL}>"
+    msg["From"] = f"Purchase Orders <{SMTP_FROM}>"
     msg["To"] = RECIPIENT
     msg["Date"] = email.utils.formatdate(localtime=True)
     msg["Message-ID"] = email.utils.make_msgid(
-        domain=SMTP_EMAIL.split("@")[-1] if "@" in SMTP_EMAIL else "wmds"
+        domain=SMTP_FROM.split("@")[-1] if "@" in SMTP_FROM else "wmds"
     )
-    msg["Reply-To"] = SMTP_EMAIL
+    msg["Reply-To"] = SMTP_FROM
     if cc_list:
         msg["Cc"] = ", ".join(cc_list)
 
