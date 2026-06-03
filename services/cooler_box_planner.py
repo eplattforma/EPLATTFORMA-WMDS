@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 STOP_ORDER = "last_first"   # 'last_first' | 'first_first'
 
+# Fill the first box to this fraction of its capacity before opening the next,
+# so the load is spread more evenly between boxes.
+FIRST_BOX_FILL_FACTOR = 0.75
+
 
 def _num(value):
     try:
@@ -79,21 +83,28 @@ def _load_box_types(box_type_id=None):
     return result
 
 
-def _pick_box_type(box_types, needed_volume, needed_weight):
-    """Always start with the largest box type.
+def _pick_box_type(box_types, needed_volume, needed_weight, prefer_largest=True):
+    """Select the box type for a new box.
 
-    Strategy: fill the largest box across as many stops as possible, then
-    open another large one. Only fall back to a smaller type when the
-    caller has explicitly supplied a specific box_type_id (single-element
-    list) or when the largest box itself is too small for the stop.
+    prefer_largest=True  (first box): always use the largest type so the
+        biggest box is loaded first and filled to FIRST_BOX_FILL_FACTOR.
+    prefer_largest=False (subsequent boxes): use the smallest type whose
+        capacity is enough for the remaining stop's items.
     """
     if not box_types:
         return None
     if len(box_types) == 1:
         return box_types[0]
-    # Largest first
-    sorted_desc = sorted(box_types, key=lambda t: t["usable_capacity"], reverse=True)
-    return sorted_desc[0]
+    if prefer_largest:
+        return sorted(box_types, key=lambda t: t["usable_capacity"], reverse=True)[0]
+    # Smallest-fitting for box 2+
+    sorted_asc = sorted(box_types, key=lambda t: t["usable_capacity"])
+    for bt in sorted_asc:
+        vol_ok = bt["usable_capacity"] <= 0 or needed_volume <= bt["usable_capacity"]
+        wt_ok = bt["max_weight_kg"] <= 0 or needed_weight <= bt["max_weight_kg"]
+        if vol_ok and wt_ok:
+            return bt
+    return sorted_asc[-1]
 
 
 def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending=True):
@@ -289,7 +300,13 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending
             new_wt = current["estimated_weight_kg"] + stop_weight
             usable = current_type["usable_capacity"]
             max_wt = current_type["max_weight_kg"]
-            fits_vol = usable <= 0 or new_vol <= usable
+            # For the first box apply a soft fill cap so some stops spill into
+            # the second box, keeping both boxes at a similar fill level.
+            # Subsequent boxes are filled to 100 % of their capacity.
+            effective_usable = (usable * FIRST_BOX_FILL_FACTOR
+                                if box_no == 1 and len(box_types) > 1
+                                else usable)
+            fits_vol = effective_usable <= 0 or new_vol <= effective_usable
             fits_wt = max_wt <= 0 or new_wt <= max_wt
         else:
             fits_vol = fits_wt = False
@@ -316,7 +333,10 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending
 
         flush_box()
 
-        chosen = _pick_box_type(box_types, stop_volume, stop_weight)
+        # Box 1 → largest type (fill until FIRST_BOX_FILL_FACTOR, then open next).
+        # Box 2+ → smallest type that fits, to avoid wasting a large box.
+        chosen = _pick_box_type(box_types, stop_volume, stop_weight,
+                                prefer_largest=(box_no == 1))
         current_type = chosen
 
         _dim_warn_list = []
