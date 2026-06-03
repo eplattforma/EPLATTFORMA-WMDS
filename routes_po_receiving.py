@@ -1555,6 +1555,134 @@ def api_refresh_shelf_locations(po_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@po_receiving_bp.route('/api/po/<int:po_id>/email-preview', methods=['GET'])
+@login_required
+def api_po_email_preview(po_id):
+    """Return JSON email preview for a PO (subject + text/html body + supplier email)."""
+    if not check_role_access():
+        return jsonify({"error": "Access denied"}), 403
+
+    from blueprints.replenishment_mvp import _build_po_email_content, _resolve_email_columns, _fetch_item_data
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from sqlalchemy import func as sa_func
+
+    po = PurchaseOrder.query.get_or_404(po_id)
+    all_lines = list(po.lines)
+    if not all_lines:
+        return jsonify({"error": "No lines in this purchase order."}), 400
+
+    order_lines = []
+    for line in all_lines:
+        qty = float(line.line_quantity) if line.line_quantity else 0.0
+        if qty <= 0:
+            continue
+        case_qty = float(line.pieces_per_unit) if line.pieces_per_unit and float(line.pieces_per_unit) > 0 else 1.0
+        order_lines.append(SimpleNamespace(
+            item_code_365=line.item_code_365,
+            item_name=line.item_name or '',
+            case_qty_units=case_qty,
+            final_cases=qty,
+        ))
+
+    if not order_lines:
+        return jsonify({"error": "No lines with positive quantity."}), 400
+
+    po_code = po.code_365 or po.shopping_cart_code or f"PO-{po.id}"
+    run_shim = SimpleNamespace(
+        id=po.id,
+        supplier_code=po.supplier_code or '',
+        supplier_name=po.supplier_name or '',
+    )
+
+    col_config = _resolve_email_columns(po.supplier_code or '')
+    item_data = _fetch_item_data({ln.item_code_365 for ln in order_lines})
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    content = _build_po_email_content(run_shim, order_lines, po_code, now_utc,
+                                       qty_label="Order Qty",
+                                       column_config=col_config,
+                                       item_data=item_data)
+
+    from models import ReplenishmentSupplier
+    norm = (po.supplier_code or '').strip().upper()
+    sup = (ReplenishmentSupplier.query
+           .filter(sa_func.upper(sa_func.trim(ReplenishmentSupplier.supplier_code)) == norm)
+           .first()) if norm else None
+
+    return jsonify({
+        "subject": f"PO {po_code} - {po.supplier_name or ''} - {len(order_lines)} items",
+        "text_body": content["text_body"],
+        "html_body": content["html_body"],
+        "supplier_email": (sup.email or '') if sup else '',
+        "supplier_email_cc": (sup.email_cc or '') if sup else '',
+    })
+
+
+@po_receiving_bp.route('/po/<int:po_id>/email-order', methods=['POST'])
+@login_required
+def po_email_order(po_id):
+    """Send a PO email to the supplier."""
+    if not check_role_access():
+        flash("Access denied.", "danger")
+        return redirect(url_for('po_receiving.index'))
+
+    from blueprints.replenishment_mvp import _send_po_email, _resolve_email_columns, _fetch_item_data
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+
+    po = PurchaseOrder.query.get_or_404(po_id)
+
+    recipient_email = (request.form.get('recipient_email') or '').strip()
+    if not recipient_email:
+        flash("Recipient email is required.", "warning")
+        return redirect(url_for('po_receiving.index'))
+
+    email_cc = (request.form.get('email_cc') or '').strip() or None
+
+    order_lines = []
+    for line in list(po.lines):
+        qty = float(line.line_quantity) if line.line_quantity else 0.0
+        if qty <= 0:
+            continue
+        case_qty = float(line.pieces_per_unit) if line.pieces_per_unit and float(line.pieces_per_unit) > 0 else 1.0
+        order_lines.append(SimpleNamespace(
+            item_code_365=line.item_code_365,
+            item_name=line.item_name or '',
+            case_qty_units=case_qty,
+            final_cases=qty,
+        ))
+
+    if not order_lines:
+        flash("No lines with positive quantity to email.", "warning")
+        return redirect(url_for('po_receiving.index'))
+
+    po_code = po.code_365 or po.shopping_cart_code or f"PO-{po.id}"
+    run_shim = SimpleNamespace(
+        id=po.id,
+        supplier_code=po.supplier_code or '',
+        supplier_name=po.supplier_name or '',
+    )
+
+    col_config = _resolve_email_columns(po.supplier_code or '')
+    item_data = _fetch_item_data({ln.item_code_365 for ln in order_lines})
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+
+    ok, err = _send_po_email(run_shim, order_lines, po_code, now_utc, recipient_email,
+                              cc=email_cc,
+                              qty_label="Order Qty",
+                              column_config=col_config,
+                              item_data=item_data)
+    if ok:
+        cc_note = f" (CC: {email_cc})" if email_cc else ''
+        flash(f"Email sent to {recipient_email}{cc_note} — {len(order_lines)} items.", "success")
+    else:
+        flash(f"Failed to send email: {err}", "danger")
+
+    return redirect(url_for('po_receiving.index'))
+
+
 @po_receiving_bp.route("/api/refresh-po/<int:po_id>", methods=["POST"])
 @login_required
 def api_refresh_po(po_id):
