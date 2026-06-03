@@ -284,7 +284,7 @@
               <div class="table-responsive">
                 <table class="table table-sm mb-0" style="font-size:0.82rem;">
                   <thead class="table-light">
-                    <tr><th class="py-1">Invoice</th><th class="py-1">Item</th><th class="py-1">Description</th><th class="text-end py-1">Qty</th></tr>
+                    <tr><th class="py-1">Invoice</th><th class="py-1">Item</th><th class="py-1">Description</th><th class="text-end py-1">Qty</th><th class="py-1">Status</th></tr>
                   </thead>
                   <tbody>
                     {% for it in _bitems %}
@@ -293,6 +293,13 @@
                       <td class="py-1 fw-semibold">{{ it.item_code }}</td>
                       <td class="py-1 text-muted">{{ it.item_name or '' }}</td>
                       <td class="py-1 text-end">×{{ it.qty|int }}</td>
+                      <td class="py-1">
+                        {% if it.status == 'pending' %}
+                          <span class="badge bg-warning text-dark ms-1">Not yet picked</span>
+                        {% elif it.status == 'exception' or (it.picked_qty is not none and it.picked_qty == 0) %}
+                          <span class="badge bg-danger ms-1">Exception — not placed</span>
+                        {% endif %}
+                      </td>
                     </tr>
                     {% endfor %}
                   </tbody>

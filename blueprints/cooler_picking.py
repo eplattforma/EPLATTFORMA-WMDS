@@ -641,7 +641,7 @@ def route_picking(route_id, delivery_date):
             text(
                 "SELECT cbi.cooler_box_id, cbi.invoice_no, cbi.item_code, cbi.item_name, "
                 "       cbi.expected_qty, cbi.customer_name, cbi.delivery_sequence, "
-                "       cbi.id, cbi.status "
+                "       cbi.id, cbi.status, cbi.picked_qty "
                 "FROM cooler_box_items cbi "
                 "WHERE cbi.cooler_box_id = ANY(:bids) "
                 "ORDER BY cbi.cooler_box_id, cbi.delivery_sequence DESC NULLS LAST, cbi.invoice_no"
@@ -658,6 +658,7 @@ def route_picking(route_id, delivery_date):
                 "delivery_sequence": _r[6],
                 "cbi_id": _r[7],
                 "status": _r[8] or "planned",
+                "picked_qty": float(_r[9]) if _r[9] is not None else None,
             })
 
     # Phase 6 — surface estimator on the picking screen so the
