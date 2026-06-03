@@ -1722,19 +1722,30 @@ def autocomplete_order():
         activity.details = f'Admin {current_user.username} autocompleted {items_completed} items in order {invoice_no}'
         db.session.add(activity)
         
-        # Update invoice completion timestamps and set to ready_for_dispatch (packing included)
+        # Update invoice completion timestamps.
+        # If any items were skipped because they are still locked by an
+        # active batch (cooler route, etc.), the order cannot be dispatched
+        # yet — park it at awaiting_batch_items so the batch completes the
+        # remaining items. Only set ready_for_dispatch when every item was
+        # actually autocompleted.
         invoice.picking_complete_time = utc_now_for_db()
         invoice.packing_complete_time = utc_now_for_db()
         invoice.current_item_index = invoice.total_lines
-        invoice.status = 'ready_for_dispatch'
-        
+        if items_skipped_batch > 0:
+            invoice.status = 'awaiting_batch_items'
+        else:
+            invoice.status = 'ready_for_dispatch'
+        invoice.status_updated_at = utc_now_for_db()
+
         db.session.commit()
-        
+
         # Create success message
         message = f'Successfully autocompleted {items_completed} items in invoice {invoice_no}'
         if items_skipped_batch > 0:
-            message += f' ({items_skipped_batch} items skipped - locked by batch)'
-        message += f'. Order status: ready_for_dispatch'
+            message += (f' ({items_skipped_batch} item(s) still locked by a batch — '
+                        f'order parked at Awaiting Batch Items until the batch completes)')
+        else:
+            message += '. Order status: ready_for_dispatch'
         
         flash(message, 'success')
         
