@@ -80,17 +80,20 @@ def _load_box_types(box_type_id=None):
 
 
 def _pick_box_type(box_types, needed_volume, needed_weight):
+    """Always start with the largest box type.
+
+    Strategy: fill the largest box across as many stops as possible, then
+    open another large one. Only fall back to a smaller type when the
+    caller has explicitly supplied a specific box_type_id (single-element
+    list) or when the largest box itself is too small for the stop.
+    """
     if not box_types:
         return None
     if len(box_types) == 1:
         return box_types[0]
-    sorted_asc = sorted(box_types, key=lambda t: t["usable_capacity"])
-    for bt in sorted_asc:
-        vol_ok = bt["usable_capacity"] <= 0 or needed_volume <= bt["usable_capacity"]
-        wt_ok = bt["max_weight_kg"] <= 0 or needed_weight <= bt["max_weight_kg"]
-        if vol_ok and wt_ok:
-            return bt
-    return sorted_asc[-1]
+    # Largest first
+    sorted_desc = sorted(box_types, key=lambda t: t["usable_capacity"], reverse=True)
+    return sorted_desc[0]
 
 
 def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending=True):
