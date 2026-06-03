@@ -579,6 +579,14 @@ def _resolve_email_columns(supplier_code):
     ]
 
 
+def _fmt_qty(value):
+    """Format a numeric quantity: integer display if whole, decimal otherwise."""
+    if value is None:
+        return ""
+    f = float(value)
+    return str(int(f)) if f == int(f) else str(f)
+
+
 def _fetch_item_data(item_codes):
     """Fetch ps_items_dw rows for the given item codes. Returns dict: item_code -> field dict."""
     if not item_codes:
@@ -595,10 +603,10 @@ def _fetch_item_data(item_codes):
         r[0]: {
             "item_code_365":        r[0] or "",
             "item_name":            r[1] or "",
-            "selling_qty":          str(r[2]) if r[2] is not None else "",
+            "selling_qty":          _fmt_qty(r[2]),
             "barcode":              r[3] or "",
             "supplier_item_code":   r[4] or "",
-            "number_of_pieces":     str(r[5]) if r[5] is not None else "",
+            "number_of_pieces":     _fmt_qty(r[5]),
             "attribute_6_code_365": r[6] or "",
             "attribute_1_code_365": r[7] or "",
         }
