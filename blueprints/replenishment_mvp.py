@@ -766,6 +766,12 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
             logger.info(f"SMTP connection established, logging in as {SMTP_EMAIL}")
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
             logger.info(f"SMTP login successful, sending to {all_recipients}")
+            import socket as _socket
+            try:
+                _sending_ip = _socket.gethostbyname(SMTP_HOST)
+                logger.info(f"SMTP host {SMTP_HOST} resolves to IP: {_sending_ip}")
+            except Exception:
+                pass
             failed = server.sendmail(SMTP_EMAIL, all_recipients, msg.as_string())
             if failed:
                 logger.error(f"SMTP partial failure — rejected recipients: {failed}")
