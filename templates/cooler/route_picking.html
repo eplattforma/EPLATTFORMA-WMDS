@@ -657,21 +657,28 @@
               {% else %}<span class="badge bg-info text-dark">{{ q.status }}</span>{% endif %}
             </td>
             <td>
-              {# Show box destination badge first if pre-planned or assigned #}
-              {% if assigned_to_box and q.queue_item_id in assigned_to_box %}
-                <span class="badge bg-primary fs-6 px-3 py-2">
-                  <i class="fas fa-box me-1"></i>Box {{ assigned_to_box[q.queue_item_id] }}
-                </span>
-                {% if q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
-                <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
+              {# Pick-to-box: pre-planned items show "Pick → Box #N" green button #}
+              {% if planned_box and q.queue_item_id in planned_box and q.status == 'pending' %}
+                {% if has_permission('cooler.pick') and not batch_in_progress %}
+                <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
                   <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-                  <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-hand-rock me-1"></i>Pick</button>
+                  <button type="submit" class="btn btn-sm btn-success">
+                    <i class="fas fa-hand-rock me-1"></i>Pick → Box #{{ planned_box[q.queue_item_id] }}
+                  </button>
                 </form>
                 <form method="post" action="{{ url_for('cooler.queue_skip', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
                   <input type="hidden" name="_html_form" value="1">
                   <button type="submit" class="btn btn-sm btn-outline-warning" title="Skip this item"><i class="fas fa-forward me-1"></i>Skip</button>
                 </form>
+                {% else %}
+                <span class="badge bg-primary fs-6 px-3 py-2">
+                  <i class="fas fa-box me-1"></i>Box {{ planned_box[q.queue_item_id] }}
+                </span>
                 {% endif %}
+              {% elif assigned_to_box and q.queue_item_id in assigned_to_box %}
+                <span class="badge bg-primary fs-6 px-3 py-2">
+                  <i class="fas fa-box me-1"></i>Box {{ assigned_to_box[q.queue_item_id] }}
+                </span>
               {% elif q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
                 <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
                   <input type="hidden" name="delivery_date" value="{{ delivery_date }}">

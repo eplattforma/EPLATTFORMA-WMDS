@@ -533,7 +533,7 @@ def route_picking(route_id, delivery_date):
     # cannot accidentally create duplicate cooler_box_items rows).
     assigned_rows = db.session.execute(
         text(
-            "SELECT cbi.queue_item_id, cb.box_no "
+            "SELECT cbi.queue_item_id, cb.box_no, cbi.status "
             "FROM cooler_box_items cbi "
             "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
             "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
@@ -542,6 +542,8 @@ def route_picking(route_id, delivery_date):
         {"rid": _route_id_int, "dd": str(delivery_date)},
     ).fetchall()
     assigned_to_box = {int(r[0]): int(r[1]) for r in assigned_rows}
+    # planned_box: items pre-assigned to a box but not yet physically picked
+    planned_box = {int(r[0]): int(r[1]) for r in assigned_rows if r[2] == "planned"}
 
     # Phase 6 — fetch the LATEST per-route cooler session lock state.
     # We look up by route_id (preferred) and fall back to the legacy
@@ -796,6 +798,7 @@ def route_picking(route_id, delivery_date):
         picking_phase=picking_phase,
         batch_in_progress=batch_in_progress,
         assigned_to_box=assigned_to_box,
+        planned_box=planned_box,
         picked_unboxed_count=picked_unboxed_count,
         route_driver=route_driver,
         route_name=route_name_val,
@@ -1844,8 +1847,8 @@ def box_close(box_id):
     unpicked = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_box_items cbi "
-            "JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id "
-            "WHERE cbi.cooler_box_id = :bid AND bpq.qty_picked = 0"
+            "WHERE cbi.cooler_box_id = :bid "
+            "  AND (cbi.status = 'planned' OR cbi.picked_qty = 0)"
         ),
         {"bid": box_id},
     ).scalar() or 0
@@ -2114,6 +2117,29 @@ def queue_pick(queue_item_id):
             f"picked by {_username()}",
             invoice_no=row[1], item_code=row[2],
         )
+
+        # ── Pick-to-box: promote 'planned' box assignment to 'picked' ─────
+        try:
+            db.session.execute(
+                text(
+                    "UPDATE cooler_box_items "
+                    "SET status = 'picked', picked_qty = :qty, "
+                    "    picked_by = :who, picked_at = :now, updated_at = :now "
+                    "WHERE queue_item_id = :qid AND status = 'planned'"
+                ),
+                {
+                    "qid": queue_item_id,
+                    "qty": float(row[3]) if row[3] else 0.0,
+                    "who": _username(),
+                    "now": now,
+                },
+            )
+        except Exception as _ptb_err:
+            current_app.logger.warning(
+                "cooler.queue_pick pick-to-box promote failed for queue %s: %s",
+                queue_item_id, _ptb_err,
+            )
+
         try:
             session_row = db.session.execute(
                 text(
