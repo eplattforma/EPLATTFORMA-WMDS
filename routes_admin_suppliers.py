@@ -56,10 +56,32 @@ def supplier_list():
     ]
 
     from blueprints.replenishment_mvp import AVAILABLE_EMAIL_COLUMNS
+
+    # Pre-merge saved JSON overrides with defaults so the template needs no logic
+    supplier_cols = {}
+    for s in suppliers:
+        saved_map = {}
+        if s.email_columns_json:
+            try:
+                for c in _json.loads(s.email_columns_json):
+                    saved_map[c["key"]] = c
+            except Exception:
+                pass
+        merged = []
+        for col in AVAILABLE_EMAIL_COLUMNS:
+            saved = saved_map.get(col["key"], {})
+            merged.append({
+                "key":        col["key"],
+                "label":      saved.get("label",      col["label"]),
+                "sort_order": saved.get("sort_order",  col["sort_order"]),
+                "included":   saved.get("included",    col["included"]),
+            })
+        supplier_cols[s.id] = merged
+
     return render_template("admin/suppliers.html",
                            suppliers=suppliers,
                            missing_suppliers=missing_suppliers,
-                           available_columns=AVAILABLE_EMAIL_COLUMNS)
+                           supplier_cols=supplier_cols)
 
 
 # ── Create ──────────────────────────────────────────────────────────────────

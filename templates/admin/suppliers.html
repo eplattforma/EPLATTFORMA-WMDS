@@ -157,12 +157,6 @@
                   <form method="POST"
                         action="{{ url_for('admin_suppliers.supplier_save_columns', supplier_id=s.id) }}">
 
-                    {% set saved = s.email_columns_json | from_json %}
-                    {% set saved_map = namespace(data={}) %}
-                    {% for c in saved %}
-                      {% set _ = saved_map.data.update({c.key: c}) %}
-                    {% endfor %}
-
                     <table class="table table-sm table-bordered mb-2" style="max-width:620px;">
                       <thead class="table-secondary">
                         <tr>
@@ -173,23 +167,21 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {% for col in available_columns %}
-                        {% set sc = saved_map.data.get(col.key, col) %}
+                        {% for col in supplier_cols[s.id] %}
                         <tr>
                           <td class="text-center">
                             <input type="checkbox" name="col_included_{{ col.key }}"
-                                   value="1"
-                                   {% if sc.get('included', col.included) %}checked{% endif %}>
+                                   value="1" {% if col.included %}checked{% endif %}>
                           </td>
                           <td class="small font-monospace">{{ col.key }}</td>
                           <td>
                             <input name="col_label_{{ col.key }}"
-                                   value="{{ sc.get('label', col.label) }}"
+                                   value="{{ col.label }}"
                                    class="form-control form-control-sm">
                           </td>
                           <td>
                             <input type="number" name="col_sort_{{ col.key }}"
-                                   value="{{ sc.get('sort_order', col.sort_order) }}"
+                                   value="{{ col.sort_order }}"
                                    class="form-control form-control-sm" min="1" max="99">
                           </td>
                         </tr>
