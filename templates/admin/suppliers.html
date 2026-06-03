@@ -118,6 +118,11 @@
                 <input name="sort_order" type="number" value="{{ s.sort_order or 0 }}"
                        class="form-control form-control-sm" style="width:60px">
                 <button class="btn btn-sm btn-outline-primary">Save</button>
+                <button type="button" class="btn btn-sm btn-outline-info"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#col-config-{{ s.id }}">
+                  <i class="fas fa-columns me-1"></i>Email Columns
+                </button>
               </form>
             </td>
             <td>
@@ -138,6 +143,65 @@
                   <button class="btn btn-sm btn-outline-secondary">✗ Inactive</button>
                 {% endif %}
               </form>
+            </td>
+          </tr>
+          <tr id="supplier-{{ s.id }}">
+            <td colspan="6" class="p-0">
+              <div class="collapse" id="col-config-{{ s.id }}">
+                <div class="p-3 border-top" style="background:#f8f9fa;">
+                  <strong class="small">Email Column Configuration — {{ s.supplier_name }}</strong>
+                  <p class="small text-muted mb-2">
+                    Select which fields appear in the PO email, set their label, and adjust the order number.
+                    <strong>Case Qty</strong> and <strong>Order Qty</strong> are always included at the end.
+                  </p>
+                  <form method="POST"
+                        action="{{ url_for('admin_suppliers.supplier_save_columns', supplier_id=s.id) }}">
+
+                    {% set saved = s.email_columns_json | from_json %}
+                    {% set saved_map = namespace(data={}) %}
+                    {% for c in saved %}
+                      {% set _ = saved_map.data.update({c.key: c}) %}
+                    {% endfor %}
+
+                    <table class="table table-sm table-bordered mb-2" style="max-width:620px;">
+                      <thead class="table-secondary">
+                        <tr>
+                          <th style="width:50px">Include</th>
+                          <th>Field</th>
+                          <th>Label in email</th>
+                          <th style="width:80px">Order</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for col in available_columns %}
+                        {% set sc = saved_map.data.get(col.key, col) %}
+                        <tr>
+                          <td class="text-center">
+                            <input type="checkbox" name="col_included_{{ col.key }}"
+                                   value="1"
+                                   {% if sc.get('included', col.included) %}checked{% endif %}>
+                          </td>
+                          <td class="small font-monospace">{{ col.key }}</td>
+                          <td>
+                            <input name="col_label_{{ col.key }}"
+                                   value="{{ sc.get('label', col.label) }}"
+                                   class="form-control form-control-sm">
+                          </td>
+                          <td>
+                            <input type="number" name="col_sort_{{ col.key }}"
+                                   value="{{ sc.get('sort_order', col.sort_order) }}"
+                                   class="form-control form-control-sm" min="1" max="99">
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                    <button class="btn btn-sm btn-primary">
+                      <i class="fas fa-save me-1"></i>Save Column Config
+                    </button>
+                  </form>
+                </div>
+              </div>
             </td>
           </tr>
           {% endfor %}

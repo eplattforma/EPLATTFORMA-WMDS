@@ -239,6 +239,9 @@ def status_badge_filter(status_value):
     label = status_info['label']
     return f'<span class="badge {badge_class}"><i class="{icon} me-1"></i>{label}</span>'
 
+import json as _json
+app.jinja_env.filters['from_json'] = lambda s: _json.loads(s) if s else []
+
 @app.template_filter('batch_badge')
 def batch_badge_filter(invoice_no):
     """Return a badge HTML string for any active batch that contains this invoice."""
@@ -689,8 +692,12 @@ if _db_available:
             "ALTER TABLE replenishment_suppliers "
             "ADD COLUMN IF NOT EXISTS email_cc VARCHAR(500)"
         ))
+        _rs_db.session.execute(_rs_text(
+            "ALTER TABLE replenishment_suppliers "
+            "ADD COLUMN IF NOT EXISTS email_columns_json TEXT"
+        ))
         _rs_db.session.commit()
-        logging.info("email/email_cc columns ensured on replenishment_suppliers table")
+        logging.info("email/email_cc/email_columns_json columns ensured on replenishment_suppliers table")
     except Exception as e:
         logging.error(f"Error adding email columns to replenishment_suppliers: {str(e)}")
 

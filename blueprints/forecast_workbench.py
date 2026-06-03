@@ -1842,10 +1842,16 @@ def supplier_email_preview(supplier_code):
     supplier_email = (sup.email or "") if sup else ""
     supplier_email_cc = (sup.email_cc or "") if sup else ""
 
+    from blueprints.replenishment_mvp import _resolve_email_columns, _fetch_item_data
+    col_config = _resolve_email_columns(supplier_code)
+    item_data = _fetch_item_data({line.item_code_365 for line in order_lines})
+
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
     content = _build_po_email_content(
         run_shim, order_lines, po_code_or_err, now_utc,
         qty_label="Order Qty (units)",
+        column_config=col_config,
+        item_data=item_data,
     )
     return jsonify({
         "subject": f"PO {po_code_or_err} - {run_shim.supplier_name} - {len(order_lines)} items",
@@ -1878,8 +1884,14 @@ def supplier_email_order(supplier_code):
         flash(po_code_or_err, "warning")
         return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
 
+    from blueprints.replenishment_mvp import _resolve_email_columns, _fetch_item_data
+    col_config = _resolve_email_columns(supplier_code)
+    item_data = _fetch_item_data({line.item_code_365 for line in order_lines})
+
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    ok, err = _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email, cc=email_cc)
+    ok, err = _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email, cc=email_cc,
+                              qty_label="Order Qty (units)",
+                              column_config=col_config, item_data=item_data)
     if ok:
         cc_note = f" (CC: {email_cc})" if email_cc else ""
         flash(f"Order email sent to {recipient_email}{cc_note} — {len(order_lines)} items.", "success")

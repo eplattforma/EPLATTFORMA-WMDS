@@ -28,6 +28,18 @@ from models import ReplenishmentRun, ReplenishmentRunLine
 
 logger = logging.getLogger(__name__)
 
+# All ps_items_dw fields that can appear in PO emails, with their defaults.
+AVAILABLE_EMAIL_COLUMNS = [
+    {"key": "item_code_365",        "label": "Item Code",     "sort_order": 1, "included": False},
+    {"key": "item_name",            "label": "Item Name",     "sort_order": 2, "included": True},
+    {"key": "selling_qty",          "label": "Selling Qty",   "sort_order": 3, "included": False},
+    {"key": "barcode",              "label": "Barcode",       "sort_order": 4, "included": False},
+    {"key": "supplier_item_code",   "label": "Supplier Code", "sort_order": 5, "included": True},
+    {"key": "number_of_pieces",     "label": "Pieces",        "sort_order": 6, "included": False},
+    {"key": "attribute_6_code_365", "label": "Attribute 6",  "sort_order": 7, "included": False},
+    {"key": "attribute_1_code_365", "label": "Attribute 1",  "sort_order": 8, "included": False},
+]
+
 replenishment_bp = Blueprint(
     "replenishment_mvp", __name__,
     url_prefix="/replenishment-mvp",
@@ -541,66 +553,141 @@ def send_po_to_ps365(run_id):
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 
-def _build_po_email_content(run, order_lines, po_code, sent_at, qty_label="Cases Ordered"):
-    """Build the email content (text and HTML bodies). Returns dict with text_body and html_body.
+def _resolve_email_columns(supplier_code):
+    """Return the ordered list of active columns for a supplier's PO email.
+    Falls back to [item_name, supplier_item_code] if not configured."""
+    import json
+    from models import ReplenishmentSupplier
 
-    qty_label controls the header of the rightmost column. Replenishment passes
-    cases (default); forecast supplier passes units, so it overrides this.
+    repl = (ReplenishmentSupplier.query
+            .filter(db.func.upper(db.func.trim(ReplenishmentSupplier.supplier_code))
+                    == (supplier_code or "").strip().upper())
+            .first())
+    raw = getattr(repl, "email_columns_json", None) if repl else None
+    if raw:
+        try:
+            config = json.loads(raw)
+            active = [c for c in config if c.get("included")]
+            active.sort(key=lambda c: c.get("sort_order", 99))
+            if active:
+                return [{"key": c["key"], "label": c.get("label", c["key"])} for c in active]
+        except Exception:
+            pass
+    return [
+        {"key": "item_name",          "label": "Item Name"},
+        {"key": "supplier_item_code", "label": "Supplier Code"},
+    ]
+
+
+def _fetch_item_data(item_codes):
+    """Fetch ps_items_dw rows for the given item codes. Returns dict: item_code -> field dict."""
+    if not item_codes:
+        return {}
+    from sqlalchemy import text
+    rows = db.session.execute(text("""
+        SELECT item_code_365, item_name, selling_qty, barcode,
+               supplier_item_code, number_of_pieces,
+               attribute_6_code_365, attribute_1_code_365
+        FROM ps_items_dw
+        WHERE item_code_365 = ANY(:codes)
+    """), {"codes": list(item_codes)}).fetchall()
+    return {
+        r[0]: {
+            "item_code_365":        r[0] or "",
+            "item_name":            r[1] or "",
+            "selling_qty":          str(r[2]) if r[2] is not None else "",
+            "barcode":              r[3] or "",
+            "supplier_item_code":   r[4] or "",
+            "number_of_pieces":     str(r[5]) if r[5] is not None else "",
+            "attribute_6_code_365": r[6] or "",
+            "attribute_1_code_365": r[7] or "",
+        }
+        for r in rows
+    }
+
+
+def _build_po_email_content(run, order_lines, po_code, sent_at,
+                             qty_label="Cases Ordered",
+                             column_config=None, item_data=None):
+    """Build the email content (text and HTML bodies).
+
+    column_config: list of {"key": str, "label": str} in display order.
+                   Defaults to [item_name, supplier_item_code].
+    item_data:     dict mapping item_code_365 -> field dict from ps_items_dw.
+    qty_label:     header for the order quantity column.
     """
+    if column_config is None:
+        column_config = [
+            {"key": "item_name",          "label": "Item Name"},
+            {"key": "supplier_item_code", "label": "Supplier Code"},
+        ]
+    if item_data is None:
+        item_data = {}
+
+    header_html = "".join(
+        f"<th style='background:#4472C4;color:white;padding:8px;border:1px solid #ddd;'>{col['label']}</th>"
+        for col in column_config
+    )
+    header_html += (
+        "<th style='background:#4472C4;color:white;padding:8px;border:1px solid #ddd;text-align:right;'>Case Qty</th>"
+        f"<th style='background:#4472C4;color:white;padding:8px;border:1px solid #ddd;text-align:right;'>{qty_label}</th>"
+    )
+    header_text = " | ".join(col["label"] for col in column_config)
+    header_text += f" | Case Qty | {qty_label}"
+
     rows_html = ""
     rows_text = ""
     for idx, line in enumerate(sorted(order_lines, key=lambda l: l.item_code_365), start=1):
-        case_qty = int(float(line.case_qty_units)) if float(line.case_qty_units) == int(float(line.case_qty_units)) else float(line.case_qty_units)
-        final_cases = int(float(line.final_cases)) if float(line.final_cases) == int(float(line.final_cases)) else float(line.final_cases)
-        item_name = line.item_name or ""
-        rows_html += (
-            f"<tr>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{item_name}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{run.supplier_code}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{case_qty}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{final_cases}</td>"
-            f"</tr>"
+        case_qty = (int(float(line.case_qty_units))
+                    if float(line.case_qty_units) == int(float(line.case_qty_units))
+                    else float(line.case_qty_units))
+        final_cases = (int(float(line.final_cases))
+                       if float(line.final_cases) == int(float(line.final_cases))
+                       else float(line.final_cases))
+
+        dw = item_data.get(line.item_code_365, {})
+        dw_with_fallback = dict(dw)
+        if not dw_with_fallback.get("item_name"):
+            dw_with_fallback["item_name"] = getattr(line, "item_name", "") or ""
+        if not dw_with_fallback.get("supplier_item_code"):
+            dw_with_fallback["supplier_item_code"] = run.supplier_code
+
+        bg = "#f2f2f2" if idx % 2 == 0 else "#ffffff"
+        row_cells = "".join(
+            f"<td style='padding:8px;border:1px solid #ddd;background:{bg};'>"
+            f"{dw_with_fallback.get(col['key'], '')}</td>"
+            for col in column_config
         )
-        rows_text += f"{idx}. {item_name} | {run.supplier_code} | {case_qty} | {final_cases}\n"
+        row_cells += (
+            f"<td style='padding:8px;border:1px solid #ddd;background:{bg};text-align:right;'>{case_qty}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;background:{bg};text-align:right;'>{final_cases}</td>"
+        )
+        rows_html += f"<tr>{row_cells}</tr>"
+        text_vals = " | ".join(str(dw_with_fallback.get(col["key"], "")) for col in column_config)
+        rows_text += f"{idx}. {text_vals} | {case_qty} | {final_cases}\n"
 
     html_body = f"""
-    <html>
-    <head>
-        <style>
-            body {{ font-family: Arial, sans-serif; }}
-            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
-            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-            th {{ background-color: #4472C4; color: white; }}
-            tr:nth-child(even) {{ background-color: #f2f2f2; }}
-            .header {{ background-color: #f8f9fa; padding: 20px; border-bottom: 2px solid #4472C4; }}
-        </style>
-    </head>
+    <html><head><style>
+      body {{ font-family: Arial, sans-serif; }}
+      table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+      .header {{ background:#f8f9fa; padding:20px; border-bottom:2px solid #4472C4; }}
+    </style></head>
     <body>
-        <div class="header">
-            <h2>Purchase Order Created</h2>
-            <p><strong>PO Code:</strong> {po_code}</p>
-            <p><strong>Supplier:</strong> {run.supplier_name} ({run.supplier_code})</p>
-            <p><strong>Run ID:</strong> {run.id} (7-day cover)</p>
-            <p><strong>Date:</strong> {sent_at.strftime('%Y-%m-%d %H:%M')} UTC</p>
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Item Name</th>
-                    <th>Supplier Code</th>
-                    <th>Case Qty</th>
-                    <th>{qty_label}</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html}
-            </tbody>
-        </table>
-        <p style='margin-top:20px;'><strong>Total Items:</strong> {len(order_lines)}</p>
-        <hr>
-        <p style='color: #666; font-size: 12px;'>This is an automated email from the Warehouse Management System.</p>
-    </body>
-    </html>
+      <div class="header">
+        <h2>Purchase Order Created</h2>
+        <p><strong>PO Code:</strong> {po_code}</p>
+        <p><strong>Supplier:</strong> {run.supplier_name} ({run.supplier_code})</p>
+        <p><strong>Run ID:</strong> {run.id} (7-day cover)</p>
+        <p><strong>Date:</strong> {sent_at.strftime('%Y-%m-%d %H:%M')} UTC</p>
+      </div>
+      <table>
+        <thead><tr>{header_html}</tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+      <p style='margin-top:20px;'><strong>Total Items:</strong> {len(order_lines)}</p>
+      <hr>
+      <p style='color:#666;font-size:12px;'>This is an automated email from the Warehouse Management System.</p>
+    </body></html>
     """
 
     text_body = f"""Purchase Order Created
@@ -611,14 +698,15 @@ Run ID: {run.id} (7-day cover)
 Date: {sent_at.strftime('%Y-%m-%d %H:%M')} UTC
 
 Items:
-Item Name | Supplier Code | Case Qty | {qty_label}
+{header_text}
 {rows_text}
 Total Items: {len(order_lines)}
 """
     return {"text_body": text_body, "html_body": html_body}
 
 
-def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None):
+def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None,
+                   qty_label="Cases Ordered", column_config=None, item_data=None):
     import os
     import smtplib
     from email.mime.text import MIMEText
@@ -640,7 +728,10 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="", cc=None):
 
     logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, CC={cc_list}, order_lines={len(order_lines)}")
 
-    content = _build_po_email_content(run, order_lines, po_code, sent_at)
+    content = _build_po_email_content(run, order_lines, po_code, sent_at,
+                                       qty_label=qty_label,
+                                       column_config=column_config,
+                                       item_data=item_data)
     text_body = content["text_body"]
     html_body = content["html_body"]
 
@@ -704,8 +795,10 @@ def email_preview(run_id):
         po_code = f"Run-{run.id}"
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    content = _build_po_email_content(run, order_lines, po_code, now_utc)
-    
+    col_config = _resolve_email_columns(run.supplier_code)
+    item_data = _fetch_item_data({line.item_code_365 for line in order_lines})
+    content = _build_po_email_content(run, order_lines, po_code, now_utc,
+                                       column_config=col_config, item_data=item_data)
     return jsonify({
         "subject": f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items",
         "text_body": content["text_body"],
@@ -742,7 +835,10 @@ def email_order(run_id):
         po_code = f"Run-{run.id}"
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    ok, err = _send_po_email(run, order_lines, po_code, now_utc, recipient_email)
+    col_config = _resolve_email_columns(run.supplier_code)
+    item_data = _fetch_item_data({line.item_code_365 for line in order_lines})
+    ok, err = _send_po_email(run, order_lines, po_code, now_utc, recipient_email,
+                              column_config=col_config, item_data=item_data)
     if ok:
         flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
     else:

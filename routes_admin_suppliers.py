@@ -2,6 +2,7 @@
 Admin Suppliers — CRUD for ReplenishmentSupplier.
 Not synced from PS365; managed manually here.
 """
+import json as _json
 import logging
 from functools import wraps
 
@@ -54,9 +55,11 @@ def supplier_list():
         if (r[0] or "").strip().upper() not in known_codes
     ]
 
+    from blueprints.replenishment_mvp import AVAILABLE_EMAIL_COLUMNS
     return render_template("admin/suppliers.html",
                            suppliers=suppliers,
-                           missing_suppliers=missing_suppliers)
+                           missing_suppliers=missing_suppliers,
+                           available_columns=AVAILABLE_EMAIL_COLUMNS)
 
 
 # ── Create ──────────────────────────────────────────────────────────────────
@@ -121,6 +124,35 @@ def supplier_update(supplier_id):
     db.session.commit()
     flash(f"Supplier '{name}' updated.", "success")
     return redirect(url_for("admin_suppliers.supplier_list"))
+
+
+# ── Email column config ──────────────────────────────────────────────────────
+
+@admin_suppliers_bp.route("/<int:supplier_id>/save-columns", methods=["POST"])
+@login_required
+@_require_admin
+def supplier_save_columns(supplier_id):
+    s = ReplenishmentSupplier.query.get_or_404(supplier_id)
+    from blueprints.replenishment_mvp import AVAILABLE_EMAIL_COLUMNS
+
+    config = []
+    for col in AVAILABLE_EMAIL_COLUMNS:
+        key = col["key"]
+        included = request.form.get(f"col_included_{key}") == "1"
+        label = (request.form.get(f"col_label_{key}") or col["label"]).strip()
+        try:
+            sort_order = int(request.form.get(f"col_sort_{key}") or col["sort_order"])
+        except ValueError:
+            sort_order = col["sort_order"]
+        config.append({
+            "key": key, "label": label,
+            "sort_order": sort_order, "included": included,
+        })
+    config.sort(key=lambda c: c["sort_order"])
+    s.email_columns_json = _json.dumps(config)
+    db.session.commit()
+    flash(f"Email columns saved for {s.supplier_name}.", "success")
+    return redirect(url_for("admin_suppliers.supplier_list") + f"#supplier-{supplier_id}")
 
 
 # ── Toggle active ────────────────────────────────────────────────────────────
