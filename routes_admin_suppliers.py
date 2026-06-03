@@ -154,27 +154,32 @@ def supplier_update(supplier_id):
 @login_required
 @_require_admin
 def supplier_save_columns(supplier_id):
-    s = ReplenishmentSupplier.query.get_or_404(supplier_id)
-    from blueprints.replenishment_mvp import AVAILABLE_EMAIL_COLUMNS
+    try:
+        s = ReplenishmentSupplier.query.filter_by(id=supplier_id).first_or_404()
+        from blueprints.replenishment_mvp import AVAILABLE_EMAIL_COLUMNS
 
-    config = []
-    for col in AVAILABLE_EMAIL_COLUMNS:
-        key = col["key"]
-        included = request.form.get(f"col_included_{key}") == "1"
-        label = (request.form.get(f"col_label_{key}") or col["label"]).strip()
-        try:
-            sort_order = int(request.form.get(f"col_sort_{key}") or col["sort_order"])
-        except ValueError:
-            sort_order = col["sort_order"]
-        config.append({
-            "key": key, "label": label,
-            "sort_order": sort_order, "included": included,
-        })
-    config.sort(key=lambda c: c["sort_order"])
-    s.email_columns_json = _json.dumps(config)
-    db.session.commit()
-    flash(f"Email columns saved for {s.supplier_name}.", "success")
-    return redirect(url_for("admin_suppliers.supplier_list") + f"#supplier-{supplier_id}")
+        config = []
+        for col in AVAILABLE_EMAIL_COLUMNS:
+            key = col["key"]
+            included = request.form.get(f"col_included_{key}") == "1"
+            label = (request.form.get(f"col_label_{key}") or col["label"]).strip()
+            try:
+                sort_order = int(request.form.get(f"col_sort_{key}") or col["sort_order"])
+            except ValueError:
+                sort_order = col["sort_order"]
+            config.append({
+                "key": key, "label": label,
+                "sort_order": sort_order, "included": included,
+            })
+        config.sort(key=lambda c: c["sort_order"])
+        s.email_columns_json = _json.dumps(config)
+        db.session.commit()
+        flash(f"Email columns saved for {s.supplier_name}.", "success")
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("supplier_save_columns failed for supplier_id=%s: %s", supplier_id, exc)
+        flash(f"Error saving column config: {exc}", "danger")
+    return redirect(url_for("admin_suppliers.supplier_list"))
 
 
 # ── Toggle active ────────────────────────────────────────────────────────────
