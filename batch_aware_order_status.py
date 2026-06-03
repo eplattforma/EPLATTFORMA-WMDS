@@ -68,8 +68,19 @@ def update_order_status_batch_aware(invoice_no):
     
     # Determine the correct status
     old_status = invoice.status
-    
-    if picked_items == total_items:
+
+    # Check batch_pick_queue for cooler items still pending.
+    # InvoiceItem.is_picked can be True for cooler items that were picked
+    # before summer_cooler_mode was enabled, but still need cooler processing.
+    from sqlalchemy import text as _text
+    cooler_pending = db.session.execute(_text(
+        "SELECT COUNT(*) FROM batch_pick_queue "
+        "WHERE invoice_no = :inv "
+        "  AND pick_zone_type = 'cooler' "
+        "  AND status = 'pending'"
+    ), {"inv": invoice_no}).scalar() or 0
+
+    if picked_items == total_items and cooler_pending == 0:
         # All items picked. If the order had already been packed earlier
         # and was sitting in 'awaiting_batch_items' waiting on this batch
         # (Phase-5 cooler/batch integration), promote it straight to
@@ -85,7 +96,12 @@ def update_order_status_batch_aware(invoice_no):
             invoice.status = 'ready_for_dispatch'
         else:
             invoice.status = 'awaiting_packing'
-        
+
+    elif picked_items == total_items and cooler_pending > 0:
+        # All InvoiceItems look picked but cooler queue still has
+        # pending items — hold until cooler batch completes
+        invoice.status = 'awaiting_batch_items'
+
     elif unpicked_items > 0 and batch_locked_items == unpicked_items:
         # All remaining unpicked items are locked by batches (cooler,
         # standard, or deferred-route via Send-to-Batch). The order
