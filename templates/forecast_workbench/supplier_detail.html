@@ -2001,8 +2001,8 @@ function previewSupplierEmail(supplierCode) {
             }
             subjectEl.value = data.subject || '';
             bodyEl.value = data.text_body || '';
-            if (data.supplier_email) recipientEl.value = data.supplier_email;
-            if (data.supplier_email_cc) ccEl.value = data.supplier_email_cc;
+            recipientEl.value = data.supplier_email || '';
+            ccEl.value = data.supplier_email_cc || '';
             sendBtn.disabled = false;
         })
         .catch(e => {

@@ -1833,7 +1833,12 @@ def supplier_email_preview(supplier_code):
     if run_shim is None:
         return jsonify({"error": po_code_or_err}), 400
 
-    sup = ReplenishmentSupplier.query.filter_by(supplier_code=supplier_code).first()
+    # Normalize before lookup — supplier_code_365 from ps_items_dw may have
+    # different casing or whitespace than what was typed in Admin → Suppliers.
+    norm_code = supplier_code.strip().upper()
+    sup = (ReplenishmentSupplier.query
+           .filter(db.func.upper(db.func.trim(ReplenishmentSupplier.supplier_code)) == norm_code)
+           .first())
     supplier_email = (sup.email or "") if sup else ""
     supplier_email_cc = (sup.email_cc or "") if sup else ""
 
