@@ -189,6 +189,100 @@ def _get_existing_job_ids(app):
         return set()
 
 
+def _heal_stale_runs_on_boot(app):
+    """Mark orphaned RUNNING rows in all job-tracking tables as stale/failed.
+
+    Called once by the designated scheduler worker on every boot.  Any row
+    still RUNNING at boot time is by definition orphaned — the previous process
+    crashed or was killed without finishing the job.  A 2-minute minimum age
+    guard avoids false-positives in the rare case where two workers boot almost
+    simultaneously.
+
+    Tables covered:
+      job_runs          RUNNING  → STALE_FAILED
+      ps365_sync_log    RUNNING  → FAILED
+      ps365_stock_777_runs RUNNING → FAILED
+      sync_job_log      running  → failed
+      bot_run_log       running  → failed
+
+    ForecastRun is intentionally excluded — it has its own watchdog with a
+    configurable timeout threshold.  All failures here are non-fatal: a
+    warning is logged but the scheduler boot continues.
+    """
+    try:
+        from datetime import timezone, timedelta
+        from sqlalchemy import text as _text
+        from app import db as _db
+
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(minutes=2)
+            # Most timestamp columns are stored as timezone-naive UTC, so we
+            # compare against a naive cutoff to avoid type-mismatch errors.
+            now_naive = now.replace(tzinfo=None)
+            cutoff_naive = cutoff.replace(tzinfo=None)
+
+            healed = {}
+
+            _sweeps = [
+                # (table, status_col, running_val, failed_val, extra_sets)
+                ("job_runs", "status", "RUNNING", "STALE_FAILED",
+                 "finished_at = :now, updated_at = :now, "
+                 "duration_seconds = EXTRACT(EPOCH FROM (:now - started_at)), "
+                 "error_message = COALESCE(error_message, "
+                 "'Marked STALE_FAILED by boot-time healer: process restarted')"),
+                ("ps365_sync_log", "status", "RUNNING", "FAILED",
+                 "finished_at = :now, "
+                 "error_message = COALESCE(error_message, "
+                 "'Marked FAILED by boot-time healer: process restarted')"),
+                ("ps365_stock_777_runs", "status", "RUNNING", "FAILED",
+                 "finished_at = :now"),
+                ("sync_job_log", "status", "running", "failed",
+                 "finished_at = :now, "
+                 "message = COALESCE(message, "
+                 "'Marked failed by boot-time healer: process restarted')"),
+                ("bot_run_log", "status", "running", "failed",
+                 "finished_at = :now, "
+                 "error_step = COALESCE(error_step, 'boot_healer')"),
+            ]
+
+            for table, col, running_val, failed_val, extra_sets in _sweeps:
+                try:
+                    sql = _text(f"""
+                        UPDATE {table}
+                        SET {col} = :failed,
+                            {extra_sets}
+                        WHERE {col} = :running
+                          AND started_at < :cutoff
+                    """)
+                    with _db.engine.connect() as conn:
+                        r = conn.execute(sql, {
+                            "failed": failed_val,
+                            "running": running_val,
+                            "now": now_naive,
+                            "cutoff": cutoff_naive,
+                        })
+                        conn.commit()
+                        healed[table] = r.rowcount or 0
+                except Exception as e:
+                    logger.warning(f"boot healer: {table} sweep failed: {e}")
+                    healed[table] = 0
+
+            total = sum(healed.values())
+            affected = {t: n for t, n in healed.items() if n}
+            if total:
+                logger.warning(
+                    f"🩹 Boot-time stale healer: marked {total} orphaned RUNNING "
+                    f"row(s) as failed — "
+                    + ", ".join(f"{t}={n}" for t, n in affected.items())
+                )
+            else:
+                logger.info("🩹 Boot-time stale healer: no orphaned RUNNING rows found")
+
+    except Exception as e:
+        logger.warning(f"_heal_stale_runs_on_boot failed (non-fatal): {e}")
+
+
 def setup_scheduler(app):
     """
     Initialize and start the background scheduler.
@@ -589,6 +683,10 @@ def setup_scheduler(app):
                 logger.info("✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)")
             else:
                 logger.info("⏭ FTP login sync skipped (not deployed)")
+
+        # Boot-time stale healer: mark any RUNNING rows left over from the
+        # previous process as STALE_FAILED / failed before new jobs fire.
+        _heal_stale_runs_on_boot(app)
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
