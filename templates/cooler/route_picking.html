@@ -1285,7 +1285,7 @@
     box.estimated_weight_kg = wt;
     var usable = box.usable_capacity_cm3 || 0;
     box.estimated_fill_pct  = usable ? Math.round(vol / usable * 1000) / 10 : 0;
-    box.warnings = [];
+    box.warnings = (box._server_warnings || []).slice();
     if (usable && vol > usable)
       box.warnings.push('Box exceeds capacity (' + Math.round(vol) + ' cm\u00B3 > ' + Math.round(usable) + ' cm\u00B3).');
     if (box.max_weight_kg && wt > box.max_weight_kg)
@@ -1519,13 +1519,15 @@
         /* Merge server box type info */
         if (data.box_types && data.box_types.length) boxTypes = data.box_types;
 
-        /* Ensure each plan box has usable_capacity_cm3 */
+        /* Ensure each plan box has usable_capacity_cm3; stash server warnings */
         plan = data.plan.map(function(box) {
           if (!box.usable_capacity_cm3) {
             var bt = getBoxType(box.box_type_id);
             if (bt) box.usable_capacity_cm3 = bt.usable_capacity;
           }
           if (!box.max_weight_kg) box.max_weight_kg = 0;
+          /* Preserve warnings emitted by the server (e.g. zero-availability fallback) */
+          box._server_warnings = (box.warnings || []).slice();
           return box;
         });
 

@@ -104,11 +104,16 @@ def _smallest_fitting(box_types, vol, wt, available_type_counts=None, used_count
     for bt in asc:
         if _fits(bt) and _avail(bt):
             return bt
-    # Fall back: fits (ignore availability)
+    # Fall back: fits + user gave a positive count (all used up, but at least allowed)
+    # Never use a type the user explicitly set to 0.
+    for bt in asc:
+        if _fits(bt) and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0):
+            return bt
+    # Absolute last resort: fits regardless (no availability info or all types are 0)
     for bt in asc:
         if _fits(bt):
             return bt
-    # Last resort: largest
+    # Largest
     return asc[-1]
 
 
@@ -378,7 +383,16 @@ def generate_box_plan(
                 and _avail(bt)
             ]
             if not fits_avail:
-                # Ignore availability as last resort
+                # Over-allocate boxes the user allowed (count > 0) before
+                # touching types explicitly set to 0.
+                fits_avail = [
+                    bt for bt in asc
+                    if bt["usable_capacity"] >= V
+                    and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+                    and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0)
+                ]
+            if not fits_avail:
+                # Absolute last resort — all allowed types exhausted or all set to 0
                 fits_avail = [
                     bt for bt in asc
                     if bt["usable_capacity"] >= V
@@ -409,6 +423,14 @@ def generate_box_plan(
         if chosen["max_weight_kg"] and W > chosen["max_weight_kg"]:
             warnings.append(
                 f"Box exceeds weight limit ({W:.1f} kg > {chosen['max_weight_kg']:.1f} kg)."
+            )
+        if (
+            available_type_counts is not None
+            and available_type_counts.get(chosen["id"], 0) == 0
+        ):
+            warnings.append(
+                f"No {chosen['name']} boxes were available — used as last resort because "
+                "no other box type is large enough. Add more box types or increase availability."
             )
 
         plan.append({
