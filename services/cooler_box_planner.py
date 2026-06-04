@@ -278,8 +278,18 @@ def generate_box_plan(
         stop_data[seq] = {"vol": vol, "wt": wt, "missing": int(missing), "items": items}
 
     # ── Phase 1: group consecutive stops LIFO using largest box as ceiling ───
-    largest_cap = max(bt["usable_capacity"] for bt in box_types) if box_types else 0
-    largest_wt  = max(bt["max_weight_kg"]   for bt in box_types) if box_types else 0
+    # When the user has set availability, only consider types they actually have
+    # (count > 0) so Phase 1 doesn't create slots too large to fill with
+    # available boxes — which would cause tiny leftover slots.
+    if available_type_counts is not None:
+        avail_types = [
+            bt for bt in box_types
+            if available_type_counts.get(bt["id"], 0) > 0
+        ] or box_types  # fallback to all if every type is 0
+    else:
+        avail_types = box_types
+    largest_cap = max(bt["usable_capacity"] for bt in avail_types) if avail_types else 0
+    largest_wt  = max(bt["max_weight_kg"]   for bt in avail_types) if avail_types else 0
 
     slots = []   # each slot: {seqs, vol, wt, missing, items}
 
