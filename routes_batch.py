@@ -2215,13 +2215,50 @@ def batch_picking_item(batch_id):
                 # Fall through to normal rendering below (items is now non-empty).
 
         # Check for skipped items that need to be collected later.
-        # Cooler batches use locked_by_batch_id — InvoiceItem.zone stores the
-        # warehouse aisle zone, not the DW classification "SENSITIVE".
         batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).all()
         invoice_nos = [bi.invoice_no for bi in batch_invoices]
 
-        if (getattr(batch_session, 'picking_mode', None) == 'Cooler'
-                or getattr(batch_session, 'session_type', None) == 'cooler_route'):
+        if getattr(batch_session, 'session_type', None) == 'cooler_route':
+            # Cooler route batches: the DB queue is the authoritative source.
+            # Both skip paths (batch Skip button and cooler route-page Skip)
+            # mark the queue row as 'exception'.  Reset those rows back to
+            # 'pending' so rebuild_items_from_queue picks them up again.
+            from sqlalchemy import text as _text
+            exception_rows = db.session.execute(
+                _text(
+                    "SELECT id FROM batch_pick_queue "
+                    "WHERE batch_session_id = :bid AND status = 'exception'"
+                ),
+                {"bid": batch_id},
+            ).fetchall()
+            if exception_rows:
+                skipped_count = len(exception_rows)
+                db.session.execute(
+                    _text(
+                        "UPDATE batch_pick_queue "
+                        "SET status = 'pending', updated_at = NOW() "
+                        "WHERE batch_session_id = :bid AND status = 'exception'"
+                    ),
+                    {"bid": batch_id},
+                )
+                db.session.commit()
+                current_app.logger.info(
+                    f"Cooler collect-later: reset {skipped_count} exception "
+                    f"queue row(s) to pending for batch {batch_id}"
+                )
+                # Rebuild the session list from the now-pending queue rows.
+                from services.batch_picking import rebuild_items_from_queue as _rebuild
+                rebuilt = _rebuild(batch_id)
+                session[fixed_batch_key] = rebuilt
+                batch_session.current_item_index = 0
+                db.session.commit()
+                flash(
+                    f'Please resolve {skipped_count} skipped item(s) before completing the batch.',
+                    'warning',
+                )
+                return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+            skipped_items = []  # nothing to collect; fall through to completion
+        elif getattr(batch_session, 'picking_mode', None) == 'Cooler':
             skipped_items = InvoiceItem.query.filter(
                 InvoiceItem.locked_by_batch_id == batch_id,
                 InvoiceItem.pick_status == 'skipped_pending',
@@ -3752,6 +3789,8 @@ def skip_batch_item(batch_id):
     if skip_reason == 'Other' and request.form.get('other_skip_reason'):
         skip_reason = request.form.get('other_skip_reason')
     
+    is_cooler_batch = getattr(batch_session, 'session_type', None) == 'cooler_route'
+
     try:
         # Process all source items
         for source in current_item['source_items']:
@@ -3769,6 +3808,23 @@ def skip_batch_item(batch_id):
                 invoice_item.skip_reason = skip_reason
                 invoice_item.skip_timestamp = utc_now_for_db()
                 invoice_item.skip_count += 1
+
+            # For cooler route batches the DB queue is the source of truth.
+            # Mark the queue row as exception so rebuild_items_from_queue
+            # excludes it and the collect-later logic can detect it.
+            if is_cooler_batch:
+                from sqlalchemy import text as _text
+                db.session.execute(
+                    _text(
+                        "UPDATE batch_pick_queue "
+                        "SET status = 'exception', updated_at = NOW() "
+                        "WHERE batch_session_id = :bid "
+                        "  AND invoice_no = :inv "
+                        "  AND item_code = :ic "
+                        "  AND status = 'pending'"
+                    ),
+                    {"bid": batch_id, "inv": invoice_no, "ic": item_code},
+                )
         
         # Move to the next item
         batch_session.current_item_index += 1
