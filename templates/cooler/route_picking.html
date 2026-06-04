@@ -746,181 +746,240 @@
   </div>
   {% endif %}
 
-  {# ── Ready to pick queue ───────────────────────────────────────────────── #}
-  <h4 class="mt-4 d-flex align-items-center flex-wrap gap-2">
-    <span><i class="fas fa-check-circle text-success me-1"></i>Ready to pick
-    <span class="badge bg-success">{{ sequenced|length }}</span></span>
-    {% if sequenced %}
-    <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="View mode">
-      <button type="button" class="btn btn-outline-secondary active" id="rtpViewStopBtn"
-              onclick="setRtpView('stop')"><i class="fas fa-route me-1"></i>By stop</button>
-      <button type="button" class="btn btn-outline-secondary" id="rtpViewItemBtn"
-              onclick="setRtpView('item')"><i class="fas fa-layer-group me-1"></i>By item</button>
-    </div>
-    {% endif %}
-  </h4>
+  {# ── Pick List — grouped by box ──────────────────────────────────────── #}
+  {% set _sequenced_pending  = sequenced | selectattr('status','equalto','pending')   | list %}
+  {% set _sequenced_picked   = sequenced | selectattr('status','equalto','picked')    | list %}
+  {% set _sequenced_excepted = sequenced | selectattr('status','equalto','exception') | list %}
+
+  <div class="d-flex align-items-center justify-content-between mb-3 mt-3">
+    <h5 class="mb-0">
+      <i class="fas fa-list-ul text-primary me-1"></i>Pick List
+      <span class="badge bg-secondary ms-1">{{ sequenced|length }}</span>
+      {% if _sequenced_pending %}<span class="badge bg-warning text-dark ms-1">{{ _sequenced_pending|length }} to pick</span>{% endif %}
+      {% if _sequenced_picked  %}<span class="badge bg-success ms-1">{{ _sequenced_picked|length }} picked</span>{% endif %}
+      {% if _sequenced_excepted%}<span class="badge bg-danger ms-1">{{ _sequenced_excepted|length }} skipped</span>{% endif %}
+    </h5>
+  </div>
+
   {% if not sequenced %}
     <div class="alert alert-info">
       No items ready yet — click <strong>Confirm Cooler Route</strong> above to load the pick list.
     </div>
   {% else %}
-    <div class="table-responsive" id="rtpViewStop">
-    <table class="table table-sm align-middle">
-      <thead class="table-light">
-        <tr>
-          <th>Stop</th>
-          <th>Customer</th>
-          <th>Invoice</th>
-          <th>Item</th>
-          <th>Description</th>
-          <th class="text-end">Qty</th>
-          <th class="text-center"><i class="fas fa-box me-1 text-primary"></i>Box</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for q in sequenced %}
-          <tr class="{{ 'table-success' if q.status == 'picked' else '' }}">
-            <td>{{ q.delivery_sequence|int }}</td>
-            <td>{{ q.customer_name or q.customer_code or '-' }}</td>
-            <td>{{ q.invoice_no }}</td>
-            <td><strong>{{ q.item_code }}</strong></td>
-            <td class="text-muted">{{ q.item_name or '' }}</td>
-            <td class="text-end">{{ q.expected_qty|int }}</td>
-            <td class="text-center">
-              {% if q.status == 'pending' and planned_box and q.queue_item_id in planned_box %}
-                <span class="badge fs-6 px-3 py-2" style="background:#0d6efd;color:#fff;min-width:52px;">
-                  📦 #{{ planned_box[q.queue_item_id] }}
-                </span>
-              {% elif q.status == 'picked' and assigned_to_box and q.queue_item_id in assigned_to_box %}
-                <span class="badge fs-6 px-3 py-2" style="background:#198754;color:#fff;min-width:52px;">
-                  📦 #{{ assigned_to_box[q.queue_item_id] }}
-                </span>
-              {% elif q.status == 'picked' %}
-                <span class="badge bg-warning text-dark">Unboxed</span>
-              {% else %}
-                <span class="text-muted small">—</span>
+
+  {# Collect distinct box numbers in ascending order #}
+  {% set _bx = namespace(nos=[]) %}
+  {% for q in sequenced %}
+    {% set _bn = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
+    {% if _bn is not none and _bn not in _bx.nos %}
+      {% set _bx.nos = _bx.nos + [_bn] %}
+    {% endif %}
+  {% endfor %}
+
+  {# One card per box #}
+  {% for box_no in _bx.nos | sort %}
+    {% set _bd = boxes | selectattr('box_no','equalto',box_no) | first | default(none) %}
+
+    {# Count pending / picked for this box #}
+    {% set _bc = namespace(pending=0, picked=0, total=0) %}
+    {% for q in sequenced %}
+      {% set _bn = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
+      {% if _bn == box_no and q.status in ('pending','picked') %}
+        {% set _bc.total   = _bc.total + 1 %}
+        {% if q.status == 'pending' %}{% set _bc.pending = _bc.pending + 1 %}{% endif %}
+        {% if q.status == 'picked'  %}{% set _bc.picked  = _bc.picked  + 1 %}{% endif %}
+      {% endif %}
+    {% endfor %}
+    {% set _box_all_picked = (_bc.total > 0 and _bc.pending == 0) %}
+    {% set _box_status = _bd.status if _bd else 'planned' %}
+
+    <div class="card mb-4 shadow-sm"
+         style="border:2px solid {{ '#198754' if _box_all_picked else '#0d6efd' }};">
+
+      {# Box header #}
+      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2 py-2"
+           style="background:{{ '#198754' if _box_all_picked else '#0d6efd' }};color:#fff;">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <span class="fw-bold" style="font-size:1.1rem;">📦 Box #{{ box_no }}</span>
+          {% if _bd and _bd.box_type_name %}
+            <span class="badge bg-white {{ 'text-success' if _box_all_picked else 'text-primary' }}">{{ _bd.box_type_name }}</span>
+          {% endif %}
+          {% if _bd and _bd.first_stop_sequence is not none and _bd.last_stop_sequence is not none %}
+            <span class="opacity-75 small">
+              {% if _bd.first_stop_sequence == _bd.last_stop_sequence %}Stop {{ _bd.last_stop_sequence|int }}
+              {% else %}Stops {{ _bd.last_stop_sequence|int }} → {{ _bd.first_stop_sequence|int }}{% endif %}
+            </span>
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="badge bg-white {{ 'text-success fw-bold' if _box_all_picked else 'text-primary' }}">
+            {% if _box_all_picked %}✓ All {{ _bc.total }} picked
+            {% else %}{{ _bc.picked }} / {{ _bc.total }} picked{% endif %}
+          </span>
+          {% if _bc.total > 0 %}
+          <div class="rounded" style="width:90px;height:8px;background:rgba(255,255,255,0.3);overflow:hidden;">
+            <div style="height:100%;width:{{ ((_bc.picked / _bc.total) * 100)|int }}%;background:#fff;transition:width 0.4s;"></div>
+          </div>
+          {% endif %}
+          {% if _bd and has_permission('cooler.print_labels') %}
+          <a href="{{ url_for('cooler.box_manifest', box_id=_bd.id) }}" target="_blank"
+             class="btn btn-sm btn-light {{ 'text-success' if _box_all_picked else 'text-primary' }}">
+            <i class="fas fa-print me-1"></i>Manifest
+          </a>
+          {% endif %}
+          {% if _box_all_picked and _bd and _box_status == 'open' and has_permission('cooler.manage_boxes') %}
+          <form method="post" action="{{ url_for('cooler.box_close', box_id=_bd.id) }}" class="d-inline">
+            <input type="hidden" name="_html_form" value="1">
+            <button type="submit" class="btn btn-sm btn-light text-success fw-bold">
+              <i class="fas fa-lock me-1"></i>Close Box #{{ box_no }}
+            </button>
+          </form>
+          {% elif _bd and _box_status == 'closed' %}
+          <span class="badge bg-white text-success fs-6 px-2"><i class="fas fa-lock me-1"></i>Closed</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Items for this box #}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Stop</th><th>Customer</th><th>Invoice</th>
+              <th>Item</th><th class="text-end">Qty</th>
+              <th>Status</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in sequenced %}
+              {% set _bn = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
+              {% if _bn == box_no and q.status in ('pending','picked') %}
+              <tr class="{{ 'table-success' if q.status == 'picked' else '' }}">
+                <td class="fw-semibold">{{ q.delivery_sequence|int if q.delivery_sequence else '—' }}</td>
+                <td class="small">{{ q.customer_name or q.customer_code or '-' }}</td>
+                <td class="small">{{ q.invoice_no }}</td>
+                <td>
+                  <strong>{{ q.item_code }}</strong>
+                  <br><span class="text-muted small">{{ q.item_name or '' }}</span>
+                </td>
+                <td class="text-end">{{ q.expected_qty|int }}</td>
+                <td>
+                  {% if q.status == 'picked' %}<span class="badge bg-success">✓ Picked</span>
+                  {% else %}<span class="badge bg-secondary">Pending</span>{% endif %}
+                </td>
+                <td>
+                  {% if q.status == 'pending' %}
+                    {% if has_permission('cooler.pick') and not batch_in_progress %}
+                    <div class="d-flex gap-1 flex-nowrap">
+                      <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
+                        <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+                        <button type="submit" class="btn btn-sm btn-success text-nowrap">
+                          <i class="fas fa-hand-rock me-1"></i>Pick → Box #{{ box_no }}
+                        </button>
+                      </form>
+                      <form method="post" action="{{ url_for('cooler.queue_skip', queue_item_id=q.queue_item_id) }}" class="d-inline">
+                        <input type="hidden" name="_html_form" value="1">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Skip for now"><i class="fas fa-forward"></i></button>
+                      </form>
+                    </div>
+                    {% elif batch_in_progress %}
+                      <span class="text-muted small"><i class="fas fa-boxes me-1"></i>via batch</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-success small"><i class="fas fa-check-circle me-1"></i>Done</span>
+                  {% endif %}
+                </td>
+              </tr>
               {% endif %}
-            </td>
-            <td>
-              {% if q.status == 'pending' %}<span class="badge bg-secondary">Pending</span>
-              {% elif q.status == 'picked' %}<span class="badge bg-success">Picked</span>
-              {% elif q.status == 'exception' %}<span class="badge bg-danger">Exception</span>
-              {% else %}<span class="badge bg-info text-dark">{{ q.status }}</span>{% endif %}
-            </td>
-            <td>
-              {# Pick-to-box: pre-planned items show "Pick → Box #N" green button #}
-              {% if planned_box and q.queue_item_id in planned_box and q.status == 'pending' %}
-                {% if has_permission('cooler.pick') and not batch_in_progress %}
-                <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
-                  <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-                  <button type="submit" class="btn btn-sm btn-success">
-                    <i class="fas fa-hand-rock me-1"></i>Pick → Box #{{ planned_box[q.queue_item_id] }}
-                  </button>
-                </form>
-                <form method="post" action="{{ url_for('cooler.queue_skip', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
-                  <input type="hidden" name="_html_form" value="1">
-                  <button type="submit" class="btn btn-sm btn-outline-warning" title="Skip this item"><i class="fas fa-forward me-1"></i>Skip</button>
-                </form>
-                {% else %}
-                <span class="badge bg-primary fs-6 px-3 py-2">
-                  <i class="fas fa-box me-1"></i>Box {{ planned_box[q.queue_item_id] }}
-                </span>
-                {% endif %}
-              {% elif assigned_to_box and q.queue_item_id in assigned_to_box %}
-                <span class="badge bg-primary fs-6 px-3 py-2">
-                  <i class="fas fa-box me-1"></i>Box {{ assigned_to_box[q.queue_item_id] }}
-                </span>
-              {% elif q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endfor %}
+
+  {# Items with no box assigned #}
+  {% set _ub = namespace(found=false) %}
+  {% for q in sequenced if q.status in ('pending','picked') %}
+    {% set _bn = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
+    {% if not _bn %}{% set _ub.found = true %}{% endif %}
+  {% endfor %}
+  {% if _ub.found %}
+  <div class="card mb-4 border-warning shadow-sm">
+    <div class="card-header bg-warning text-dark fw-bold py-2">
+      <i class="fas fa-exclamation-triangle me-2"></i>Items not yet assigned to a box
+      <span class="fw-normal small ms-2">— complete Step 2 (Plan Boxes) to assign these</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr><th>Stop</th><th>Customer</th><th>Invoice</th><th>Item</th><th class="text-end">Qty</th><th>Status</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for q in sequenced if q.status in ('pending','picked') %}
+            {% set _bn = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
+            {% if not _bn %}
+            <tr>
+              <td>{{ q.delivery_sequence|int if q.delivery_sequence else '—' }}</td>
+              <td class="small">{{ q.customer_name or q.customer_code or '-' }}</td>
+              <td class="small">{{ q.invoice_no }}</td>
+              <td><strong>{{ q.item_code }}</strong><br><span class="text-muted small">{{ q.item_name or '' }}</span></td>
+              <td class="text-end">{{ q.expected_qty|int }}</td>
+              <td>{% if q.status=='picked' %}<span class="badge bg-success">Picked</span>{% else %}<span class="badge bg-secondary">Pending</span>{% endif %}</td>
+              <td>
+                {% if q.status == 'pending' and has_permission('cooler.pick') and not batch_in_progress %}
                 <form method="post" action="{{ url_for('cooler.queue_pick', queue_item_id=q.queue_item_id) }}" class="d-inline">
                   <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
                   <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-hand-rock me-1"></i>Pick</button>
                 </form>
-                <form method="post" action="{{ url_for('cooler.queue_skip', queue_item_id=q.queue_item_id) }}" class="d-inline ms-1">
-                  <input type="hidden" name="_html_form" value="1">
-                  <button type="submit" class="btn btn-sm btn-outline-warning" title="Skip this item"><i class="fas fa-forward me-1"></i>Skip</button>
-                </form>
-              {% elif q.status == 'pending' and batch_in_progress %}
-                <span class="text-muted small"><i class="fas fa-boxes me-1"></i>via batch</span>
-              {% elif q.status == 'exception' and has_permission('cooler.pick') %}
-                <form method="post" action="{{ url_for('cooler.queue_resume', queue_item_id=q.queue_item_id) }}" class="d-inline">
-                  <input type="hidden" name="_html_form" value="1">
-                  <button type="submit" class="btn btn-sm btn-outline-success"><i class="fas fa-redo me-1"></i>Resume</button>
-                </form>
-              {% elif q.status == 'picked' %}
-                <span class="text-muted small"><i class="fas fa-clock me-1"></i>Unboxed</span>
-              {% else %}
-                <span class="text-muted small">—</span>
+                {% elif batch_in_progress %}<span class="text-muted small">via batch</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Skipped / exception items #}
+  {% if _sequenced_excepted %}
+  <div class="card mb-4 border-danger shadow-sm">
+    <div class="card-header bg-danger text-white fw-bold py-2">
+      <i class="fas fa-exclamation-circle me-2"></i>Skipped items
+      <span class="badge bg-white text-danger ms-2">{{ _sequenced_excepted|length }}</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr><th>Stop</th><th>Customer</th><th>Invoice</th><th>Item</th><th class="text-end">Qty</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for q in _sequenced_excepted %}
+          <tr>
+            <td>{{ q.delivery_sequence|int if q.delivery_sequence else '—' }}</td>
+            <td class="small">{{ q.customer_name or q.customer_code or '-' }}</td>
+            <td class="small">{{ q.invoice_no }}</td>
+            <td><strong>{{ q.item_code }}</strong><br><span class="text-muted small">{{ q.item_name or '' }}</span></td>
+            <td class="text-end">{{ q.expected_qty|int }}</td>
+            <td>
+              {% if has_permission('cooler.pick') %}
+              <form method="post" action="{{ url_for('cooler.queue_resume', queue_item_id=q.queue_item_id) }}" class="d-inline">
+                <input type="hidden" name="_html_form" value="1">
+                <button type="submit" class="btn btn-sm btn-outline-success"><i class="fas fa-redo me-1"></i>Resume</button>
+              </form>
               {% endif %}
             </td>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </div>
+  {% endif %}
 
-    {# ── Grouped-by-item view (hidden by default) ───────────────────────── #}
-    <div id="rtpViewItem" style="display:none;">
-      {% for item_code, rows in sequenced|groupby('item_code') %}
-        {% set rows = rows|list %}
-        <div class="card mb-3">
-          <div class="card-header py-2 d-flex align-items-center flex-wrap gap-2">
-            <strong>{{ item_code }}</strong>
-            <span class="text-secondary">{{ rows[0].item_name or '' }}</span>
-            <span class="badge bg-primary ms-auto">Total qty: {{ rows|sum(attribute='expected_qty')|int }}</span>
-            <span class="badge bg-secondary">{{ rows|length }} stop(s)</span>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th>Stop</th><th>Customer</th><th>Invoice</th>
-                  <th class="text-end">Qty</th><th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for q in rows %}
-                  <tr class="{{ 'table-success' if q.status == 'picked' else '' }}">
-                    <td>{{ q.delivery_sequence|int }}</td>
-                    <td>{{ q.customer_name or q.customer_code or '-' }}</td>
-                    <td>{{ q.invoice_no }}</td>
-                    <td class="text-end">{{ q.expected_qty|int }}</td>
-                    <td>
-                      {% if q.status == 'pending' %}<span class="badge bg-secondary">Pending</span>
-                      {% elif q.status == 'picked' %}<span class="badge bg-success">Picked</span>
-                      {% elif q.status == 'exception' %}<span class="badge bg-danger">Exception</span>
-                      {% else %}<span class="badge bg-info text-dark">{{ q.status }}</span>{% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-
-    <script>
-      function setRtpView(mode) {
-        var stop = document.getElementById('rtpViewStop');
-        var item = document.getElementById('rtpViewItem');
-        var stopBtn = document.getElementById('rtpViewStopBtn');
-        var itemBtn = document.getElementById('rtpViewItemBtn');
-        if (!stop || !item) return;
-        if (mode === 'item') {
-          stop.style.display = 'none';
-          item.style.display = '';
-          itemBtn.classList.add('active');
-          stopBtn.classList.remove('active');
-        } else {
-          stop.style.display = '';
-          item.style.display = 'none';
-          stopBtn.classList.add('active');
-          itemBtn.classList.remove('active');
-        }
-      }
-    </script>
   {% endif %}
 
   {# ── Awaiting preparation queue ────────────────────────────────────────── #}
