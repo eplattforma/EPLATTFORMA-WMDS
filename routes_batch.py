@@ -3154,7 +3154,19 @@ def complete_batch_confirm(batch_id):
                         current_app.logger.info(f"Sequential mode: Cleared cache to regenerate items")
                     
                     db.session.commit()
-                    
+
+                    # Refresh invoice status for picked invoice(s) so orders
+                    # with all their items done don't stay at awaiting_batch_items
+                    from batch_aware_order_status import update_order_status_batch_aware as _uosa_mid
+                    for _inv_mid in {s['invoice_no'] for s in source_items}:
+                        try:
+                            _uosa_mid(_inv_mid)
+                        except Exception as _e_mid:
+                            current_app.logger.warning(
+                                "pick_confirm mid-batch: status refresh for %s failed: %s",
+                                _inv_mid, _e_mid,
+                            )
+
                     # Redirect back to continue with current/next invoice
                     return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
                 else:
@@ -3217,14 +3229,35 @@ def complete_batch_confirm(batch_id):
                 current_app.logger.warning(f"✅ BATCH {batch_id} COMPLETED: {picked_items_in_batch}/{total_items_in_batch} items picked, {unpicked_count} exceptions")
             
             db.session.commit()
+
+            # Batch fully complete — promote all invoice statuses now
+            from batch_aware_order_status import update_all_orders_after_batch_completion as _uoabc
+            try:
+                _uoabc(batch_id)
+            except Exception as _e_cmp:
+                current_app.logger.warning(
+                    "pick_confirm batch-complete: status refresh failed for batch %s: %s",
+                    batch_id, _e_cmp,
+                )
+
             return redirect(url_for('batch.picker_batch_list'))
         
         # Save changes to database
         db.session.commit()
-        
-        # Flash success message
-        # Item picked - no flash message needed
-        
+
+        # Refresh invoice status after each item pick so orders whose last
+        # batch item was just picked advance out of 'awaiting_batch_items'
+        # immediately rather than waiting for the whole batch to finish.
+        from batch_aware_order_status import update_order_status_batch_aware as _uosa_item
+        for _inv_item in {s['invoice_no'] for s in source_items}:
+            try:
+                _uosa_item(_inv_item)
+            except Exception as _e_item:
+                current_app.logger.warning(
+                    "pick_confirm per-item: status refresh for %s failed: %s",
+                    _inv_item, _e_item,
+                )
+
         # Redirect to the next item
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
         
