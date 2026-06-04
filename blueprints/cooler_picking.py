@@ -1896,8 +1896,13 @@ def box_close(box_id):
         ),
         {"bid": box_id},
     ).scalar() or 0
+    current_app.logger.info(
+        "box_close: box_id=%s unpicked=%s force=%s form_keys=%s",
+        box_id, unpicked, force, list(request.form.keys()),
+    )
     if unpicked > 0 and not force:
         msg = f"Box #{box_id} still has {unpicked} unpicked item(s) — pick everything before closing."
+        current_app.logger.info("box_close GUARD fired for box_id=%s", box_id)
         if request.form.get("_html_form"):
             flash(msg, "warning")
             return redirect(url_for("cooler.route_picking",
@@ -1909,14 +1914,18 @@ def box_close(box_id):
         # Mark planned (unphysically-picked) items as exception so the route
         # completion check no longer treats them as blocking planned rows.
         now_f = get_utc_now()
-        db.session.execute(
+        affected = db.session.execute(
             text(
                 "UPDATE cooler_box_items "
                 "SET status = 'exception', updated_at = :now "
                 "WHERE cooler_box_id = :bid "
-                "  AND (status = 'planned' OR picked_qty = 0)"
+                "  AND status = 'planned'"
             ),
             {"bid": box_id, "now": now_f},
+        ).rowcount
+        current_app.logger.info(
+            "box_close FORCE: box_id=%s unpicked=%s affected=%s force=%s",
+            box_id, unpicked, affected, force,
         )
         _audit(
             "cooler.box_force_closed",
