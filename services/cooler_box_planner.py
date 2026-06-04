@@ -396,19 +396,16 @@ def generate_box_plan(
         if fits_avail:
             return fits_avail[0]
 
-        # 3. Physically fits + user gave any count (over-allocate)
-        fits_allowed = [
-            bt for bt in asc
-            if bt["usable_capacity"] >= V
-            and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
-            and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0)
-        ]
-        if fits_allowed:
-            return fits_allowed[0]
+        # 3. No available type holds V — use the LARGEST still-available type.
+        #    The bin-packer will split items across as many of these boxes as needed.
+        #    This correctly handles "Medium exhausted, use Smalls instead" — never
+        #    over-allocate a type the user has already used up.
+        largest_avail = [bt for bt in asc if _avail(bt)]
+        if largest_avail:
+            return largest_avail[-1]
 
-        # 4. Nothing available physically holds the volume.
-        #    Use the LARGEST type the user gave any count to — the bin-packer
-        #    below will split items across as many boxes of this type as needed.
+        # 4. Every type is fully exhausted (used_counts hit limits) — over-allocate
+        #    the largest type the user gave any count to.
         allowed_asc = [
             bt for bt in asc
             if available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0
