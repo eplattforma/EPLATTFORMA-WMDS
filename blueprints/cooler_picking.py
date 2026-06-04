@@ -1908,6 +1908,28 @@ def box_close(box_id):
 
     # Guard: all assigned items must be picked (skip when force=1)
     force = request.form.get("force") == "1" or request.args.get("force") == "1"
+
+    # Auto-reconcile: sync cooler_box_items from batch_pick_queue so items
+    # picked via the batch session (which previously didn't mirror here) are
+    # no longer seen as 'planned'.  This is idempotent and safe to run every time.
+    db.session.execute(
+        text(
+            "UPDATE cooler_box_items cbi "
+            "SET status     = 'picked', "
+            "    picked_qty = COALESCE(bpq.qty_picked, cbi.expected_qty), "
+            "    picked_by  = COALESCE(bpq.picked_by,  cbi.picked_by), "
+            "    picked_at  = COALESCE(bpq.picked_at,  cbi.picked_at), "
+            "    updated_at = NOW() "
+            "FROM batch_pick_queue bpq "
+            "WHERE cbi.cooler_box_id = :bid "
+            "  AND cbi.status        = 'planned' "
+            "  AND cbi.queue_item_id = bpq.id "
+            "  AND bpq.status        = 'picked'"
+        ),
+        {"bid": box_id},
+    )
+    db.session.flush()
+
     unpicked = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_box_items cbi "

@@ -2984,6 +2984,41 @@ def complete_batch_confirm(batch_id):
                 qty_picked=_src.get('qty', picked_qty),
             )
 
+        # ── Mirror into cooler_box_items ──────────────────────────────────
+        # For cooler-route batches the close-box guard checks
+        # cooler_box_items.status = 'planned' OR picked_qty = 0.
+        # Without this mirror, items stay 'planned' forever even after
+        # being physically picked, blocking box closure.
+        if getattr(batch_session, 'session_type', None) == 'cooler_route':
+            from timezone_utils import get_utc_now as _utcnow_cbi
+            _cbi_now = _utcnow_cbi()
+            for _src in source_items:
+                db.session.execute(
+                    text(
+                        "UPDATE cooler_box_items cbi "
+                        "SET status     = 'picked', "
+                        "    picked_qty = cbi.expected_qty, "
+                        "    picked_by  = :picker, "
+                        "    picked_at  = :now, "
+                        "    updated_at = :now "
+                        "WHERE cbi.status = 'planned' "
+                        "  AND cbi.queue_item_id = ("
+                        "    SELECT bpq.id FROM batch_pick_queue bpq "
+                        "    WHERE bpq.invoice_no       = :inv "
+                        "      AND bpq.item_code        = :ic "
+                        "      AND bpq.batch_session_id = :bid "
+                        "    LIMIT 1"
+                        "  )"
+                    ),
+                    {
+                        "picker": current_user.username,
+                        "now":    _cbi_now,
+                        "inv":    _src["invoice_no"],
+                        "ic":     _src["item_code"],
+                        "bid":    batch_id,
+                    },
+                )
+
         # Record an activity
         activity = ActivityLog(
             picker_username=current_user.username,
