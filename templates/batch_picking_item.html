@@ -176,19 +176,59 @@
     </div>
 </div>
 
+{% if cooler_box_starting %}
+<!-- NEW BOX banner — shown on the first item of a box -->
+<div class="mb-2 px-3 py-2 d-flex align-items-center gap-3 flex-wrap"
+     style="background:linear-gradient(135deg,#145214 0%,#0a3d0a 100%);border-radius:10px;border:2px solid #28a745;">
+    <i class="fas fa-box-open" style="color:#6dff6d;font-size:1.6rem;"></i>
+    <div>
+        <div style="color:#a8ffb0;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;">
+            Open a new box
+        </div>
+        <div style="color:#fff;font-size:1.25rem;font-weight:800;">
+            {% for b in cooler_box_starting %}
+            <span style="background:#28a745;border-radius:6px;padding:2px 14px;margin-right:6px;">
+                Box {{ b.box_no }} <span style="font-size:0.75rem;font-weight:400;opacity:0.9;">({{ b.box_type_name }})</span>
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Cooler Box Assignment Banner -->
 {% if cooler_box_info %}
-<div class="mb-3" style="background: linear-gradient(135deg, #0d6e6e 0%, #0a4f4f 100%); border-radius: 10px; border: 2px solid #14a0a0; padding: 12px 16px;">
+<div class="mb-2" style="background:linear-gradient(135deg,#0d6e6e 0%,#0a4f4f 100%);border-radius:10px;border:2px solid #14a0a0;padding:10px 16px;">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center gap-2">
-            <i class="fas fa-box" style="color:#4dffd2; font-size:1.5rem;"></i>
-            <span style="color:#b2fff2; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; font-weight:600;">Put in Cooler Box</span>
+            <i class="fas fa-box" style="color:#4dffd2;font-size:1.4rem;"></i>
+            <span style="color:#b2fff2;font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Put in cooler box</span>
         </div>
         <div class="d-flex flex-wrap gap-2">
             {% for b in cooler_box_info %}
-            <span style="background:#14a0a0; color:#fff; font-size:1.35rem; font-weight:800; border-radius:8px; padding:4px 18px; letter-spacing:0.5px;">
+            <span style="background:#14a0a0;color:#fff;font-size:1.3rem;font-weight:800;border-radius:8px;padding:3px 16px;">
                 Box {{ b.box_no }}
-                <span style="font-size:0.75rem; font-weight:400; opacity:0.85;">({{ b.box_type_name }})</span>
+                <span style="font-size:0.72rem;font-weight:400;opacity:0.85;">({{ b.box_type_name }})</span>
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if cooler_box_finishing %}
+<!-- CLOSE BOX banner — shown on the last item of a box -->
+<div class="mb-2 px-3 py-2 d-flex align-items-center gap-3 flex-wrap"
+     style="background:linear-gradient(135deg,#7a3800 0%,#4d2200 100%);border-radius:10px;border:2px solid #fd7e14;">
+    <i class="fas fa-box" style="color:#ffb86c;font-size:1.6rem;"></i>
+    <div>
+        <div style="color:#ffd0a0;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;">
+            Last item — close &amp; seal the box after picking
+        </div>
+        <div style="color:#fff;font-size:1.25rem;font-weight:800;">
+            {% for b in cooler_box_finishing %}
+            <span style="background:#fd7e14;border-radius:6px;padding:2px 14px;margin-right:6px;">
+                Box {{ b.box_no }} <span style="font-size:0.75rem;font-weight:400;opacity:0.9;">({{ b.box_type_name }})</span>
             </span>
             {% endfor %}
         </div>

@@ -2436,12 +2436,47 @@ def batch_picking_item(batch_id):
     # For cooler-route batches look up which box(es) this item belongs to so
     # the picker knows where to place it immediately after grabbing it.
     cooler_box_info = []
+    cooler_box_starting = []   # boxes whose first item is the current item
+    cooler_box_finishing = []  # boxes whose last  item is the current item
     if getattr(batch_session, 'session_type', None) == 'cooler_route' and batch_session.route_id:
         try:
-            _src = current_item.get('source_items', [])
-            _inv_nos = list({s['invoice_no'] for s in _src if s.get('invoice_no')})
-            _item_code = current_item.get('item_code', '')
-            if _inv_nos and _item_code:
+            _cidx = batch_session.current_item_index
+
+            def _item_inv_nos(it):
+                return list({s['invoice_no'] for s in (it or {}).get('source_items', []) if s.get('invoice_no')})
+
+            def _boxes_for(it):
+                """Return set of box_nos assigned to picking item `it`."""
+                if not it:
+                    return set()
+                inv_nos = _item_inv_nos(it)
+                code    = it.get('item_code', '')
+                if not inv_nos or not code:
+                    return set()
+                rows = db.session.execute(
+                    text(
+                        "SELECT DISTINCT cb.box_no "
+                        "FROM cooler_box_items cbi "
+                        "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+                        "WHERE cbi.invoice_no = ANY(:inv_nos) "
+                        "  AND cbi.item_code  = :icode "
+                        "  AND cb.route_id    = :rid"
+                    ),
+                    {"inv_nos": inv_nos, "icode": code, "rid": batch_session.route_id},
+                ).fetchall()
+                return {r[0] for r in rows}
+
+            _prev_item = items[_cidx - 1] if _cidx > 0 else None
+            _next_item = items[_cidx + 1] if _cidx + 1 < len(items) else None
+
+            _prev_boxes = _boxes_for(_prev_item)
+            _next_boxes = _boxes_for(_next_item)
+
+            # Current item — also fetch name + id for display
+            _src      = current_item.get('source_items', [])
+            _inv_nos  = list({s['invoice_no'] for s in _src if s.get('invoice_no')})
+            _icode    = current_item.get('item_code', '')
+            if _inv_nos and _icode:
                 _box_rows = db.session.execute(
                     text(
                         "SELECT DISTINCT cb.box_no, "
@@ -2455,11 +2490,20 @@ def batch_picking_item(batch_id):
                         "  AND cb.route_id    = :rid "
                         "ORDER BY cb.box_no"
                     ),
-                    {"inv_nos": _inv_nos, "icode": _item_code, "rid": batch_session.route_id},
+                    {"inv_nos": _inv_nos, "icode": _icode, "rid": batch_session.route_id},
                 ).fetchall()
                 cooler_box_info = [
                     {"box_no": r[0], "box_type_name": r[1], "box_id": r[2]}
                     for r in _box_rows
+                ]
+                _cur_box_map = {d["box_no"]: d for d in cooler_box_info}
+                # Starting: this box_no did NOT appear in the previous item's boxes
+                cooler_box_starting = [
+                    d for d in cooler_box_info if d["box_no"] not in _prev_boxes
+                ]
+                # Finishing: this box_no will NOT appear in the next item's boxes
+                cooler_box_finishing = [
+                    d for d in cooler_box_info if d["box_no"] not in _next_boxes
                 ]
         except Exception as _cbe:
             current_app.logger.warning("cooler box lookup failed for batch %s: %s", batch_id, _cbe)
@@ -2532,7 +2576,9 @@ def batch_picking_item(batch_id):
                           current_index=batch_session.current_item_index,
                           show_multi_qty_warning=show_multi_qty_warning,
                           tracking_ids=tracking_ids,
-                          cooler_box_info=cooler_box_info)
+                          cooler_box_info=cooler_box_info,
+                          cooler_box_starting=cooler_box_starting,
+                          cooler_box_finishing=cooler_box_finishing)
 
 @batch_bp.route('/api/picker/batch/<int:batch_id>/arrived', methods=['POST'])
 @login_required
