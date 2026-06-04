@@ -169,7 +169,7 @@ def sync_cooler_invoice_items(batch_id):
                 "UPDATE invoice_items ii "
                 "SET is_picked = TRUE, "
                 "    pick_status = CASE "
-                "        WHEN bpq.exception_reason IS NOT NULL THEN 'exception' "
+                "        WHEN bpq.status = 'exception' THEN 'exception' "
                 "        ELSE 'picked' END "
                 "FROM batch_pick_queue bpq "
                 "WHERE bpq.batch_session_id = :bid "
