@@ -1106,8 +1106,28 @@ def box_create():
 @_require_cooler_manage
 @_require_picking_flag
 def box_plan_preview(route_id, delivery_date):
+    """Return the recommended box plan plus all active box types for the UI."""
     box_type_id = request.args.get("box_type_id") or None
-    result = generate_box_plan(route_id, delivery_date, box_type_id)
+    target_fill = float(request.args.get("target_fill", "0.80"))
+
+    # Parse availability: ?avail=typeId:count,typeId:count
+    avail_raw = request.args.get("avail") or ""
+    available_type_counts = None
+    if avail_raw:
+        try:
+            available_type_counts = {}
+            for part in avail_raw.split(","):
+                tid, cnt = part.strip().split(":")
+                available_type_counts[int(tid)] = int(cnt)
+        except Exception:
+            available_type_counts = None
+
+    result = generate_box_plan(
+        route_id, delivery_date,
+        box_type_id=box_type_id,
+        available_type_counts=available_type_counts,
+        target_fill_pct=target_fill,
+    )
     if isinstance(result, dict) and not result.get("ok", True):
         return jsonify(result)
     plan = result if isinstance(result, list) else result.get("plan", [])
@@ -1115,9 +1135,18 @@ def box_plan_preview(route_id, delivery_date):
         return jsonify({
             "ok": True,
             "plan": [],
-            "message": "No picked unboxed cooler items found.",
+            "message": "No cooler items found to plan.",
         })
-    return jsonify({"ok": True, "plan": plan})
+
+    from services.cooler_box_planner import _load_box_types
+    box_types = _load_box_types()
+
+    return jsonify({
+        "ok": True,
+        "plan": plan,
+        "box_types": box_types,
+        "target_fill_pct": target_fill,
+    })
 
 
 @cooler_bp.route("/route/<route_id>/<delivery_date>/confirm-box-plan", methods=["POST"])
@@ -1138,20 +1167,31 @@ def confirm_box_plan(route_id, delivery_date):
                                 route_id=route_id_int,
                                 delivery_date=delivery_date))
 
-    box_type_id = request.form.get("box_type_id") or None
-    result = generate_box_plan(route_id_int, delivery_date, box_type_id)
+    import json as _json
+    plan_data_raw = request.form.get("plan_data") or ""
+    plan = None
 
-    # Planner may return a dict with ok=False (e.g. missing delivery sequence)
-    if isinstance(result, dict):
-        if not result.get("ok", True):
-            flash(result.get("message", "Cannot generate box plan."), "warning")
-            return _redirect_back()
-        plan = result.get("plan", [])
-    else:
-        plan = result
+    if plan_data_raw:
+        try:
+            plan = _json.loads(plan_data_raw)
+            if not isinstance(plan, list):
+                plan = None
+        except Exception:
+            plan = None
+
+    if plan is None:
+        box_type_id = request.form.get("box_type_id") or None
+        result = generate_box_plan(route_id_int, delivery_date, box_type_id)
+        if isinstance(result, dict):
+            if not result.get("ok", True):
+                flash(result.get("message", "Cannot generate box plan."), "warning")
+                return _redirect_back()
+            plan = result.get("plan", [])
+        else:
+            plan = result
 
     if not plan:
-        flash("No picked unboxed cooler items found.", "warning")
+        flash("No cooler items found to plan.", "warning")
         return _redirect_back()
 
     max_box_no = db.session.execute(

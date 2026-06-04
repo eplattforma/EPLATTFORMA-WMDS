@@ -1,19 +1,20 @@
-"""Cooler box plan generator.
+"""Cooler box plan generator — two-phase smart recommender.
 
-Groups unboxed cooler queue rows into physical boxes based on capacity.
+Phase 1: Group stops LIFO (consecutive only) using the *largest* available
+         box type as the capacity ceiling.  This establishes which stops
+         travel together.
+
+Phase 2: Right-size each group — pick the *smallest* box type whose usable
+         volume satisfies  fill % >= target_fill_pct.  Falls back to the
+         smallest type that physically fits when no type hits the target.
+
 Stop order is LIFO (last delivery stop first) so Box 1 carries the last-stop
 items — these go at the bottom/back of the truck and are loaded first.
-
-Box-type selection:
-  - When a specific box_type_id is supplied the whole plan uses that type.
-  - When box_type_id is None (auto) the planner loads ALL active box types
-    and, for each new box, selects the *smallest* type whose usable volume
-    and weight limit can hold the current stop's items.
 
 By default (include_pending=True) the plan covers ALL unboxed items —
 both pending and picked — so it can be confirmed BEFORE picking starts.
 The picker then sees "Pick → Box #N" and places items directly in the
-right box. No post-pick sorting needed.
+right box.  No post-pick sorting needed.
 """
 import logging
 from collections import defaultdict
@@ -26,10 +27,6 @@ logger = logging.getLogger(__name__)
 
 STOP_ORDER = "last_first"   # 'last_first' | 'first_first'
 
-# Fill the first box to this fraction of its capacity before opening the next,
-# so the load is spread more evenly between boxes.
-FIRST_BOX_FILL_FACTOR = 0.75
-
 
 def _num(value):
     try:
@@ -40,6 +37,7 @@ def _num(value):
 
 
 def _load_box_types(box_type_id=None):
+    """Return active box types ordered largest → smallest by usable capacity."""
     if box_type_id:
         try:
             row = db.session.execute(
@@ -52,7 +50,7 @@ def _load_box_types(box_type_id=None):
         except Exception:
             row = None
         if row is None:
-            logger.warning("generate_box_plan: box_type_id=%s not found", box_type_id)
+            logger.warning("_load_box_types: box_type_id=%s not found", box_type_id)
             return []
         rows = [row]
     else:
@@ -66,7 +64,7 @@ def _load_box_types(box_type_id=None):
                 )
             ).fetchall()
         except Exception as exc:
-            logger.warning("generate_box_plan: failed to load box types: %s", exc)
+            logger.warning("_load_box_types: failed: %s", exc)
             rows = []
 
     result = []
@@ -83,37 +81,63 @@ def _load_box_types(box_type_id=None):
     return result
 
 
-def _pick_box_type(box_types, needed_volume, needed_weight, prefer_largest=True):
-    """Select the box type for a new box.
+def _smallest_fitting(box_types, vol, wt, available_type_counts=None, used_counts=None):
+    """Return the smallest box type (by usable capacity) that physically holds
+    vol/wt, respecting availability counts when provided.  Falls back to
+    ignoring availability when nothing is left."""
+    used = used_counts or {}
 
-    prefer_largest=True  (first box): always use the largest type so the
-        biggest box is loaded first and filled to FIRST_BOX_FILL_FACTOR.
-    prefer_largest=False (subsequent boxes): use the smallest type whose
-        capacity is enough for the remaining stop's items.
-    """
-    if not box_types:
-        return None
-    if len(box_types) == 1:
-        return box_types[0]
-    if prefer_largest:
-        return sorted(box_types, key=lambda t: t["usable_capacity"], reverse=True)[0]
-    # Smallest-fitting for box 2+
-    sorted_asc = sorted(box_types, key=lambda t: t["usable_capacity"])
-    for bt in sorted_asc:
-        vol_ok = bt["usable_capacity"] <= 0 or needed_volume <= bt["usable_capacity"]
-        wt_ok = bt["max_weight_kg"] <= 0 or needed_weight <= bt["max_weight_kg"]
-        if vol_ok and wt_ok:
+    def _avail(bt):
+        if available_type_counts is None:
+            return True
+        limit = available_type_counts.get(bt["id"], 0)
+        return used.get(bt["id"], 0) < limit
+
+    def _fits(bt):
+        vol_ok = bt["usable_capacity"] <= 0 or vol <= bt["usable_capacity"]
+        wt_ok  = bt["max_weight_kg"]    <= 0 or wt  <= bt["max_weight_kg"]
+        return vol_ok and wt_ok
+
+    asc = sorted(box_types, key=lambda t: t["usable_capacity"])
+
+    # Prefer available + fits
+    for bt in asc:
+        if _fits(bt) and _avail(bt):
             return bt
-    return sorted_asc[-1]
+    # Fall back: fits (ignore availability)
+    for bt in asc:
+        if _fits(bt):
+            return bt
+    # Last resort: largest
+    return asc[-1]
 
 
-def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending=True):
-    """Generate a box plan for cooler items on a route.
+def generate_box_plan(
+    route_id,
+    delivery_date,
+    box_type_id=None,
+    include_pending=True,
+    available_type_counts=None,
+    target_fill_pct=0.80,
+):
+    """Generate a two-phase cooler box plan.
 
-    include_pending=True  → plan pending + picked items (use before picking starts)
-    include_pending=False → plan only already-picked items (legacy behaviour)
+    Parameters
+    ----------
+    route_id, delivery_date : identifiers
+    box_type_id : int | None
+        Force a single box type; None → auto select.
+    include_pending : bool
+        True  → plan pending + picked items (pre-pick planning).
+        False → plan only picked items (legacy).
+    available_type_counts : dict | None
+        {type_id: max_count} — how many boxes of each type are available today.
+        None means unlimited.
+    target_fill_pct : float
+        Phase 2 tries to find the smallest type where fill ≥ this value.
+        Default 0.80 (80 %).
     """
-    route_id = int(route_id)
+    route_id     = int(route_id)
     delivery_date = str(delivery_date)
 
     box_types = _load_box_types(box_type_id)
@@ -121,8 +145,11 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending
         logger.warning("generate_box_plan: no active box type found")
         return []
 
-    status_filter = "bpq.status IN ('pending', 'picked')" if include_pending \
+    # ── Fetch unboxed queue rows ─────────────────────────────────────────────
+    status_filter = (
+        "bpq.status IN ('pending', 'picked')" if include_pending
         else "bpq.status = 'picked'"
+    )
 
     rows = db.session.execute(
         text(
@@ -160,18 +187,19 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending
 
     missing_seq = [r for r in rows if r[7] is None]
     if missing_seq:
-        invoice_samples = list({r[1] for r in missing_seq})[:5]
+        samples = list({r[1] for r in missing_seq})[:5]
         return {
             "ok": False,
             "plan": [],
             "message": (
                 f"{len(missing_seq)} item(s) have no delivery sequence "
-                f"(e.g. invoice(s): {', '.join(invoice_samples)}). "
+                f"(e.g. invoice(s): {', '.join(samples)}). "
                 "Please run Confirm Cooler Route first, "
                 "then generate the box plan again."
             ),
         }
 
+    # ── Dimension lookup ─────────────────────────────────────────────────────
     item_codes = list({r[2] for r in rows})
     dim_map = {}
     if item_codes:
@@ -187,17 +215,17 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending
             for dr in dim_rows:
                 dim_map[dr[0]] = {
                     "length": _num(dr[1]),
-                    "width": _num(dr[2]),
+                    "width":  _num(dr[2]),
                     "height": _num(dr[3]),
                     "weight": _num(dr[4]),
                 }
         except Exception as exc:
             logger.warning("generate_box_plan: dimension lookup failed: %s", exc)
 
+    # ── Group items by stop ──────────────────────────────────────────────────
     by_stop = defaultdict(list)
     for r in rows:
-        stop_seq = _num(r[7])
-        by_stop[stop_seq].append(r)
+        by_stop[_num(r[7])].append(r)
 
     stops = sorted(
         by_stop.keys(),
@@ -205,170 +233,209 @@ def generate_box_plan(route_id, delivery_date, box_type_id=None, include_pending
         reverse=(STOP_ORDER == "last_first"),
     )
 
-    stop_volumes = {}
-    stop_weights = {}
-    for stop_seq in stops:
-        vol = 0.0
-        wt = 0.0
-        for r in by_stop[stop_seq]:
-            qty = _num(r[3]) or 1.0
-            dims = dim_map.get(r[2], {})
-            l, w, h = dims.get("length"), dims.get("width"), dims.get("height")
-            weight = dims.get("weight")
-            if l is not None and w is not None and h is not None:
-                vol += l * w * h * qty
-            if weight is not None:
-                wt += weight * qty
-        stop_volumes[stop_seq] = vol
-        stop_weights[stop_seq] = wt
-
-    plan = []
-    box_no = 1
-    current = None
-    current_type = None
-
-    def flush_box():
-        nonlocal current, current_type, box_no
-        if not current:
-            return
-        usable = current_type["usable_capacity"] if current_type else 0
-        max_wt = current_type["max_weight_kg"] if current_type else 0
-        current["estimated_fill_pct"] = (
-            round((current["estimated_fill_cm3"] / usable) * 100, 1) if usable else 0
-        )
-        if usable and current["estimated_fill_cm3"] > usable:
-            current["warnings"].append(
-                f"Box exceeds capacity "
-                f"({current['estimated_fill_cm3']:.0f} cm³ > {usable:.0f} cm³ usable)."
-            )
-        if max_wt and current["estimated_weight_kg"] > max_wt:
-            current["warnings"].append(
-                f"Box exceeds weight limit "
-                f"({current['estimated_weight_kg']:.1f} kg > {max_wt:.1f} kg)."
-            )
-        plan.append(current)
-        box_no += 1
-        current = None
-        current_type = None
-
     def _stop_int(s):
         return int(s) if s is not None else 0
 
-    for stop_seq in stops:
-        stop_rows = by_stop[stop_seq]
-        stop_volume = stop_volumes[stop_seq]
-        stop_weight = stop_weights[stop_seq]
-        missing_count = 0
-        item_summaries = []
-        queue_item_ids = []
-        stop_no = _stop_int(stop_seq)
-
-        for r in stop_rows:
-            qty = _num(r[3]) or 1.0
-            dims = dim_map.get(r[2], {})
-            length = dims.get("length")
-            width = dims.get("width")
-            height = dims.get("height")
-            weight = dims.get("weight")
-
-            has_dims = (length is not None and width is not None and height is not None)
-            est_vol = (length * width * height * qty) if has_dims else 0.0
-            est_wt = (weight * qty) if weight is not None else 0.0
-
+    # Pre-compute per-stop volumes, weights, and item summaries
+    stop_data = {}
+    for seq in stops:
+        vol = wt = missing = 0.0
+        items = []
+        for r in by_stop[seq]:
+            qty   = _num(r[3]) or 1.0
+            dims  = dim_map.get(r[2], {})
+            l, w, h, weight = dims.get("length"), dims.get("width"), dims.get("height"), dims.get("weight")
+            has_dims = l is not None and w is not None and h is not None
+            est_vol  = l * w * h * qty if has_dims else 0.0
+            est_wt   = weight * qty    if weight is not None else 0.0
             if not has_dims:
-                missing_count += 1
-
-            queue_item_ids.append(int(r[0]))
-            item_summaries.append({
-                "queue_item_id": int(r[0]),
-                "invoice_no": r[1],
-                "customer_code": r[4],
-                "customer_name": r[5],
-                "route_stop_id": r[6],
-                "delivery_sequence": stop_seq,
-                "item_code": r[2],
-                "item_name": r[8],
-                "qty": qty,
-                "estimated_volume_cm3": est_vol,
-                "estimated_weight_kg": est_wt,
-                "has_dimensions": has_dims,
-                "queue_status": r[9],
+                missing += 1
+            vol += est_vol
+            wt  += est_wt
+            items.append({
+                "queue_item_id":      int(r[0]),
+                "invoice_no":         r[1],
+                "customer_code":      r[4],
+                "customer_name":      r[5],
+                "route_stop_id":      r[6],
+                "delivery_sequence":  seq,
+                "item_code":          r[2],
+                "item_name":          r[8],
+                "qty":                qty,
+                "estimated_volume_cm3":  est_vol,
+                "estimated_weight_kg":   est_wt,
+                "has_dimensions":     has_dims,
+                "queue_status":       r[9],
             })
+        stop_data[seq] = {"vol": vol, "wt": wt, "missing": int(missing), "items": items}
 
-        if current is not None and current_type is not None:
-            new_vol = current["estimated_fill_cm3"] + stop_volume
-            new_wt = current["estimated_weight_kg"] + stop_weight
-            usable = current_type["usable_capacity"]
-            max_wt = current_type["max_weight_kg"]
-            # For the first box apply a soft fill cap so some stops spill into
-            # the second box, keeping both boxes at a similar fill level.
-            # Subsequent boxes are filled to 100 % of their capacity.
-            effective_usable = (usable * FIRST_BOX_FILL_FACTOR
-                                if box_no == 1 and len(box_types) > 1
-                                else usable)
-            fits_vol = effective_usable <= 0 or new_vol <= effective_usable
-            fits_wt = max_wt <= 0 or new_wt <= max_wt
-        else:
-            fits_vol = fits_wt = False
+    # ── Phase 1: group consecutive stops LIFO using largest box as ceiling ───
+    largest_cap = max(bt["usable_capacity"] for bt in box_types) if box_types else 0
+    largest_wt  = max(bt["max_weight_kg"]   for bt in box_types) if box_types else 0
 
-        if current is not None and fits_vol and fits_wt:
-            current["stops"] = sorted(set(current["stops"] + [stop_no]), reverse=True)
-            current["stop_min"] = min(current["stops"])
-            current["stop_max"] = max(current["stops"])
-            current["stop_display"] = (
-                f"Stops {current['stop_max']} → {current['stop_min']}"
-                if current["stop_min"] != current["stop_max"]
-                else f"Stop {current['stop_max']}"
-            )
-            current["queue_item_ids"].extend(queue_item_ids)
-            current["item_summaries"].extend(item_summaries)
-            current["estimated_fill_cm3"] += stop_volume
-            current["estimated_weight_kg"] += stop_weight
-            current["missing_dimension_count"] += missing_count
-            if missing_count:
-                _dim_warn = "Some items are missing dimensions — fill estimate may be low."
-                if _dim_warn not in current["warnings"]:
-                    current["warnings"].append(_dim_warn)
-            continue
+    slots = []   # each slot: {seqs, vol, wt, missing, items}
 
-        flush_box()
-
-        # Box 1 → largest type (fill until FIRST_BOX_FILL_FACTOR, then open next).
-        # Box 2+ → smallest type that fits, to avoid wasting a large box.
-        chosen = _pick_box_type(box_types, stop_volume, stop_weight,
-                                prefer_largest=(box_no == 1))
-        current_type = chosen
-
-        _dim_warn_list = []
-        if missing_count:
-            _dim_warn_list.append(
-                "Some items are missing dimensions — fill estimate may be low."
-            )
-
-        current = {
-            "box_no": box_no,
-            "box_type_id": chosen["id"],
-            "box_type_name": chosen["name"],
-            "stop_min": stop_no,
-            "stop_max": stop_no,
-            "stop_display": f"Stop {stop_no}" if stop_seq is not None else "No stop",
-            "stops": [stop_no],
-            "queue_item_ids": queue_item_ids,
-            "item_summaries": item_summaries,
-            "estimated_fill_cm3": stop_volume,
-            "estimated_fill_pct": 0,
-            "estimated_weight_kg": stop_weight,
-            "missing_dimension_count": missing_count,
-            "warnings": _dim_warn_list,
+    def _new_slot(seq):
+        sd = stop_data[seq]
+        return {
+            "seqs":    [seq],
+            "vol":     sd["vol"],
+            "wt":      sd["wt"],
+            "missing": sd["missing"],
+            "items":   list(sd["items"]),
         }
 
-    flush_box()
+    def _flush(slot):
+        if slot:
+            slots.append(slot)
+
+    cur = None
+    for seq in stops:
+        sd  = stop_data[seq]
+        svol = sd["vol"]
+        swt  = sd["wt"]
+
+        # Oversized stop: split across 2 sub-boxes immediately
+        if largest_cap > 0 and svol > largest_cap:
+            _flush(cur)
+            cur = None
+            # Split items into two halves by cumulative volume
+            half = largest_cap * 0.95
+            sub1_items, sub2_items = [], []
+            sub1_vol = sub1_wt = sub2_vol = sub2_wt = 0.0
+            sub1_miss = sub2_miss = 0
+            for it in sd["items"]:
+                if sub1_vol + it["estimated_volume_cm3"] <= half:
+                    sub1_items.append(it)
+                    sub1_vol  += it["estimated_volume_cm3"]
+                    sub1_wt   += it["estimated_weight_kg"]
+                    sub1_miss += 0 if it["has_dimensions"] else 1
+                else:
+                    sub2_items.append(it)
+                    sub2_vol  += it["estimated_volume_cm3"]
+                    sub2_wt   += it["estimated_weight_kg"]
+                    sub2_miss += 0 if it["has_dimensions"] else 1
+            if sub1_items:
+                slots.append({"seqs": [seq], "vol": sub1_vol, "wt": sub1_wt,
+                              "missing": sub1_miss, "items": sub1_items})
+            if sub2_items:
+                slots.append({"seqs": [seq], "vol": sub2_vol, "wt": sub2_wt,
+                              "missing": sub2_miss, "items": sub2_items})
+            continue
+
+        # Try to add stop to current slot
+        if cur is not None:
+            new_vol = cur["vol"] + svol
+            new_wt  = cur["wt"]  + swt
+            vol_ok  = largest_cap <= 0 or new_vol <= largest_cap
+            wt_ok   = largest_wt  <= 0 or new_wt  <= largest_wt
+            if vol_ok and wt_ok:
+                cur["seqs"].append(seq)
+                cur["vol"]    = new_vol
+                cur["wt"]     = new_wt
+                cur["missing"] += sd["missing"]
+                cur["items"].extend(sd["items"])
+                continue
+
+        _flush(cur)
+        cur = _new_slot(seq)
+
+    _flush(cur)
+
+    # ── Phase 2: right-size each slot ────────────────────────────────────────
+    used_counts: dict = defaultdict(int)
+    plan = []
+
+    for box_no, slot in enumerate(slots, start=1):
+        V, W = slot["vol"], slot["wt"]
+
+        # Smallest type where fill >= target_fill_pct AND items physically fit
+        # → usable must be in [V, V / target_fill_pct]
+        max_cap_for_target = (V / target_fill_pct) if target_fill_pct > 0 else float("inf")
+
+        def _avail(bt):
+            if available_type_counts is None:
+                return True
+            return used_counts[bt["id"]] < available_type_counts.get(bt["id"], 0)
+
+        asc = sorted(box_types, key=lambda t: t["usable_capacity"])
+
+        # Candidates hit the target fill AND physically fit AND are available
+        candidates = [
+            bt for bt in asc
+            if bt["usable_capacity"] >= V
+            and bt["usable_capacity"] <= max_cap_for_target
+            and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+            and _avail(bt)
+        ]
+
+        if not candidates:
+            # No type hits the fill target → smallest that physically fits
+            fits_avail = [
+                bt for bt in asc
+                if bt["usable_capacity"] >= V
+                and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+                and _avail(bt)
+            ]
+            if not fits_avail:
+                # Ignore availability as last resort
+                fits_avail = [
+                    bt for bt in asc
+                    if bt["usable_capacity"] >= V
+                    and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+                ]
+            chosen = fits_avail[0] if fits_avail else asc[-1]
+        else:
+            chosen = candidates[0]
+
+        used_counts[chosen["id"]] += 1
+        usable = chosen["usable_capacity"]
+        fill_pct = round((V / usable) * 100, 1) if usable else 0.0
+
+        stop_ints = [_stop_int(s) for s in slot["seqs"]]
+        stop_min, stop_max = min(stop_ints), max(stop_ints)
+        stop_display = (
+            f"Stops {stop_max} → {stop_min}" if stop_min != stop_max
+            else f"Stop {stop_max}"
+        )
+
+        warnings = []
+        if slot["missing"]:
+            warnings.append("Some items are missing dimensions — fill estimate may be low.")
+        if usable and V > usable:
+            warnings.append(
+                f"Box exceeds capacity ({V:.0f} cm³ > {usable:.0f} cm³ usable)."
+            )
+        if chosen["max_weight_kg"] and W > chosen["max_weight_kg"]:
+            warnings.append(
+                f"Box exceeds weight limit ({W:.1f} kg > {chosen['max_weight_kg']:.1f} kg)."
+            )
+
+        plan.append({
+            "box_no":               box_no,
+            "box_type_id":          chosen["id"],
+            "box_type_name":        chosen["name"],
+            "usable_capacity_cm3":  usable,
+            "max_weight_kg":        chosen["max_weight_kg"],
+            "stop_min":             stop_min,
+            "stop_max":             stop_max,
+            "stop_display":         stop_display,
+            "stops":                sorted(stop_ints, reverse=True),
+            "queue_item_ids":       [it["queue_item_id"] for it in slot["items"]],
+            "item_summaries":       slot["items"],
+            "estimated_fill_cm3":   V,
+            "estimated_fill_pct":   fill_pct,
+            "estimated_weight_kg":  W,
+            "missing_dimension_count": slot["missing"],
+            "warnings":             warnings,
+        })
+
     return plan
 
 
 def pre_pick_estimate(route_id, delivery_date):
     """Lightweight volume/weight estimate for the route-list screen."""
-    route_id = int(route_id)
+    route_id      = int(route_id)
     delivery_date = str(delivery_date)
 
     rows = db.session.execute(
@@ -404,11 +471,10 @@ def pre_pick_estimate(route_id, delivery_date):
     except Exception:
         pass
 
-    total_vol = 0.0
-    total_wt = 0.0
+    total_vol = total_wt = 0.0
     missing = 0
     for r in rows:
-        qty = _num(r[1]) or 1.0
+        qty  = _num(r[1]) or 1.0
         dims = dim_map.get(r[0], {})
         l, w, h = dims.get("length"), dims.get("width"), dims.get("height")
         wt = dims.get("weight")
@@ -420,14 +486,14 @@ def pre_pick_estimate(route_id, delivery_date):
             total_wt += wt * qty
 
     total = len(rows)
-    pct = round((total - missing) / total * 100) if total else 0
+    pct   = round((total - missing) / total * 100) if total else 0
     label = "good" if pct >= 80 else "limited" if pct >= 40 else "poor"
 
     return {
-        "total_volume_l": round(total_vol / 1000, 1),
-        "total_weight_kg": round(total_wt, 1),
-        "item_count": total,
+        "total_volume_l":          round(total_vol / 1000, 1),
+        "total_weight_kg":         round(total_wt, 1),
+        "item_count":              total,
         "missing_dimension_count": missing,
-        "data_quality_pct": pct,
-        "data_quality_label": label,
+        "data_quality_pct":        pct,
+        "data_quality_label":      label,
     }

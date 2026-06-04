@@ -162,39 +162,70 @@
   <div id="packing" style="scroll-margin-top:72px;"></div>
 
   {# ── Box Plan card ────────────────────────────────────────────────────── #}
-  {% if picked_unboxed_count > 0 and has_permission('cooler.manage_boxes') %}
+  {% if has_permission('cooler.manage_boxes') and not boxes %}
   <div class="card mb-4 border-primary shadow-sm" id="boxPlanCard">
     <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
       <span><i class="fas fa-layer-group me-2"></i>Plan Cooler Boxes</span>
-      <span class="badge bg-light text-primary ms-2">{{ picked_unboxed_count }} item(s) not yet assigned</span>
+      <span class="badge bg-light text-primary ms-2" id="planItemBadge">Ready to plan</span>
     </div>
     <div class="card-body">
-      <p class="text-muted mb-3">{{ picked_unboxed_count }} cooler item(s) are not yet assigned to boxes. Generate a box plan to see the suggested arrangement, then confirm to create the boxes.</p>
-      <div class="row g-3 align-items-end mb-3">
-        <div class="col-md-4">
-          <label class="form-label fw-bold small">Box type</label>
-          <select id="planBoxTypeId" class="form-select">
-            <option value="">— auto: best fit combination —</option>
+
+      {# ── Step 1: Availability + Fill target ───────────────────────────── #}
+      <div class="row g-3 align-items-end mb-3" id="planSetupRow">
+        <div class="col-12">
+          <p class="text-muted small mb-2">Set how many boxes of each type you have available today, choose a fill target, then get a recommendation.</p>
+          <div class="d-flex flex-wrap gap-4" id="availabilityInputs">
             {% for bt in box_types %}
-            <option value="{{ bt.id }}">{{ bt.name }} ({{ (bt.internal_volume_cm3 * bt.fill_efficiency)|round|int }} cm³ usable)</option>
+            <div class="d-flex align-items-center gap-2">
+              <label class="form-label mb-0 small fw-semibold">{{ bt.name }}</label>
+              <input type="number" class="form-control form-control-sm" style="width:70px"
+                     id="avail_{{ bt.id }}" value="10" min="0" max="99"
+                     data-type-id="{{ bt.id }}" data-type-name="{{ bt.name }}">
+            </div>
             {% endfor %}
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+          <label class="form-label fw-bold small mb-1">Min fill target</label>
+          <select id="fillTargetSelect" class="form-select form-select-sm">
+            <option value="0.70">70 %</option>
+            <option value="0.80" selected>80 %</option>
+            <option value="0.85">85 %</option>
+            <option value="0.90">90 %</option>
           </select>
         </div>
-        <div class="col-auto">
-          <button type="button" class="btn btn-primary" id="btnGeneratePlan">
-            <i class="fas fa-magic me-1"></i>Plan Cooler Boxes
+        <div class="col-auto d-flex gap-2">
+          <button type="button" class="btn btn-primary" id="btnGetRecommendation">
+            <i class="fas fa-magic me-1"></i>Get Recommendation
+          </button>
+          <button type="button" class="btn btn-outline-secondary d-none" id="btnReRecommend">
+            <i class="fas fa-sync-alt me-1"></i>Re-recommend
           </button>
         </div>
       </div>
 
-      <div id="planPreviewArea" class="d-none">
+      {# ── Error area ───────────────────────────────────────────────────── #}
+      <div id="planErrorArea" class="d-none mb-3">
+        <div class="alert alert-warning mb-0" id="planErrorMsg"></div>
+      </div>
+
+      {# ── Interactive editor ───────────────────────────────────────────── #}
+      <div id="planEditorArea" class="d-none">
         <hr>
-        <h6 class="fw-bold mb-3"><i class="fas fa-boxes me-1"></i>Suggested boxes <span id="planBoxCount" class="badge bg-primary ms-1"></span></h6>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h6 class="fw-bold mb-0">
+            <i class="fas fa-boxes me-1"></i>Box plan
+            <span id="planBoxCount" class="badge bg-primary ms-1"></span>
+          </h6>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddBox">
+            <i class="fas fa-plus me-1"></i>Add Box
+          </button>
+        </div>
         <div id="planBoxList" class="row g-3 mb-3"></div>
         <form method="post" action="{{ url_for('cooler.confirm_box_plan', route_id=route_id, delivery_date=delivery_date) }}" id="confirmPlanForm">
-          <input type="hidden" name="box_type_id" id="confirmBoxTypeId" value="">
+          <input type="hidden" name="plan_data" id="confirmPlanData" value="">
           <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-success">
+            <button type="submit" class="btn btn-success" id="btnConfirmPlan">
               <i class="fas fa-check me-1"></i>Confirm Box Plan
             </button>
             <button type="button" class="btn btn-outline-secondary" id="btnClearPlan">
@@ -204,9 +235,6 @@
         </form>
       </div>
 
-      <div id="planErrorArea" class="d-none">
-        <div class="alert alert-warning mb-0" id="planErrorMsg"></div>
-      </div>
     </div>
   </div>
   {% endif %}
@@ -999,66 +1027,204 @@
 
 </div>
 
-{% if picked_unboxed_count > 0 and has_permission('cooler.manage_boxes') %}
+{% if has_permission('cooler.manage_boxes') and not boxes %}
 <script>
 (function () {
-  var btnGenerate = document.getElementById('btnGeneratePlan');
+  'use strict';
+
+  /* ── DOM refs ─────────────────────────────────────────────────────────── */
+  var btnGet      = document.getElementById('btnGetRecommendation');
+  var btnReRec    = document.getElementById('btnReRecommend');
+  var btnAddBox   = document.getElementById('btnAddBox');
   var btnClear    = document.getElementById('btnClearPlan');
-  var previewArea = document.getElementById('planPreviewArea');
   var errorArea   = document.getElementById('planErrorArea');
+  var errorMsg    = document.getElementById('planErrorMsg');
+  var editorArea  = document.getElementById('planEditorArea');
   var boxList     = document.getElementById('planBoxList');
   var boxCount    = document.getElementById('planBoxCount');
-  var confirmType = document.getElementById('confirmBoxTypeId');
-  var selectType  = document.getElementById('planBoxTypeId');
+  var confirmForm = document.getElementById('confirmPlanForm');
+  var confirmData = document.getElementById('confirmPlanData');
+  var baseUrl     = '{{ url_for("cooler.box_plan_preview", route_id=route_id, delivery_date=delivery_date) }}';
 
-  function renderPlan(plan) {
+  /* ── State ────────────────────────────────────────────────────────────── */
+  var plan      = [];   // array of box objects (mutable)
+  var boxTypes  = [];   // [{id, name, usable_capacity, max_weight_kg}]
+
+  /* ── Helpers ──────────────────────────────────────────────────────────── */
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function getBoxType(id) {
+    for (var i = 0; i < boxTypes.length; i++) {
+      if (boxTypes[i].id === id) return boxTypes[i];
+    }
+    return null;
+  }
+
+  function smallestFitting(vol, wt) {
+    var asc = boxTypes.slice().sort(function(a,b){ return a.usable_capacity - b.usable_capacity; });
+    for (var i = 0; i < asc.length; i++) {
+      var bt = asc[i];
+      if ((bt.usable_capacity <= 0 || vol <= bt.usable_capacity) &&
+          (bt.max_weight_kg  <= 0 || wt  <= bt.max_weight_kg)) {
+        return bt;
+      }
+    }
+    return asc[asc.length - 1];
+  }
+
+  function recalcBox(box) {
+    var vol = 0, wt = 0;
+    for (var i = 0; i < box.item_summaries.length; i++) {
+      vol += box.item_summaries[i].estimated_volume_cm3 || 0;
+      wt  += box.item_summaries[i].estimated_weight_kg  || 0;
+    }
+    box.estimated_fill_cm3  = vol;
+    box.estimated_weight_kg = wt;
+    var usable = box.usable_capacity_cm3 || 0;
+    box.estimated_fill_pct  = usable ? Math.round(vol / usable * 1000) / 10 : 0;
+    box.warnings = [];
+    if (usable && vol > usable)
+      box.warnings.push('Box exceeds capacity (' + Math.round(vol) + ' cm\u00B3 > ' + Math.round(usable) + ' cm\u00B3).');
+    if (box.max_weight_kg && wt > box.max_weight_kg)
+      box.warnings.push('Box exceeds weight limit (' + wt.toFixed(1) + ' kg > ' + box.max_weight_kg.toFixed(1) + ' kg).');
+    return box;
+  }
+
+  function renumber() {
+    for (var i = 0; i < plan.length; i++) plan[i].box_no = i + 1;
+  }
+
+  /* Bump earliest-delivery item from plan[fromIdx] into plan[fromIdx+1].
+     Creates a new box if needed.  Recurses until no overflow. */
+  function cascadeOverflow(fromIdx) {
+    var box = plan[fromIdx];
+    if (!box || !box.usable_capacity_cm3 || box.estimated_fill_cm3 <= box.usable_capacity_cm3) return;
+
+    /* Find earliest-delivery item (smallest delivery_sequence = first stop served) */
+    var earliest = 0;
+    for (var i = 1; i < box.item_summaries.length; i++) {
+      var seqA = box.item_summaries[i].delivery_sequence;
+      var seqB = box.item_summaries[earliest].delivery_sequence;
+      if ((seqA || 0) < (seqB || 0)) earliest = i;
+    }
+    var bumped = box.item_summaries.splice(earliest, 1)[0];
+    recalcBox(box);
+
+    /* Ensure a next box exists */
+    if (fromIdx + 1 >= plan.length) {
+      var bt = smallestFitting(bumped.estimated_volume_cm3 || 0, bumped.estimated_weight_kg || 0);
+      plan.push({
+        box_no: plan.length + 1,
+        box_type_id:       bt.id,
+        box_type_name:     bt.name,
+        usable_capacity_cm3: bt.usable_capacity,
+        max_weight_kg:     bt.max_weight_kg || 0,
+        item_summaries:    [],
+        estimated_fill_cm3:  0,
+        estimated_fill_pct:  0,
+        estimated_weight_kg: 0,
+        warnings: []
+      });
+    }
+    plan[fromIdx + 1].item_summaries.push(bumped);
+    recalcBox(plan[fromIdx + 1]);
+    /* Recurse in case next box is now over capacity */
+    cascadeOverflow(fromIdx + 1);
+    /* Also handle remaining overflow in current box */
+    cascadeOverflow(fromIdx);
+  }
+
+  /* ── Render ───────────────────────────────────────────────────────────── */
+  function renderPlan() {
+    renumber();
     boxCount.textContent = plan.length + ' box(es)';
     boxList.innerHTML = '';
-    plan.forEach(function (box) {
-      var fillPct = box.estimated_fill_pct || 0;
-      var fillBarClass = fillPct > 100 ? 'bg-danger' : fillPct > 85 ? 'bg-warning' : 'bg-success';
-      var fillTxtClass = fillPct > 100 ? 'text-danger' : fillPct > 85 ? 'text-warning' : 'text-success';
-      var warnings = '';
-      if (box.warnings && box.warnings.length) {
-        warnings = '<div class="alert alert-warning py-1 px-2 small mt-2 mb-0">' +
-          box.warnings.map(function(w){ return '<i class="fas fa-exclamation-triangle me-1"></i>' + w; }).join('<br>') +
-          '</div>';
-      }
-      var items = box.item_summaries.map(function (it) {
-        var invShort = it.invoice_no ? it.invoice_no.slice(-5) : '—';
-        return '<tr>' +
-          '<td class="small py-1">' + invShort + '</td>' +
-          '<td class="small py-1 fw-semibold">' + (it.item_code || '—') + '</td>' +
-          '<td class="small py-1 text-muted">' + (it.item_name || '') + '</td>' +
-          '<td class="small py-1 text-end">\xd7' + (it.qty || 0) + '</td>' +
-          '</tr>';
+
+    plan.forEach(function(box, bi) {
+      /* Box type dropdown */
+      var typeOpts = boxTypes.map(function(bt) {
+        return '<option value="' + bt.id + '"' + (bt.id === box.box_type_id ? ' selected' : '') + '>' +
+          esc(bt.name) + ' (\u2248' + Math.round(bt.usable_capacity / 100) / 10 + ' L)' +
+          '</option>';
       }).join('');
-      var stopDisplay = box.stop_display || '';
-      var html = '<div class="col-md-6 col-xl-4">' +
-        '<div class="card border-primary h-100">' +
+
+      /* Fill bar */
+      var fp = box.estimated_fill_pct || 0;
+      var barCls = fp > 100 ? 'bg-danger' : fp >= 80 ? 'bg-success' : fp >= 60 ? 'bg-warning' : 'bg-info';
+      var fpTxt  = fp > 100 ? 'text-danger fw-bold' : fp >= 80 ? 'text-success' : 'text-warning';
+
+      /* Warnings */
+      var warnHtml = (box.warnings || []).map(function(w) {
+        return '<div class="alert alert-warning py-1 px-2 mb-1 small"><i class="fas fa-exclamation-triangle me-1"></i>' + esc(w) + '</div>';
+      }).join('');
+
+      /* Item rows */
+      var itemRows = box.item_summaries.map(function(it, ii) {
+        var destOpts = plan.map(function(b, bi2) {
+          return bi2 !== bi ? '<option value="' + bi2 + '">Box ' + b.box_no + '</option>' : '';
+        }).join('');
+        var dimBadge = it.has_dimensions
+          ? '<span class="text-muted">' + Math.round(it.estimated_volume_cm3 || 0) + ' cm\u00B3</span>'
+          : '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>no dims</span>';
+        return '<tr>' +
+          '<td class="small py-1">' + esc(it.item_code || '\u2014') + '</td>' +
+          '<td class="small py-1 text-muted">' + esc(it.item_name || '') + '</td>' +
+          '<td class="small py-1">' + esc(it.customer_name || '') + '</td>' +
+          '<td class="small py-1 text-center">\xd7' + (it.qty || 0) + '</td>' +
+          '<td class="small py-1">' + dimBadge + '</td>' +
+          '<td class="small py-1">' +
+            '<select class="form-select form-select-sm" style="min-width:80px" ' +
+                    'data-from="' + bi + '" data-item="' + ii + '" onchange="bpMoveItem(this)">' +
+              '<option value="">\u2194 Move</option>' + destOpts +
+            '</select>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+
+      var missing = box.missing_dimension_count || 0;
+      var missBadge = missing
+        ? '<span class="badge bg-warning text-dark ms-2">' + missing + ' missing dims</span>'
+        : '';
+
+      var html =
+        '<div class="col-md-6" id="bpBox' + bi + '">' +
+        '<div class="card h-100 shadow-sm border-primary">' +
           '<div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-2">' +
-            '<span class="fw-bold">Box ' + box.box_no +
-              (box.box_type_name ? ' <span class="small fw-normal opacity-75">(' + box.box_type_name + ')</span>' : '') +
-            '</span>' +
-            '<span class="small opacity-75">' + stopDisplay + '</span>' +
-          '</div>' +
-          '<div class="card-body py-2">' +
-            '<div class="row g-2 mb-2 small">' +
-              '<div class="col-6 text-muted"><i class="fas fa-list me-1"></i>' + box.item_summaries.length + ' items</div>' +
-              '<div class="col-6"><span class="' + fillTxtClass + '">' + fillPct + '% full</span></div>' +
-              (box.estimated_weight_kg ? '<div class="col-12 text-muted"><i class="fas fa-weight-hanging me-1"></i>' + box.estimated_weight_kg.toFixed(1) + ' kg</div>' : '') +
+            '<span class="fw-bold">Box ' + box.box_no + missBadge + '</span>' +
+            '<div class="d-flex align-items-center gap-2">' +
+              '<select class="form-select form-select-sm text-dark" style="min-width:120px" ' +
+                      'data-box="' + bi + '" onchange="bpChangeType(this)">' +
+                typeOpts +
+              '</select>' +
+              '<button type="button" class="btn btn-sm btn-outline-light" ' +
+                      'onclick="bpRemoveBox(' + bi + ')" title="Remove box">' +
+                '<i class="fas fa-trash-alt"></i>' +
+              '</button>' +
             '</div>' +
-            '<div class="progress mb-2" style="height:4px;"><div class="progress-bar ' + fillBarClass + '" style="width:' + Math.min(fillPct, 100) + '%;"></div></div>' +
-            warnings +
-            '<div class="table-responsive mt-2">' +
-              '<table class="table table-sm mb-0">' +
-                '<thead class="table-light"><tr>' +
-                  '<th class="py-1">Invoice</th>' +
-                  '<th class="py-1">Item</th>' +
-                  '<th class="py-1">Description</th>' +
-                  '<th class="text-end py-1">Qty</th>' +
+          '</div>' +
+          '<div class="card-body p-3">' +
+            '<div class="d-flex justify-content-between small mb-1">' +
+              '<span>' + Math.round(box.estimated_fill_cm3) + ' / ' + Math.round(box.usable_capacity_cm3 || 0) + ' cm\u00B3</span>' +
+              '<span class="' + fpTxt + '">' + fp + '% full</span>' +
+            '</div>' +
+            '<div class="progress mb-2" style="height:8px">' +
+              '<div class="progress-bar ' + barCls + '" style="width:' + Math.min(fp, 100) + '%"></div>' +
+            '</div>' +
+            '<div class="small text-muted mb-2">' + esc(box.stop_display || '') + '</div>' +
+            warnHtml +
+            '<div class="table-responsive" style="max-height:220px;overflow-y:auto">' +
+              '<table class="table table-sm table-hover mb-0">' +
+                '<thead class="table-light sticky-top"><tr>' +
+                  '<th class="small py-1">Code</th>' +
+                  '<th class="small py-1">Item</th>' +
+                  '<th class="small py-1">Customer</th>' +
+                  '<th class="small py-1 text-center">Qty</th>' +
+                  '<th class="small py-1">Volume</th>' +
+                  '<th class="small py-1">Move</th>' +
                 '</tr></thead>' +
-                '<tbody>' + items + '</tbody>' +
+                '<tbody>' + itemRows + '</tbody>' +
               '</table>' +
             '</div>' +
           '</div>' +
@@ -1068,48 +1234,150 @@
     });
   }
 
-  btnGenerate.addEventListener('click', function () {
-    var typeId = selectType.value;
-    var url = '{{ url_for("cooler.box_plan_preview", route_id=route_id, delivery_date=delivery_date) }}';
-    if (typeId) url += '?box_type_id=' + encodeURIComponent(typeId);
-    btnGenerate.disabled = true;
-    btnGenerate.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating\u2026';
-    previewArea.classList.add('d-none');
-    errorArea.classList.add('d-none');
+  /* ── Global callbacks (invoked from inline onchange / onclick) ────────── */
+  window.bpChangeType = function(sel) {
+    var bi = parseInt(sel.dataset.box);
+    var newTypeId = parseInt(sel.value);
+    var bt = getBoxType(newTypeId);
+    if (!bt) return;
+    plan[bi].box_type_id       = bt.id;
+    plan[bi].box_type_name     = bt.name;
+    plan[bi].usable_capacity_cm3 = bt.usable_capacity;
+    plan[bi].max_weight_kg     = bt.max_weight_kg || 0;
+    recalcBox(plan[bi]);
+    cascadeOverflow(bi);
+    renderPlan();
+  };
+
+  window.bpMoveItem = function(sel) {
+    var fromBi = parseInt(sel.dataset.from);
+    var ii     = parseInt(sel.dataset.item);
+    var toBi   = parseInt(sel.value);
+    if (isNaN(toBi)) return;
+    var item = plan[fromBi].item_summaries.splice(ii, 1)[0];
+    recalcBox(plan[fromBi]);
+    plan[toBi].item_summaries.push(item);
+    recalcBox(plan[toBi]);
+    cascadeOverflow(toBi);
+    renderPlan();
+  };
+
+  window.bpRemoveBox = function(bi) {
+    if (plan.length <= 1) {
+      alert('Cannot remove the only box. Use Clear to start over.');
+      return;
+    }
+    var items = plan[bi].item_summaries.splice(0);
+    plan.splice(bi, 1);
+    /* Move items to the last box */
+    var last = plan[plan.length - 1];
+    items.forEach(function(it){ last.item_summaries.push(it); });
+    recalcBox(last);
+    cascadeOverflow(plan.length - 1);
+    renumber();
+    renderPlan();
+  };
+
+  /* ── Fetch recommendation ─────────────────────────────────────────────── */
+  function getAvailParam() {
+    var parts = [];
+    document.querySelectorAll('#availabilityInputs input[data-type-id]').forEach(function(inp) {
+      parts.push(inp.dataset.typeId + ':' + (parseInt(inp.value) || 0));
+    });
+    return parts.join(',');
+  }
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorArea.classList.remove('d-none');
+  }
+  function hideError() { errorArea.classList.add('d-none'); }
+
+  function fetchRec(btn) {
+    var targetFill = document.getElementById('fillTargetSelect').value;
+    var avail      = getAvailParam();
+    var url        = baseUrl + '?target_fill=' + encodeURIComponent(targetFill);
+    if (avail) url += '&avail=' + encodeURIComponent(avail);
+
+    btn.disabled = true;
+    var origHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Working\u2026';
+    hideError();
+
     fetch(url, {credentials: 'same-origin'})
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        btnGenerate.disabled = false;
-        btnGenerate.innerHTML = '<i class="fas fa-magic me-1"></i>Plan Cooler Boxes';
-        if (!data.ok) {
-          errorArea.classList.remove('d-none');
-          document.getElementById('planErrorMsg').textContent = data.message || 'Error generating plan.';
-          return;
-        }
-        if (!data.plan || data.plan.length === 0) {
-          errorArea.classList.remove('d-none');
-          document.getElementById('planErrorMsg').textContent = data.message || 'No picked unboxed items found.';
-          return;
-        }
-        confirmType.value = typeId;
-        renderPlan(data.plan);
-        previewArea.classList.remove('d-none');
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        if (!data.ok) { showError(data.message || 'Error generating plan.'); return; }
+        if (!data.plan || data.plan.length === 0) { showError(data.message || 'No items found to plan.'); return; }
+
+        /* Merge server box type info */
+        if (data.box_types && data.box_types.length) boxTypes = data.box_types;
+
+        /* Ensure each plan box has usable_capacity_cm3 */
+        plan = data.plan.map(function(box) {
+          if (!box.usable_capacity_cm3) {
+            var bt = getBoxType(box.box_type_id);
+            if (bt) box.usable_capacity_cm3 = bt.usable_capacity;
+          }
+          if (!box.max_weight_kg) box.max_weight_kg = 0;
+          return box;
+        });
+
+        editorArea.classList.remove('d-none');
+        btnReRec.classList.remove('d-none');
+        renderPlan();
       })
-      .catch(function () {
-        btnGenerate.disabled = false;
-        btnGenerate.innerHTML = '<i class="fas fa-magic me-1"></i>Plan Cooler Boxes';
-        errorArea.classList.remove('d-none');
-        document.getElementById('planErrorMsg').textContent = 'Network error \u2014 please try again.';
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        showError('Network error \u2014 please try again.');
       });
+  }
+
+  btnGet.addEventListener('click', function(){ fetchRec(btnGet); });
+  btnReRec.addEventListener('click', function(){ fetchRec(btnReRec); });
+
+  /* ── Add box ──────────────────────────────────────────────────────────── */
+  btnAddBox.addEventListener('click', function() {
+    if (!boxTypes.length) return;
+    var bt = boxTypes.slice().sort(function(a,b){ return b.usable_capacity - a.usable_capacity; })[0];
+    plan.push({
+      box_no: plan.length + 1,
+      box_type_id:       bt.id,
+      box_type_name:     bt.name,
+      usable_capacity_cm3: bt.usable_capacity,
+      max_weight_kg:     bt.max_weight_kg || 0,
+      item_summaries:    [],
+      estimated_fill_cm3:  0,
+      estimated_fill_pct:  0,
+      estimated_weight_kg: 0,
+      warnings: [],
+      stop_display: '',
+      missing_dimension_count: 0
+    });
+    renderPlan();
   });
 
+  /* ── Clear ────────────────────────────────────────────────────────────── */
   if (btnClear) {
-    btnClear.addEventListener('click', function () {
-      previewArea.classList.add('d-none');
-      errorArea.classList.add('d-none');
+    btnClear.addEventListener('click', function() {
+      plan = [];
+      editorArea.classList.add('d-none');
+      hideError();
       boxList.innerHTML = '';
+      btnReRec.classList.add('d-none');
     });
   }
+
+  /* ── Confirm: inject plan JSON before submit ──────────────────────────── */
+  if (confirmForm) {
+    confirmForm.addEventListener('submit', function() {
+      confirmData.value = JSON.stringify(plan);
+    });
+  }
+
 })();
 </script>
 {% endif %}
