@@ -354,11 +354,8 @@ def generate_box_plan(
     used_counts: dict = defaultdict(int)
     plan = []
 
-    for box_no, slot in enumerate(slots, start=1):
-        V, W = slot["vol"], slot["wt"]
-
-        # Smallest type where fill >= target_fill_pct AND items physically fit
-        # → usable must be in [V, V / target_fill_pct]
+    def _pick_box_type(V, W):
+        """Pick the best available box type for volume V and weight W."""
         max_cap_for_target = (V / target_fill_pct) if target_fill_pct > 0 else float("inf")
 
         def _avail(bt):
@@ -368,7 +365,7 @@ def generate_box_plan(
 
         asc = sorted(box_types, key=lambda t: t["usable_capacity"])
 
-        # Candidates hit the target fill AND physically fit AND are available
+        # 1. Hits fill target + fits + available
         candidates = [
             bt for bt in asc
             if bt["usable_capacity"] >= V
@@ -376,94 +373,151 @@ def generate_box_plan(
             and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
             and _avail(bt)
         ]
+        if candidates:
+            return candidates[0]
 
-        if not candidates:
-            # No type hits the fill target → smallest that physically fits + available
-            fits_avail = [
-                bt for bt in asc
-                if bt["usable_capacity"] >= V
-                and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
-                and _avail(bt)
-            ]
-            if not fits_avail:
-                # Over-allocate types the user gave any count to (all used up but allowed)
-                fits_avail = [
-                    bt for bt in asc
-                    if bt["usable_capacity"] >= V
-                    and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
-                    and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0)
-                ]
-            if not fits_avail:
-                # No available type holds the full slot volume.
-                # Use the LARGEST type the user gave any count to — it will
-                # overflow and the JS cascade will split it into more boxes.
-                # This is far better than jumping to a type explicitly set to 0.
-                allowed_asc = [
-                    bt for bt in asc
-                    if available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0
-                ]
-                if allowed_asc:
-                    fits_avail = [allowed_asc[-1]]
-            if not fits_avail:
-                # Absolute last resort — every type is set to 0
-                fits_avail = [
-                    bt for bt in asc
-                    if bt["usable_capacity"] >= V
-                    and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
-                ]
-            chosen = fits_avail[0] if fits_avail else asc[-1]
-        else:
-            chosen = candidates[0]
+        # 2. Physically fits + available (ignore fill target)
+        fits_avail = [
+            bt for bt in asc
+            if bt["usable_capacity"] >= V
+            and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+            and _avail(bt)
+        ]
+        if fits_avail:
+            return fits_avail[0]
 
-        used_counts[chosen["id"]] += 1
-        usable = chosen["usable_capacity"]
-        fill_pct = round((V / usable) * 100, 1) if usable else 0.0
+        # 3. Physically fits + user gave any count (over-allocate)
+        fits_allowed = [
+            bt for bt in asc
+            if bt["usable_capacity"] >= V
+            and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+            and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0)
+        ]
+        if fits_allowed:
+            return fits_allowed[0]
 
-        stop_ints = [_stop_int(s) for s in slot["seqs"]]
-        stop_min, stop_max = min(stop_ints), max(stop_ints)
+        # 4. Nothing available physically holds the volume.
+        #    Use the LARGEST type the user gave any count to — the bin-packer
+        #    below will split items across as many boxes of this type as needed.
+        allowed_asc = [
+            bt for bt in asc
+            if available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0
+        ]
+        if allowed_asc:
+            return allowed_asc[-1]
+
+        # 5. Absolute last resort — every type is set to 0
+        fits_any = [
+            bt for bt in asc
+            if bt["usable_capacity"] >= V
+            and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
+        ]
+        return fits_any[0] if fits_any else asc[-1]
+
+    def _make_box_entry(items, chosen):
+        """Build a plan dict for a list of items packed into one box of `chosen`."""
+        bv = sum(it["estimated_volume_cm3"] or 0.0 for it in items)
+        bw = sum(it["estimated_weight_kg"]  or 0.0 for it in items)
+        usable   = chosen["usable_capacity"]
+        fill_pct = round((bv / usable) * 100, 1) if usable else 0.0
+        seqs     = [it["delivery_sequence"] for it in items]
+        stop_ints = [_stop_int(s) for s in seqs]
+        smin, smax = min(stop_ints), max(stop_ints)
         stop_display = (
-            f"Stops {stop_max} → {stop_min}" if stop_min != stop_max
-            else f"Stop {stop_max}"
+            f"Stops {smax} → {smin}" if smin != smax else f"Stop {smax}"
         )
-
+        missing = sum(0 if it.get("has_dimensions") else 1 for it in items)
         warnings = []
-        if slot["missing"]:
+        if missing:
             warnings.append("Some items are missing dimensions — fill estimate may be low.")
-        if usable and V > usable:
+        if usable and bv > usable:
             warnings.append(
-                f"Box exceeds capacity ({V:.0f} cm³ > {usable:.0f} cm³ usable)."
+                f"Box exceeds capacity ({bv:.0f} cm³ > {usable:.0f} cm³ usable)."
             )
-        if chosen["max_weight_kg"] and W > chosen["max_weight_kg"]:
+        if chosen["max_weight_kg"] and bw > chosen["max_weight_kg"]:
             warnings.append(
-                f"Box exceeds weight limit ({W:.1f} kg > {chosen['max_weight_kg']:.1f} kg)."
+                f"Box exceeds weight limit ({bw:.1f} kg > {chosen['max_weight_kg']:.1f} kg)."
             )
         if (
             available_type_counts is not None
             and available_type_counts.get(chosen["id"], 0) == 0
         ):
             warnings.append(
-                f"No {chosen['name']} boxes were available — used as last resort because "
-                "no other box type is large enough. Add more box types or increase availability."
+                f"No {chosen['name']} boxes were available — used as last resort. "
+                "Increase availability or add a larger box type."
             )
-
-        plan.append({
-            "box_no":               box_no,
+        used_counts[chosen["id"]] += 1
+        return {
+            "box_no":               0,          # renumbered at the end
             "box_type_id":          chosen["id"],
             "box_type_name":        chosen["name"],
             "usable_capacity_cm3":  usable,
             "max_weight_kg":        chosen["max_weight_kg"],
-            "stop_min":             stop_min,
-            "stop_max":             stop_max,
+            "stop_min":             smin,
+            "stop_max":             smax,
             "stop_display":         stop_display,
-            "stops":                sorted(stop_ints, reverse=True),
-            "queue_item_ids":       [it["queue_item_id"] for it in slot["items"]],
-            "item_summaries":       slot["items"],
-            "estimated_fill_cm3":   V,
+            "stops":                sorted(set(stop_ints), reverse=True),
+            "queue_item_ids":       [it["queue_item_id"] for it in items],
+            "item_summaries":       items,
+            "estimated_fill_cm3":   bv,
             "estimated_fill_pct":   fill_pct,
-            "estimated_weight_kg":  W,
-            "missing_dimension_count": slot["missing"],
+            "estimated_weight_kg":  bw,
+            "missing_dimension_count": missing,
             "warnings":             warnings,
-        })
+        }
+
+    for slot in slots:
+        V, W = slot["vol"], slot["wt"]
+        chosen = _pick_box_type(V, W)
+        usable = chosen["usable_capacity"]
+
+        # ── Bin-pack: split slot across as many boxes as needed ──────────────
+        # If the whole slot fits in one box, we still go through this loop —
+        # it just produces a single bin.
+        if usable <= 0:
+            # No capacity info — put everything in one box
+            plan.append(_make_box_entry(slot["items"], chosen))
+            continue
+
+        # bins stores (items_list, box_type) — each bin remembers its own type
+        bins: list[tuple] = []
+        cur_bin: list = []
+        cur_vol = cur_wt = 0.0
+
+        all_items = slot["items"]
+        for idx, item in enumerate(all_items):
+            iv = item["estimated_volume_cm3"] or 0.0
+            iw = item["estimated_weight_kg"]  or 0.0
+            wt_limit_ok = (
+                chosen["max_weight_kg"] <= 0
+                or cur_wt + iw <= chosen["max_weight_kg"]
+            )
+            # Start a new bin if adding this item would overflow — but only
+            # if the current bin already has at least one item (a single item
+            # larger than the box still goes into its own bin with a warning).
+            if cur_bin and (cur_vol + iv > usable or not wt_limit_ok):
+                bins.append((cur_bin, chosen))
+                cur_bin = []
+                cur_vol = cur_wt = 0.0
+                # Re-pick for the remaining items to get the best available type
+                remaining = all_items[idx:]
+                rem_vol = sum(it["estimated_volume_cm3"] or 0.0 for it in remaining)
+                rem_wt  = sum(it["estimated_weight_kg"]  or 0.0 for it in remaining)
+                chosen = _pick_box_type(rem_vol, rem_wt)
+                usable = chosen["usable_capacity"] or usable
+            cur_bin.append(item)
+            cur_vol += iv
+            cur_wt  += iw
+
+        if cur_bin:
+            bins.append((cur_bin, chosen))
+
+        for bin_items, bin_type in bins:
+            plan.append(_make_box_entry(bin_items, bin_type))
+
+    # Assign final box numbers
+    for i, entry in enumerate(plan, start=1):
+        entry["box_no"] = i
 
     return plan
 
