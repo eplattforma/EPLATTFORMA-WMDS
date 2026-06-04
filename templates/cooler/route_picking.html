@@ -26,53 +26,157 @@
     </a>
   </div>
 
-  {# ── Step indicator (picking complete only) ────────────────────────────── #}
-  {% if picking_phase and picking_phase.complete %}
-  {% set _is_locked = cooler_session and cooler_session.is_locked %}
-  {% set _open_boxes = boxes | selectattr('status', 'equalto', 'open') | list %}
+  {# ── Step state calculations ─────────────────────────────────────────────── #}
+  {% set _is_locked    = cooler_session and cooler_session.is_locked %}
+  {% set _boxes_exist  = boxes | length > 0 %}
+  {% set _open_boxes   = boxes | selectattr('status', 'equalto', 'open')   | list %}
   {% set _closed_boxes = boxes | selectattr('status', 'equalto', 'closed') | list %}
-  {% set _all_boxed = (picked_unboxed_count == 0 and boxes | length > 0) %}
-  {% set _all_closed = (_open_boxes | length == 0 and _closed_boxes | length > 0 and picked_unboxed_count == 0) %}
-  {# Check for overfull boxes — skip cancelled boxes #}
+  {% set _picking_done = picking_phase and picking_phase.complete %}
+  {% set _all_closed   = (_open_boxes | length == 0 and _closed_boxes | length > 0) %}
   {% set _overfull_ns = namespace(any=false) %}
   {% for _b in boxes %}{% if _b.fill_pct and _b.fill_pct > 100 and _b.status != 'cancelled' %}{% set _overfull_ns.any = true %}{% endif %}{% endfor %}
   {% set _any_overfull = _overfull_ns.any %}
 
-  <div class="card border-0 shadow-sm mb-4" style="background:linear-gradient(135deg,#f0f9ff 0%,#e8f5e9 100%);">
-    <div class="card-body py-3">
-      <div class="d-flex align-items-center gap-2 flex-wrap" style="font-size:0.9rem;">
-        <span class="badge py-2 px-3 {{ 'bg-success' if _is_locked else 'bg-secondary' }}">
-          <i class="fas fa-{{ 'check' if _is_locked else 'times' }} me-1"></i>Route Prepared
-        </span>
-        <i class="fas fa-chevron-right text-muted small"></i>
-        <span class="badge py-2 px-3 bg-success">
-          <i class="fas fa-check me-1"></i>Picking Completed
-        </span>
-        <i class="fas fa-chevron-right text-muted small"></i>
-        {% if _all_boxed and _any_overfull %}
-        <span class="badge py-2 px-3 bg-danger">
-          <i class="fas fa-exclamation-triangle me-1"></i>Assign to Boxes
-          <span class="ms-1 opacity-90">⚠️</span>
-        </span>
-        {% else %}
-        <span class="badge py-2 px-3 {{ 'bg-success' if _all_boxed else 'bg-primary' }}">
-          <i class="fas fa-{{ 'check' if _all_boxed else 'box' }} me-1"></i>Assign to Boxes
-          {% if not _all_boxed and picked_unboxed_count > 0 %}<span class="ms-1 opacity-75">🔵</span>{% endif %}
-        </span>
-        {% endif %}
-        <i class="fas fa-chevron-right text-muted small"></i>
-        <span class="badge py-2 px-3 {{ 'bg-success' if _all_closed else ('bg-warning text-dark' if _open_boxes else 'bg-secondary') }}">
-          <i class="fas fa-{{ 'check' if _all_closed else 'lock' }} me-1"></i>Close Boxes
-          {% if not _all_closed and _open_boxes %}⏳{% endif %}
-        </span>
-        <i class="fas fa-chevron-right text-muted small"></i>
-        <span class="badge py-2 px-3 {{ 'bg-success' if _all_closed else 'bg-secondary' }}">
-          <i class="fas fa-{{ 'check' if _all_closed else 'truck' }} me-1"></i>Ready for Dispatch
-          {% if not _all_closed %}⏳{% endif %}
-        </span>
+  {# 3-step states: 0=future 1=active 2=done #}
+  {% set _s1 = 2 if _is_locked else 1 %}
+  {% set _s2 = 2 if (_boxes_exist and not _any_overfull) else (1 if _is_locked else 0) %}
+  {% set _s3 = 2 if (_picking_done and _all_closed) else (1 if (_s2 == 2) else 0) %}
+
+  {# ── Prominent 3-step progress bar #}
+  <div class="mb-4">
+    <div class="row g-0" style="border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+
+      {% set _1_bg = '#198754' if _s1==2 else '#0d6efd' if _s1==1 else '#adb5bd' %}
+      <div class="col-md-4 p-0">
+        <div class="h-100 d-flex align-items-center gap-3 px-4 py-3"
+             style="background:{{ _1_bg }};color:#fff;min-height:80px;">
+          <div class="flex-shrink-0 d-flex align-items-center justify-content-center rounded-circle fw-bold"
+               style="width:48px;height:48px;font-size:1.3rem;background:rgba(255,255,255,0.25);">
+            {% if _s1==2 %}<i class="fas fa-check"></i>{% else %}1{% endif %}
+          </div>
+          <div>
+            <div class="fw-bold" style="font-size:1rem;">Confirm Cooler Route</div>
+            <div style="font-size:0.78rem;opacity:0.85;margin-top:2px;">
+              {% if _s1==2 %}✓ Done — sequence locked{% if cooler_session and cooler_session.sequence_locked_by %} by {{ cooler_session.sequence_locked_by }}{% endif %}
+              {% else %}Lock delivery sequence for all items{% endif %}
+            </div>
+          </div>
+          {% if _s1==1 %}<div class="ms-auto flex-shrink-0"><span class="badge bg-white text-primary fw-bold px-2 py-1" style="font-size:0.75rem;">← DO THIS NOW</span></div>{% endif %}
+        </div>
       </div>
+      <div class="col-auto d-none d-md-flex align-items-center" style="background:{{ _1_bg }};width:28px;">
+        <div style="width:0;height:0;border-top:40px solid transparent;border-bottom:40px solid transparent;border-left:16px solid {{ _1_bg }};"></div>
+      </div>
+
+      {% set _2_bg = '#198754' if _s2==2 else '#0d6efd' if _s2==1 else '#adb5bd' %}
+      <div class="col-md-4 p-0">
+        <div class="h-100 d-flex align-items-center gap-3 px-4 py-3"
+             style="background:{{ _2_bg }};color:#fff;min-height:80px;">
+          <div class="flex-shrink-0 d-flex align-items-center justify-content-center rounded-circle fw-bold"
+               style="width:48px;height:48px;font-size:1.3rem;background:rgba(255,255,255,0.25);">
+            {% if _s2==2 %}<i class="fas fa-check"></i>{% else %}2{% endif %}
+          </div>
+          <div>
+            <div class="fw-bold" style="font-size:1rem;">Plan Cooler Boxes</div>
+            <div style="font-size:0.78rem;opacity:0.85;margin-top:2px;">
+              {% if _s2==2 %}✓ Done — {{ boxes | length }} box(es) assigned
+              {% elif _s2==1 %}Set availability, get recommendation, confirm plan
+              {% else %}Complete Step 1 first{% endif %}
+            </div>
+          </div>
+          {% if _s2==1 %}<div class="ms-auto flex-shrink-0"><span class="badge bg-white text-primary fw-bold px-2 py-1" style="font-size:0.75rem;">← DO THIS NOW</span></div>{% endif %}
+        </div>
+      </div>
+      <div class="col-auto d-none d-md-flex align-items-center" style="background:{{ _2_bg }};width:28px;">
+        <div style="width:0;height:0;border-top:40px solid transparent;border-bottom:40px solid transparent;border-left:16px solid {{ _2_bg }};"></div>
+      </div>
+
+      {% set _3_bg = '#198754' if _s3==2 else '#0d6efd' if _s3==1 else '#adb5bd' %}
+      <div class="col-md-4 p-0">
+        <div class="h-100 d-flex align-items-center gap-3 px-4 py-3"
+             style="background:{{ _3_bg }};color:#fff;min-height:80px;">
+          <div class="flex-shrink-0 d-flex align-items-center justify-content-center rounded-circle fw-bold"
+               style="width:48px;height:48px;font-size:1.3rem;background:rgba(255,255,255,0.25);">
+            {% if _s3==2 %}<i class="fas fa-check"></i>{% else %}3{% endif %}
+          </div>
+          <div>
+            <div class="fw-bold" style="font-size:1rem;">Assign Picker &amp; Pick</div>
+            <div style="font-size:0.78rem;opacity:0.85;margin-top:2px;">
+              {% if _s3==2 %}✓ Done — all boxes closed
+              {% elif _s3==1 %}{% if picking_phase and not picking_phase.empty %}{{ picking_phase.picked_count }} / {{ picking_phase.total_count }} picked{% else %}Assign picker, then start picking{% endif %}
+              {% else %}Complete Step 2 first{% endif %}
+            </div>
+          </div>
+          {% if _s3==1 %}<div class="ms-auto flex-shrink-0"><span class="badge bg-white text-primary fw-bold px-2 py-1" style="font-size:0.75rem;">← DO THIS NOW</span></div>{% endif %}
+        </div>
+      </div>
+
     </div>
   </div>
+
+  {# ── "What to do now" action banner #}
+  {% if _s1 == 1 %}
+  <div class="alert alert-primary d-flex align-items-center gap-3 mb-4 border-0 shadow-sm">
+    <div style="font-size:2rem;">1️⃣</div>
+    <div class="flex-grow-1">
+      <strong>Start here — Confirm Cooler Route</strong><br>
+      <span class="small">Locks the delivery sequence so items can be sorted into boxes in the correct order.</span>
+    </div>
+    {% if has_permission('cooler.lock_sequencing') %}
+    <form method="post" action="{{ url_for('cooler.lock_sequencing', route_id=route_id) }}" class="flex-shrink-0">
+      <input type="hidden" name="_html_form" value="1">
+      <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
+      <button class="btn btn-primary btn-lg text-nowrap" type="submit">
+        <i class="fas fa-shield-alt me-2"></i>Confirm Cooler Route
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% elif _s2 == 1 %}
+  <div class="alert alert-primary d-flex align-items-center gap-3 mb-4 border-0 shadow-sm">
+    <div style="font-size:2rem;">2️⃣</div>
+    <div class="flex-grow-1">
+      <strong>Next — Plan the Cooler Boxes</strong><br>
+      <span class="small">Set how many boxes you have available, click "Get Recommendation", adjust if needed, then confirm.</span>
+    </div>
+    <a href="#boxPlanCard" class="btn btn-primary btn-lg text-nowrap flex-shrink-0">
+      <i class="fas fa-layer-group me-2"></i>Plan Boxes ↓
+    </a>
+  </div>
+
+  {% elif _s3 == 1 %}
+    {% if picking_phase and picking_phase.complete %}
+    <div class="alert alert-success d-flex align-items-center gap-3 mb-4 border-0 shadow-sm">
+      <div style="font-size:2rem;">✅</div>
+      <div class="flex-grow-1"><strong>All {{ picking_phase.total_count }} items picked — close the open boxes to finish.</strong></div>
+      {% if _open_boxes %}<a href="#coolerBoxes" class="btn btn-success btn-lg text-nowrap flex-shrink-0"><i class="fas fa-lock me-2"></i>Close Boxes ↓</a>{% endif %}
+    </div>
+    {% else %}
+    <div class="alert alert-info d-flex align-items-center gap-3 mb-4 border-0 shadow-sm">
+      <div style="font-size:2rem;">3️⃣</div>
+      <div class="flex-grow-1">
+        <strong>Assign a picker and start picking</strong><br>
+        <span class="small">Each item shows which box it belongs to. The picker places items directly into the correct box.</span>
+      </div>
+      <a href="#routeStatusSection" class="btn btn-info btn-lg text-nowrap flex-shrink-0">
+        <i class="fas fa-warehouse me-2"></i>Go to Picker Assignment ↓
+      </a>
+    </div>
+    {% endif %}
+
+  {% elif _s3 == 2 %}
+  <div class="alert alert-success d-flex align-items-center gap-3 mb-4 border-0 shadow-sm">
+    <div style="font-size:2rem;">🎉</div>
+    <div class="flex-grow-1"><strong>All done — cooler packing complete!</strong></div>
+    {% if has_permission('cooler.print_labels') %}
+    <a href="{{ url_for('cooler.route_manifest', route_id=route_id, delivery_date=delivery_date) }}"
+       target="_blank" class="btn btn-outline-success btn-lg text-nowrap flex-shrink-0">
+      <i class="fas fa-file-pdf me-2"></i>Print Route Manifest
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
 
   {% if _any_overfull %}
   <div class="alert alert-danger d-flex align-items-center gap-3 mt-3 mb-4">
@@ -156,7 +260,6 @@
   </div>
   {% endif %}
 
-  {% endif %}{# end picking_phase.complete #}
 
   {# ── #packing anchor (hash link from dashboard lands here) ────────────── #}
   <div id="packing" style="scroll-margin-top:72px;"></div>
@@ -665,8 +768,15 @@
     <table class="table table-sm align-middle">
       <thead class="table-light">
         <tr>
-          <th>Stop</th><th>Customer</th><th>Invoice</th><th>Item</th><th>Description</th>
-          <th class="text-end">Qty</th><th>Status</th><th>Action</th>
+          <th>Stop</th>
+          <th>Customer</th>
+          <th>Invoice</th>
+          <th>Item</th>
+          <th>Description</th>
+          <th class="text-end">Qty</th>
+          <th class="text-center"><i class="fas fa-box me-1 text-primary"></i>Box</th>
+          <th>Status</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
@@ -678,6 +788,21 @@
             <td><strong>{{ q.item_code }}</strong></td>
             <td class="text-muted">{{ q.item_name or '' }}</td>
             <td class="text-end">{{ q.expected_qty|int }}</td>
+            <td class="text-center">
+              {% if q.status == 'pending' and planned_box and q.queue_item_id in planned_box %}
+                <span class="badge fs-6 px-3 py-2" style="background:#0d6efd;color:#fff;min-width:52px;">
+                  📦 #{{ planned_box[q.queue_item_id] }}
+                </span>
+              {% elif q.status == 'picked' and assigned_to_box and q.queue_item_id in assigned_to_box %}
+                <span class="badge fs-6 px-3 py-2" style="background:#198754;color:#fff;min-width:52px;">
+                  📦 #{{ assigned_to_box[q.queue_item_id] }}
+                </span>
+              {% elif q.status == 'picked' %}
+                <span class="badge bg-warning text-dark">Unboxed</span>
+              {% else %}
+                <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
             <td>
               {% if q.status == 'pending' %}<span class="badge bg-secondary">Pending</span>
               {% elif q.status == 'picked' %}<span class="badge bg-success">Picked</span>
