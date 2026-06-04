@@ -2219,45 +2219,12 @@ def batch_picking_item(batch_id):
         invoice_nos = [bi.invoice_no for bi in batch_invoices]
 
         if getattr(batch_session, 'session_type', None) == 'cooler_route':
-            # Cooler route batches: the DB queue is the authoritative source.
-            # Both skip paths (batch Skip button and cooler route-page Skip)
-            # mark the queue row as 'exception'.  Reset those rows back to
-            # 'pending' so rebuild_items_from_queue picks them up again.
-            from sqlalchemy import text as _text
-            exception_rows = db.session.execute(
-                _text(
-                    "SELECT id FROM batch_pick_queue "
-                    "WHERE batch_session_id = :bid AND status = 'exception'"
-                ),
-                {"bid": batch_id},
-            ).fetchall()
-            if exception_rows:
-                skipped_count = len(exception_rows)
-                db.session.execute(
-                    _text(
-                        "UPDATE batch_pick_queue "
-                        "SET status = 'pending', updated_at = NOW() "
-                        "WHERE batch_session_id = :bid AND status = 'exception'"
-                    ),
-                    {"bid": batch_id},
-                )
-                db.session.commit()
-                current_app.logger.info(
-                    f"Cooler collect-later: reset {skipped_count} exception "
-                    f"queue row(s) to pending for batch {batch_id}"
-                )
-                # Rebuild the session list from the now-pending queue rows.
-                from services.batch_picking import rebuild_items_from_queue as _rebuild
-                rebuilt = _rebuild(batch_id)
-                session[fixed_batch_key] = rebuilt
-                batch_session.current_item_index = 0
-                db.session.commit()
-                flash(
-                    f'Please resolve {skipped_count} skipped item(s) before completing the batch.',
-                    'warning',
-                )
-                return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
-            skipped_items = []  # nothing to collect; fall through to completion
+            # Cooler route batches: skipped (exception) items are intentional.
+            # They appear in the "Skipped items" card on the cooler route picking
+            # page with a Resume button — do NOT recycle them back into the batch.
+            # Let the batch complete; the picker uses the Resume button if they
+            # want to go back and pick a skipped item.
+            skipped_items = []  # fall through to completion
         elif getattr(batch_session, 'picking_mode', None) == 'Cooler':
             skipped_items = InvoiceItem.query.filter(
                 InvoiceItem.locked_by_batch_id == batch_id,
