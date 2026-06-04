@@ -2431,6 +2431,38 @@ def batch_picking_item(batch_id):
     
     # Debug logging for batch picking
     current_app.logger.info(f"Batch {batch_id}: Processing item {batch_session.current_item_index + 1}/{len(items)} - {current_item['item_code']}")
+
+    # ── Cooler box assignment hint ────────────────────────────────────────────
+    # For cooler-route batches look up which box(es) this item belongs to so
+    # the picker knows where to place it immediately after grabbing it.
+    cooler_box_info = []
+    if getattr(batch_session, 'session_type', None) == 'cooler_route' and batch_session.route_id:
+        try:
+            _src = current_item.get('source_items', [])
+            _inv_nos = list({s['invoice_no'] for s in _src if s.get('invoice_no')})
+            _item_code = current_item.get('item_code', '')
+            if _inv_nos and _item_code:
+                _box_rows = db.session.execute(
+                    text(
+                        "SELECT DISTINCT cb.box_no, "
+                        "       COALESCE(cbt.name, 'Box') AS box_type_name, "
+                        "       cb.id AS box_id "
+                        "FROM cooler_box_items cbi "
+                        "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+                        "LEFT JOIN cooler_box_types cbt ON cbt.id = cb.box_type_id "
+                        "WHERE cbi.invoice_no = ANY(:inv_nos) "
+                        "  AND cbi.item_code  = :icode "
+                        "  AND cb.route_id    = :rid "
+                        "ORDER BY cb.box_no"
+                    ),
+                    {"inv_nos": _inv_nos, "icode": _item_code, "rid": batch_session.route_id},
+                ).fetchall()
+                cooler_box_info = [
+                    {"box_no": r[0], "box_type_name": r[1], "box_id": r[2]}
+                    for r in _box_rows
+                ]
+        except Exception as _cbe:
+            current_app.logger.warning("cooler box lookup failed for batch %s: %s", batch_id, _cbe)
     
     # Get the next item's location (if available) to show to the picker
     show_next_location = False
@@ -2499,7 +2531,8 @@ def batch_picking_item(batch_id):
                           total_items=len(items),
                           current_index=batch_session.current_item_index,
                           show_multi_qty_warning=show_multi_qty_warning,
-                          tracking_ids=tracking_ids)
+                          tracking_ids=tracking_ids,
+                          cooler_box_info=cooler_box_info)
 
 @batch_bp.route('/api/picker/batch/<int:batch_id>/arrived', methods=['POST'])
 @login_required
