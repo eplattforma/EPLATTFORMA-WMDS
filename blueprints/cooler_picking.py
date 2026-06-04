@@ -1886,7 +1886,8 @@ def box_close(box_id):
             "error": f"Box #{box_id} is {box['status']}; only open boxes can be closed."
         }), 400
 
-    # Guard: all assigned items must be picked
+    # Guard: all assigned items must be picked (skip when force=1)
+    force = request.form.get("force") == "1" or request.args.get("force") == "1"
     unpicked = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_box_items cbi "
@@ -1895,7 +1896,7 @@ def box_close(box_id):
         ),
         {"bid": box_id},
     ).scalar() or 0
-    if unpicked > 0:
+    if unpicked > 0 and not force:
         msg = f"Box #{box_id} still has {unpicked} unpicked item(s) — pick everything before closing."
         if request.form.get("_html_form"):
             flash(msg, "warning")
@@ -1903,6 +1904,25 @@ def box_close(box_id):
                                     route_id=box["route_id"],
                                     delivery_date=str(box["delivery_date"])))
         return jsonify({"error": msg}), 400
+
+    if unpicked > 0 and force:
+        # Mark planned (unphysically-picked) items as exception so the route
+        # completion check no longer treats them as blocking planned rows.
+        now_f = get_utc_now()
+        db.session.execute(
+            text(
+                "UPDATE cooler_box_items "
+                "SET status = 'exception', updated_at = :now "
+                "WHERE cooler_box_id = :bid "
+                "  AND (status = 'planned' OR picked_qty = 0)"
+            ),
+            {"bid": box_id, "now": now_f},
+        )
+        _audit(
+            "cooler.box_force_closed",
+            f"Cooler box #{box_id} force-closed by {_username()} — "
+            f"{unpicked} unpicked item(s) marked exception",
+        )
 
     seq_row = db.session.execute(
         text(
