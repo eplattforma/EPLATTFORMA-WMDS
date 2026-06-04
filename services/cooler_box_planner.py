@@ -104,16 +104,19 @@ def _smallest_fitting(box_types, vol, wt, available_type_counts=None, used_count
     for bt in asc:
         if _fits(bt) and _avail(bt):
             return bt
-    # Fall back: fits + user gave a positive count (all used up, but at least allowed)
-    # Never use a type the user explicitly set to 0.
+    # Over-allocate: fits + user gave any count (used up but allowed)
     for bt in asc:
         if _fits(bt) and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0):
             return bt
-    # Absolute last resort: fits regardless (no availability info or all types are 0)
+    # Nothing available holds the volume → use the largest type the user has any of.
+    # It will overflow; the caller/cascade handles splitting.
+    for bt in reversed(asc):
+        if available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0:
+            return bt
+    # Absolute last resort: every type is set to 0 — just find something that fits
     for bt in asc:
         if _fits(bt):
             return bt
-    # Largest
     return asc[-1]
 
 
@@ -375,7 +378,7 @@ def generate_box_plan(
         ]
 
         if not candidates:
-            # No type hits the fill target → smallest that physically fits
+            # No type hits the fill target → smallest that physically fits + available
             fits_avail = [
                 bt for bt in asc
                 if bt["usable_capacity"] >= V
@@ -383,8 +386,7 @@ def generate_box_plan(
                 and _avail(bt)
             ]
             if not fits_avail:
-                # Over-allocate boxes the user allowed (count > 0) before
-                # touching types explicitly set to 0.
+                # Over-allocate types the user gave any count to (all used up but allowed)
                 fits_avail = [
                     bt for bt in asc
                     if bt["usable_capacity"] >= V
@@ -392,7 +394,18 @@ def generate_box_plan(
                     and (available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0)
                 ]
             if not fits_avail:
-                # Absolute last resort — all allowed types exhausted or all set to 0
+                # No available type holds the full slot volume.
+                # Use the LARGEST type the user gave any count to — it will
+                # overflow and the JS cascade will split it into more boxes.
+                # This is far better than jumping to a type explicitly set to 0.
+                allowed_asc = [
+                    bt for bt in asc
+                    if available_type_counts is None or available_type_counts.get(bt["id"], 0) > 0
+                ]
+                if allowed_asc:
+                    fits_avail = [allowed_asc[-1]]
+            if not fits_avail:
+                # Absolute last resort — every type is set to 0
                 fits_avail = [
                     bt for bt in asc
                     if bt["usable_capacity"] >= V
