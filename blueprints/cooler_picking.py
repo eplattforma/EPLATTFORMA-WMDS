@@ -1269,10 +1269,13 @@ def confirm_box_plan(route_id, delivery_date):
 
                 # Items already picked keep status='picked'.
                 # Items not yet picked are pre-assigned as status='planned'.
-                item_status = qcheck[0]   # 'picked' or 'pending'
-                _now_or_none = now if item_status == "picked" else None
-                _who_or_none = _username() if item_status == "picked" else None
-                _qty = item["qty"] if item_status == "picked" else None
+                # NOTE: cooler_box_items.status allows ('planned','picked','exception')
+                # — never pass 'pending' (the batch_pick_queue status) directly.
+                queue_status = qcheck[0]  # 'picked' or 'pending'
+                cbi_status   = "picked" if queue_status == "picked" else "planned"
+                _now_or_none = now if queue_status == "picked" else None
+                _who_or_none = _username() if queue_status == "picked" else None
+                _qty = item["qty"] if queue_status == "picked" else None
 
                 db.session.execute(
                     text(
@@ -1298,7 +1301,7 @@ def confirm_box_plan(route_id, delivery_date):
                         "who": _who_or_none,
                         "now": _now_or_none,
                         "qid": qid,
-                        "status": item_status,
+                        "status": cbi_status,
                         "created": now,
                     },
                 )
