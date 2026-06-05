@@ -2088,8 +2088,11 @@ def build_cooler_box_picking_items(batch_session):
                 stop_display = f"Stop {fi}" if fi == li else f"Stops {max(fi,li)} → {min(fi,li)}"
             else:
                 stop_display = ""
+            # Use db box_no when available; fall back to sequential position
+            # (box_no can be NULL on plans created before the column was populated)
+            _box_no = r[1] if r[1] is not None else (len(box_meta) + 1)
             box_meta[box_id] = {
-                "box_no":         r[1],
+                "box_no":         _box_no,
                 "box_type_name":  r[2],
                 "box_status":     r[3],
                 "stop_display":   stop_display,
