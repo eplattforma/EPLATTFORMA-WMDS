@@ -2,7 +2,10 @@
 
 Phase 1: Group stops LIFO (consecutive only) using the *largest* available
          box type as the capacity ceiling.  This establishes which stops
-         travel together.
+         travel together.  When a single stop exceeds the largest box, it is
+         split at the fill-target ceiling (target_fill_pct × largest_cap) so
+         the second sub-slot stays lean enough for subsequent stops to backfill
+         it — avoiding unnecessary empty boxes.
 
 Phase 2: Right-size each group — pick the *smallest* box type whose usable
          volume satisfies  fill % >= target_fill_pct.  Falls back to the
@@ -291,6 +294,15 @@ def generate_box_plan(
     largest_cap = max(bt["usable_capacity"] for bt in avail_types) if avail_types else 0
     largest_wt  = max(bt["max_weight_kg"]   for bt in avail_types) if avail_types else 0
 
+    # Fill-target ceiling: when splitting an oversized stop, sub1 fills to this
+    # level so sub2 starts at a low-enough fill that subsequent stops can top it
+    # up to the target before a new box is opened.
+    fill_ceil = (
+        largest_cap * target_fill_pct
+        if largest_cap > 0 and 0 < target_fill_pct < 1
+        else largest_cap
+    )
+
     slots = []   # each slot: {seqs, vol, wt, missing, items}
 
     def _new_slot(seq):
@@ -317,8 +329,9 @@ def generate_box_plan(
         if largest_cap > 0 and svol > largest_cap:
             _flush(cur)
             cur = None
-            # Split items into two halves by cumulative volume
-            half = largest_cap * 0.95
+            # sub1 fills up to the fill-target ceiling so sub2 starts lean
+            # enough that subsequent stops can top it up to the target.
+            half = fill_ceil if fill_ceil > 0 else largest_cap * 0.95
             sub1_items, sub2_items = [], []
             sub1_vol = sub1_wt = sub2_vol = sub2_wt = 0.0
             sub1_miss = sub2_miss = 0
@@ -337,8 +350,10 @@ def generate_box_plan(
                 slots.append({"seqs": [seq], "vol": sub1_vol, "wt": sub1_wt,
                               "missing": sub1_miss, "items": sub1_items})
             if sub2_items:
-                slots.append({"seqs": [seq], "vol": sub2_vol, "wt": sub2_wt,
-                              "missing": sub2_miss, "items": sub2_items})
+                # Leave sub2 as the open slot so subsequent stops can
+                # backfill its remaining capacity before a new box is opened.
+                cur = {"seqs": [seq], "vol": sub2_vol, "wt": sub2_wt,
+                       "missing": sub2_miss, "items": sub2_items}
             continue
 
         # Try to add stop to current slot
