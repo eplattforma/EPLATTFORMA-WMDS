@@ -241,10 +241,10 @@
     </button>
   </h2>
   <div id="collapseStatus" class="accordion-collapse collapse">
-    <div class="accordion-body p-0">
+    <div class="accordion-body p-0" style="background:#fff;">
 
       {# Toolbar #}
-      <div class="d-flex flex-wrap align-items-center gap-2 p-2 border-bottom bg-light d-print-none">
+      <div class="d-flex flex-wrap align-items-center gap-2 p-2 border-bottom d-print-none" style="background:#f8f9fa;">
         <button type="button" class="btn btn-sm btn-outline-secondary" id="btnExpandAllStops">
           <i class="fas fa-expand-alt me-1"></i>Expand all
         </button>
@@ -264,18 +264,18 @@
       {% if unsequenced %}
       <div class="status-stop-group" data-stop-filter="awaiting">
         <div class="p-2 d-flex align-items-center gap-2 border-bottom d-print-none"
-             style="background:#fff3cd;cursor:pointer;"
+             style="background:#fff3cd;cursor:pointer;color:#664d03;"
              data-bs-toggle="collapse" data-bs-target="#stopGroupAwaiting">
-          <i class="fas fa-chevron-down small text-muted me-1"></i>
-          <span class="fw-bold text-warning-emphasis">
-            <i class="fas fa-clock me-1 text-warning"></i>Awaiting Route Preparation
+          <i class="fas fa-chevron-down small me-1" style="color:#664d03;"></i>
+          <span class="fw-bold">
+            <i class="fas fa-clock me-1" style="color:#fd7e14;"></i>Awaiting Route Preparation
           </span>
           <span class="badge bg-warning text-dark">{{ unsequenced|length }}</span>
         </div>
         <div class="collapse show" id="stopGroupAwaiting">
           <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;">
-              <thead class="table-light">
+            <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;background:#fff;color:#212529;">
+              <thead style="background:#e9ecef;color:#212529;">
                 <tr>
                   <th>Stop</th><th>Invoice</th><th>Customer</th>
                   <th>Item Code</th><th>Description</th><th class="text-end">Qty</th>
@@ -284,7 +284,7 @@
               </thead>
               <tbody>
                 {% for q in unsequenced %}
-                <tr class="status-row" data-filters="all awaiting">
+                <tr class="status-row" style="background:#fff;color:#212529;" data-filters="all awaiting">
                   <td>{{ q.stop_seq_no|int if q.stop_seq_no is not none else '—' }}</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
                   <td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>
@@ -311,11 +311,11 @@
         {% set _sg_customer  = _sg[0].customer_name if _sg else '' %}
       <div class="status-stop-group">
         <div class="p-2 d-flex align-items-center gap-2 border-bottom d-print-none"
-             style="background:#f0f4ff;cursor:pointer;"
+             style="background:#e8eeff;cursor:pointer;color:#1a1a2e;"
              data-bs-toggle="collapse" data-bs-target="#stopGroup_{{ loop.index }}">
-          <i class="fas fa-chevron-down small text-muted me-1"></i>
-          <span class="fw-bold">Stop {{ stop_no|int if stop_no is not none else '?' }}</span>
-          {% if _sg_customer %}<span class="text-muted small">— {{ _sg_customer }}</span>{% endif %}
+          <i class="fas fa-chevron-down small me-1" style="color:#6c757d;"></i>
+          <span class="fw-bold" style="color:#1a1a2e;">Stop {{ stop_no|int if stop_no is not none else '?' }}</span>
+          {% if _sg_customer %}<span class="small" style="color:#495057;">— {{ _sg_customer }}</span>{% endif %}
           <span class="badge bg-secondary">{{ _sg|length }}</span>
           {% if _sg_pending %}<span class="badge bg-warning text-dark">{{ _sg_pending }} to pick</span>{% endif %}
           {% if _sg_picked  %}<span class="badge bg-success">{{ _sg_picked }} picked</span>{% endif %}
@@ -323,8 +323,8 @@
         </div>
         <div class="collapse show" id="stopGroup_{{ loop.index }}">
           <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;">
-              <thead class="table-light">
+            <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;background:#fff;color:#212529;">
+              <thead style="background:#e9ecef;color:#212529;">
                 <tr>
                   <th>Stop</th><th>Invoice</th><th>Customer</th>
                   <th>Item Code</th><th>Description</th><th class="text-end">Qty</th>
@@ -349,7 +349,8 @@
                     {% elif _qbox.obj and _qbox.obj.status == 'closed' %}{% set _rfilters = 'all not-picked box-closed' %}
                     {% else %}{% set _rfilters = 'all not-picked' %}{% endif %}
                   {% endif %}
-                <tr class="status-row {{ 'table-success' if q.status == 'picked' else 'table-danger bg-opacity-10' if q.status == 'exception' else '' }}"
+                {% set _row_bg = '#d1e7dd' if q.status == 'picked' else '#f8d7da' if q.status == 'exception' else '#fff' %}
+                <tr class="status-row" style="background:{{ _row_bg }};color:#212529;"
                     data-filters="{{ _rfilters }}">
                   <td class="fw-semibold">{{ stop_no|int if stop_no is not none else '—' }}</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
@@ -386,15 +387,15 @@
       {% if _nostop_ns.found %}
       <div class="status-stop-group">
         <div class="p-2 d-flex align-items-center gap-2 border-bottom d-print-none"
-             style="background:#f8f9fa;cursor:pointer;"
+             style="background:#f0f0f0;cursor:pointer;color:#495057;"
              data-bs-toggle="collapse" data-bs-target="#stopGroupNoStop">
-          <i class="fas fa-chevron-down small text-muted me-1"></i>
-          <span class="fw-bold text-muted">No stop assigned</span>
+          <i class="fas fa-chevron-down small me-1" style="color:#6c757d;"></i>
+          <span class="fw-bold" style="color:#495057;">No stop assigned</span>
         </div>
         <div class="collapse show" id="stopGroupNoStop">
           <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;">
-              <thead class="table-light">
+            <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;background:#fff;color:#212529;">
+              <thead style="background:#e9ecef;color:#212529;">
                 <tr><th>Stop</th><th>Invoice</th><th>Customer</th><th>Item Code</th><th>Description</th><th class="text-end">Qty</th><th>Picked?</th><th>Box</th><th>Box Status</th></tr>
               </thead>
               <tbody>
@@ -402,7 +403,8 @@
                   {% set _qbn2 = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
                   {% set _qbox2 = namespace(obj=none) %}
                   {% if _qbn2 is not none %}{% for b in boxes if b.box_no == _qbn2 %}{% set _qbox2.obj = b %}{% endfor %}{% endif %}
-                <tr class="status-row {{ 'table-success' if q.status == 'picked' else '' }}"
+                {% set _row_bg2 = '#d1e7dd' if q.status == 'picked' else '#fff' %}
+                <tr class="status-row" style="background:{{ _row_bg2 }};color:#212529;"
                     data-filters="all {% if q.status == 'picked' %}picked{% if _qbn2 is none %} unboxed{% endif %}{% else %}not-picked{% endif %}">
                   <td>—</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
