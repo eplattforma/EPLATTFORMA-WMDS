@@ -228,17 +228,8 @@
   <div id="collapseStatus" class="accordion-collapse collapse show">
     <div class="accordion-body p-0">
 
-      {# Filter bar + print toolbar #}
+      {# Toolbar #}
       <div class="d-flex flex-wrap align-items-center gap-2 p-3 border-bottom d-print-none">
-        <div class="btn-group btn-group-sm" role="group" id="filterBtnGroup">
-          <button class="btn btn-primary active" data-filter="all">All</button>
-          <button class="btn btn-outline-secondary" data-filter="awaiting">Awaiting prep</button>
-          <button class="btn btn-outline-secondary" data-filter="not-picked">Not picked</button>
-          <button class="btn btn-outline-secondary" data-filter="picked">Picked</button>
-          <button class="btn btn-outline-secondary" data-filter="unboxed">Unboxed</button>
-          <button class="btn btn-outline-secondary" data-filter="box-open">Box open</button>
-          <button class="btn btn-outline-secondary" data-filter="box-closed">Box closed</button>
-        </div>
         <div class="ms-auto d-flex gap-2 flex-wrap">
           <button type="button" class="btn btn-sm btn-outline-secondary" id="btnExpandAllStops">
             <i class="fas fa-expand-alt me-1"></i>Expand all
@@ -1226,29 +1217,6 @@
   var pts = document.getElementById('printStatusTs');
   if (pts) pts.textContent = new Date().toLocaleString();
 
-  /* Filter buttons */
-  var filterBtns = document.querySelectorAll('#filterBtnGroup button[data-filter]');
-  filterBtns.forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var filter = this.dataset.filter;
-      filterBtns.forEach(function(b) {
-        b.classList.remove('active', 'btn-primary');
-        b.classList.add('btn-outline-secondary');
-      });
-      this.classList.remove('btn-outline-secondary');
-      this.classList.add('active', 'btn-primary');
-      document.querySelectorAll('.status-row').forEach(function(row) {
-        var filters = (row.dataset.filters || '').split(' ');
-        row.style.display = (filter === 'all' || filters.indexOf(filter) !== -1) ? '' : 'none';
-      });
-      document.querySelectorAll('.status-stop-group').forEach(function(grp) {
-        var rows = grp.querySelectorAll('.status-row');
-        var anyVisible = false;
-        rows.forEach(function(r){ if (r.style.display !== 'none') anyVisible = true; });
-        grp.style.display = anyVisible ? '' : 'none';
-      });
-    });
-  });
 
   /* Expand / Collapse all stops */
   var btnExp = document.getElementById('btnExpandAllStops');
