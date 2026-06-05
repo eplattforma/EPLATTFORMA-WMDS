@@ -3060,7 +3060,7 @@ def get_cooler_route_status_data(route_id, delivery_date):
             if _ri:
                 route_info = {"driver": _ri[0] or "", "route_name": _ri[1] or ""}
         except Exception:
-            pass
+            db.session.rollback()
 
     # ── Queue items with box assignment ───────────────────────────────────
     try:
@@ -3082,6 +3082,7 @@ def get_cooler_route_status_data(route_id, delivery_date):
             "         bpq.invoice_no, bpq.item_code"
         ), {"route_id": _rid, "delivery_date": str(delivery_date)}).fetchall()
     except Exception:
+        db.session.rollback()
         item_rows = []
 
     items = []
@@ -3130,7 +3131,7 @@ def get_cooler_route_status_data(route_id, delivery_date):
             "       CASE WHEN cbt.internal_volume_cm3 > 0 AND cbt.fill_efficiency > 0 "
             "            THEN ROUND(cb.fill_cm3 / (cbt.internal_volume_cm3 * cbt.fill_efficiency) * 100) "
             "            ELSE NULL END AS fill_pct, "
-            "       cb.item_count, "
+            "       COUNT(cbi.id) AS item_count, "
             "       COUNT(DISTINCT cbi.invoice_no) AS inv_count, "
             "       COUNT(DISTINCT i.customer_name) AS cust_count "
             "FROM cooler_boxes cb "
@@ -3139,10 +3140,11 @@ def get_cooler_route_status_data(route_id, delivery_date):
             "LEFT JOIN invoices i ON i.invoice_no = cbi.invoice_no "
             "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
             "  AND cb.status != 'cancelled' "
-            "GROUP BY cb.id, cbt.name, cbt.internal_volume_cm3, cbt.fill_efficiency, cb.item_count "
+            "GROUP BY cb.id, cbt.name, cbt.internal_volume_cm3, cbt.fill_efficiency "
             "ORDER BY cb.box_no"
         ), {"rid": _rid, "dd": str(delivery_date)}).fetchall()
     except Exception:
+        db.session.rollback()
         box_rows = []
 
     boxes_out = []
