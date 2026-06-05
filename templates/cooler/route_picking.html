@@ -137,8 +137,10 @@
     </div>
     <div class="flex-grow-1">
       {% if _s3 == 2 %}
-        <strong>All done — cooler packing complete!</strong>
-        <div class="small" style="opacity:.85">All items picked and all boxes closed.</div>
+        <strong>❄️ Cooler Ready for Dispatch</strong>
+        <div class="small" style="opacity:.85">
+          All {{ picking_phase.total_count if picking_phase else '' }} items picked &nbsp;·&nbsp; {{ _closed_boxes|length }} box(es) sealed &nbsp;·&nbsp; Ready to load.
+        </div>
       {% elif _picking_done and _open_boxes %}
         <strong>Close the open boxes to finish.</strong>
         <div class="small" style="opacity:.85">All {{ picking_phase.total_count }} items picked — {{ _open_boxes|length }} box(es) still open.</div>
@@ -162,10 +164,22 @@
     <div class="flex-shrink-0">
       {% if _s3 == 2 %}
         {% if has_permission('cooler.print_labels') %}
-        <a href="{{ url_for('cooler.route_manifest', route_id=route_id, delivery_date=delivery_date) }}"
-           target="_blank" class="btn btn-light btn-lg text-nowrap">
-          <i class="fas fa-file-pdf me-2"></i>Print Route Manifest
-        </a>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="{{ url_for('cooler.route_labels', route_id=route_id, delivery_date=delivery_date) }}"
+             target="_blank" class="btn btn-light btn-sm text-nowrap">
+            <i class="fas fa-tags me-1"></i>Print All Labels
+          </a>
+          <a href="{{ url_for('cooler.route_manifest', route_id=route_id, delivery_date=delivery_date) }}"
+             target="_blank" class="btn btn-light btn-sm text-nowrap">
+            <i class="fas fa-file-pdf me-1"></i>Route Manifest
+          </a>
+          <button type="button" class="btn btn-outline-light btn-sm text-nowrap" id="btnPrintStatusFinal">
+            <i class="fas fa-print me-1"></i>Route Status
+          </button>
+          <a href="{{ url_for('cooler.route_list') }}" class="btn btn-outline-light btn-sm text-nowrap">
+            <i class="fas fa-arrow-left me-1"></i>Cooler Packing
+          </a>
+        </div>
         {% endif %}
       {% elif _picking_done and _open_boxes %}
         <button type="button" class="btn btn-light btn-lg text-nowrap"
@@ -231,6 +245,16 @@
 
       {# Toolbar #}
       <div class="d-flex flex-wrap align-items-center gap-2 p-3 border-bottom d-print-none">
+        <div class="d-flex flex-wrap gap-1" id="statusFilterBtns">
+          <button type="button" class="btn btn-sm btn-secondary status-filter active" data-filt="all">All</button>
+          <button type="button" class="btn btn-sm btn-outline-warning status-filter" data-filt="awaiting">Awaiting</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary status-filter" data-filt="not-picked">Not Picked</button>
+          <button type="button" class="btn btn-sm btn-outline-success status-filter" data-filt="picked">Picked</button>
+          <button type="button" class="btn btn-sm btn-outline-warning status-filter" data-filt="unboxed">Unboxed</button>
+          <button type="button" class="btn btn-sm btn-outline-primary status-filter" data-filt="box-open">Box Open</button>
+          <button type="button" class="btn btn-sm btn-outline-success status-filter" data-filt="box-closed">Box Closed</button>
+          <button type="button" class="btn btn-sm btn-outline-danger status-filter" data-filt="exception">Exception</button>
+        </div>
         <div class="ms-auto d-flex gap-2 flex-wrap">
           <button type="button" class="btn btn-sm btn-outline-secondary" id="btnExpandAllStops">
             <i class="fas fa-expand-alt me-1"></i>Expand all
@@ -522,18 +546,28 @@
 {% if boxes %}
 <div class="accordion-item mb-3 shadow-sm border-0 rounded">
   <h2 class="accordion-header" id="headingBoxes">
-    <button class="accordion-button {% if not _open_boxes %}collapsed{% endif %} fw-bold rounded" type="button"
+    <button class="accordion-button {% if not _open_boxes and not _all_closed %}collapsed{% endif %} fw-bold rounded" type="button"
             data-bs-toggle="collapse" data-bs-target="#collapseBoxes"
-            aria-expanded="{{ 'true' if _open_boxes else 'false' }}">
-      <i class="fas fa-boxes me-2 text-primary"></i>Cooler Boxes
+            aria-expanded="{{ 'true' if _open_boxes or _all_closed else 'false' }}">
+      <i class="fas fa-boxes me-2 text-primary"></i>
+      {% if _all_closed %}Closed Boxes / Dispatch Handover{% else %}Cooler Boxes{% endif %}
       <span class="badge bg-secondary ms-2">{{ boxes|length }}</span>
       {% if _open_boxes %}<span class="badge bg-primary ms-1">{{ _open_boxes|length }} open</span>{% endif %}
-      {% if _closed_boxes | length == boxes | length %}<span class="badge bg-success ms-1">All closed</span>
+      {% if _closed_boxes | length == boxes | length %}<span class="badge bg-success ms-1">All closed ✓</span>
       {% elif _closed_boxes %}<span class="badge bg-secondary ms-1">{{ _closed_boxes|length }} closed</span>{% endif %}
     </button>
   </h2>
-  <div id="collapseBoxes" class="accordion-collapse collapse {% if _open_boxes %}show{% endif %}">
+  <div id="collapseBoxes" class="accordion-collapse collapse {% if _open_boxes or _all_closed %}show{% endif %}">
     <div class="accordion-body">
+
+      {% if _all_closed %}
+      <div class="alert alert-info py-2 px-3 mb-3 d-print-none">
+        <i class="fas fa-info-circle me-1"></i>
+        <strong>Loading order:</strong> Box 1 contains the <strong>last delivery stops</strong> — load it first (deepest in the vehicle).
+        Higher box numbers cover earlier delivery stops and should stay most accessible.
+      </div>
+      {% endif %}
+
       <div class="row g-3">
         {% for b in boxes %}
         {% set _bitems = box_items_by_box.get(b.id, []) %}
@@ -577,7 +611,12 @@
               </div>
               {% endif %}
               {% if b.status == 'closed' and b.closed_by %}
-              <div class="small text-muted mb-2"><i class="fas fa-lock me-1"></i>Closed by <strong>{{ b.closed_by }}</strong></div>
+              <div class="small text-muted mb-1"><i class="fas fa-lock me-1"></i>Closed by <strong>{{ b.closed_by }}</strong></div>
+              {% endif %}
+              {% if b.label_printed_at %}
+              <div class="small text-success mb-1"><i class="fas fa-tag me-1"></i>Label printed {{ b.label_printed_at.strftime('%H:%M') if b.label_printed_at.strftime is defined else b.label_printed_at }}</div>
+              {% elif b.status == 'closed' %}
+              <div class="small text-muted mb-1"><i class="far fa-tag me-1"></i>Label not printed</div>
               {% endif %}
               {% if _bitems %}
               <button class="btn btn-outline-secondary btn-sm w-100 d-print-none"
@@ -1229,13 +1268,39 @@
     document.querySelectorAll('.status-stop-group .collapse').forEach(function(el){ el.classList.remove('show'); });
   });
 
-  /* Print Route Status */
-  var btnPrint = document.getElementById('btnPrintStatus');
-  if (btnPrint) btnPrint.addEventListener('click', function() {
+  /* Print Route Status (toolbar button + final-state button) */
+  function doPrintRouteStatus() {
     document.querySelectorAll('.status-stop-group .collapse').forEach(function(el){ el.classList.add('show'); });
+    var colS = document.getElementById('collapseStatus');
+    if (colS) colS.classList.add('show');
     var el = document.getElementById('printRouteStatus');
     if (el) el.style.display = 'block';
     setTimeout(function() { window.print(); }, 150);
+  }
+  var btnPrint = document.getElementById('btnPrintStatus');
+  if (btnPrint) btnPrint.addEventListener('click', doPrintRouteStatus);
+  var btnPrintFinal = document.getElementById('btnPrintStatusFinal');
+  if (btnPrintFinal) btnPrintFinal.addEventListener('click', doPrintRouteStatus);
+
+  /* Route Item Status filter buttons */
+  var filterBtns = document.querySelectorAll('.status-filter');
+  filterBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      filterBtns.forEach(function(b){ b.classList.remove('active', 'btn-secondary'); b.classList.add('btn-outline-secondary'); });
+      btn.classList.add('active', 'btn-secondary'); btn.classList.remove('btn-outline-secondary');
+      var f = btn.dataset.filt;
+      document.querySelectorAll('#statusTableWrapper .status-row').forEach(function(row) {
+        if (f === 'all') { row.style.display = ''; return; }
+        var filters = (row.dataset.filters || '').split(' ');
+        row.style.display = filters.indexOf(f) !== -1 ? '' : 'none';
+      });
+      /* show/hide stop group headers that have all rows hidden */
+      document.querySelectorAll('.status-stop-group').forEach(function(grp) {
+        if (f === 'all') { grp.style.display = ''; return; }
+        var visible = Array.from(grp.querySelectorAll('.status-row')).some(function(r){ return r.style.display !== 'none'; });
+        grp.style.display = visible ? '' : 'none';
+      });
+    });
   });
 
 })();

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Box Labels — Route {{ route_id }}{% endblock %}
+{% block content %}
+<div class="container my-4">
+
+  <div class="d-flex align-items-start justify-content-between mb-3 flex-wrap gap-2 d-print-none">
+    <div>
+      <h2 class="mb-1">
+        <i class="fas fa-tags me-2 text-info"></i>Box Labels — Route {{ route_id }}
+        {% if route_name %}<span class="text-muted fs-5"> / {{ route_name }}</span>{% endif %}
+      </h2>
+      <p class="text-muted mb-0 small">
+        {% if route_driver %}<i class="fas fa-user me-1"></i>{{ route_driver }} &nbsp;|&nbsp; {% endif %}
+        <i class="fas fa-calendar me-1"></i>{{ delivery_date }}
+        &nbsp;|&nbsp; {{ boxes|length }} box(es)
+      </p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{{ url_for('cooler.route_picking', route_id=route_id, delivery_date=delivery_date) }}"
+         class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-arrow-left me-1"></i>Back to Handover
+      </a>
+      <button type="button" class="btn btn-primary btn-sm" id="btnOpenAll">
+        <i class="fas fa-external-link-alt me-1"></i>Open All Labels in New Tabs
+      </button>
+    </div>
+  </div>
+
+  {% if not boxes %}
+    <div class="alert alert-warning">No non-cancelled boxes found for this route.</div>
+  {% else %}
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Box</th>
+              <th>Type</th>
+              <th>Delivery Stops</th>
+              <th>Box Status</th>
+              <th>Label Status</th>
+              <th class="d-print-none">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in boxes %}
+            <tr>
+              <td class="fw-bold">
+                <i class="fas fa-box me-1 text-info"></i>Box {{ b.box_no }}
+              </td>
+              <td class="small">{{ b.box_type_name or '—' }}</td>
+              <td class="small">
+                {% if b.first_stop_sequence is not none and b.last_stop_sequence is not none %}
+                  {% if b.first_stop_sequence == b.last_stop_sequence %}
+                    Stop {{ b.last_stop_sequence|int }}
+                  {% else %}
+                    Stops {{ b.last_stop_sequence|int }} → {{ b.first_stop_sequence|int }}
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if b.status == 'closed' %}
+                  <span class="badge bg-success"><i class="fas fa-lock me-1"></i>Closed</span>
+                {% elif b.status == 'open' %}
+                  <span class="badge bg-primary">Open</span>
+                {% else %}
+                  <span class="badge bg-secondary">{{ b.status|title }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if b.label_printed_at %}
+                  <span class="text-success small">
+                    <i class="fas fa-check-circle me-1"></i>
+                    Printed
+                    {% if b.label_printed_at %}
+                      ({{ b.label_printed_at.strftime('%H:%M') if b.label_printed_at.strftime is defined else b.label_printed_at }})
+                    {% endif %}
+                  </span>
+                {% else %}
+                  <span class="text-muted small"><i class="far fa-circle me-1"></i>Not printed</span>
+                {% endif %}
+              </td>
+              <td class="d-print-none">
+                <a href="{{ url_for('cooler.box_label', box_id=b.id) }}"
+                   target="_blank"
+                   class="btn btn-sm btn-outline-primary box-label-link"
+                   data-box-no="{{ b.box_no }}">
+                  <i class="fas fa-print me-1"></i>Print Label
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="alert alert-info py-2 small d-print-none">
+      <i class="fas fa-info-circle me-1"></i>
+      <strong>Loading order:</strong> Box 1 contains the <strong>last delivery stops</strong> — load it first (deepest in the vehicle).
+      Higher box numbers cover earlier delivery stops and should stay most accessible.
+    </div>
+  {% endif %}
+</div>
+
+<script>
+document.getElementById('btnOpenAll') && document.getElementById('btnOpenAll').addEventListener('click', function () {
+  var links = document.querySelectorAll('.box-label-link');
+  links.forEach(function (a, i) {
+    setTimeout(function () { window.open(a.href, '_blank'); }, i * 300);
+  });
+});
+</script>
+{% endblock %}

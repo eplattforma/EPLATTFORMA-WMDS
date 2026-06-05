@@ -3,126 +3,168 @@
 {% block content %}
 <div class="container my-4">
   <h2 class="mb-1"><i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing</h2>
-  <p class="text-muted mb-4 small">Warehouse cooler packing based on delivery stop sequence.</p>
+  <p class="text-muted mb-3 small">Warehouse cooler packing based on delivery stop sequence.</p>
 
   {% if not routes %}
-    <div class="alert alert-info">No cooler packing work pending.</div>
+    <div class="alert alert-info">No cooler packing work found.</div>
   {% else %}
+
+    {# ── Filter tabs ────────────────────────────────────────────────────── #}
+    {% set ns_na = namespace(count=0) %}
+    {% set ns_rd = namespace(count=0) %}
     {% for r in routes %}
-    <div class="card shadow-sm mb-4">
-      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2"
-           style="background:#e8f7fb;">
-        <div class="d-flex align-items-center gap-3 flex-wrap">
-          <span class="fw-bold fs-6">
-            <i class="fas fa-truck me-1 text-info"></i>Route {{ r.route_id }}
-          </span>
-          <span class="text-muted small">
-            <i class="fas fa-calendar me-1"></i>{{ r.delivery_date }}
-          </span>
-          <span class="badge bg-secondary">{{ r.total }} total items</span>
-          {% if r.pending > 0 %}
-          <span class="badge bg-warning text-dark">{{ r.pending }} pending</span>
-          {% endif %}
-          {% if r.picked > 0 %}
-          <span class="badge bg-success">{{ r.picked }} picked</span>
-          {% endif %}
-          {% if r.exception > 0 %}
-          <span class="badge bg-danger">{{ r.exception }} exception</span>
-          {% endif %}
-          {% if r.box_count and r.box_count > 0 %}
-          <span class="badge bg-primary">
-            <i class="fas fa-box me-1"></i>{{ r.box_count }} box(es) pre-planned
-          </span>
-          {% endif %}
-        </div>
-        <a class="btn btn-sm btn-primary"
-           href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}">
-          <i class="fas fa-snowflake me-1"></i>Prepare Boxes
-        </a>
-      </div>
-
-      {% set est = estimates.get((r.route_id, r.delivery_date|string)) %}
-      {% if est %}
-      <div class="card-body" style="background:#f8fbff;">
-
-        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-          <span class="fw-semibold text-primary">
-            <i class="fas fa-calculator me-1"></i>Pre-pick Estimate
-          </span>
-          <span class="badge bg-primary">{{ est.total_items }} items</span>
-          <span class="badge bg-secondary">~{{ est.total_volume_l }}L total</span>
-          {% if est.recommended_box_type %}
-          <span class="badge bg-info text-dark">
-            <i class="fas fa-box me-1"></i>Suggested default: {{ est.recommended_box_type }}
-          </span>
-          {% endif %}
-          {% if not est.all_dims_present %}
-          <span class="badge bg-warning text-dark">
-            <i class="fas fa-exclamation-triangle me-1"></i>
-            {{ est.missing_dimension_items|length }} item(s) missing dimensions — volume may be understated
-          </span>
-          {% endif %}
-        </div>
-
-        {% if est.box_plan %}
-        <div class="mb-3">
-          <div class="small fw-semibold text-muted mb-1 text-uppercase">Boxes to prepare</div>
-          <div class="d-flex flex-wrap gap-2">
-            {% for box in est.box_plan %}
-            <div class="rounded px-3 py-2 border
-                 {% if box.over_capacity %}border-danger bg-danger bg-opacity-10
-                 {% else %}border-success bg-success bg-opacity-10{% endif %}"
-                 style="min-width:160px;">
-              <div class="fw-bold {% if box.over_capacity %}text-danger{% else %}text-success{% endif %}">
-                {{ box.box_type_name }}
-              </div>
-              <div class="small text-muted">{{ box.stops_display }}</div>
-              <div class="small">
-                ~{{ box.estimated_volume_l }}L
-                <span class="{% if box.over_capacity %}text-danger fw-bold
-                              {% elif box.estimated_fill_pct > 85 %}text-warning
-                              {% else %}text-success{% endif %}">
-                  ({{ box.estimated_fill_pct }}%)
-                </span>
-                {% if box.over_capacity %}
-                <i class="fas fa-exclamation-circle text-danger ms-1"
-                   title="Volume exceeds this box — use a larger box"></i>
-                {% endif %}
-              </div>
-              {% if box.missing_dims %}
-              <div class="small text-warning">
-                <i class="fas fa-question-circle me-1"></i>{{ box.missing_dims }} unmeasured
-              </div>
-              {% endif %}
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if est.missing_dimension_items %}
-        <div class="alert alert-warning py-2 small mb-3">
-          <i class="fas fa-exclamation-triangle me-1"></i>
-          <strong>Items without dimensions — volume underestimated for:</strong>
-          {% for item in est.missing_dimension_items %}
-            <span class="badge bg-warning text-dark me-1">{{ item.item_code }}</span>
-          {% endfor %}
-          <br><span class="text-muted">Fix via Admin → Cooler Items Missing Dimensions.</span>
-        </div>
-        {% endif %}
-
-        {% if r.box_count and r.box_count > 0 %}
-        <div class="alert alert-success py-2 px-3 mb-0">
-          <i class="fas fa-check-circle text-success me-1"></i>
-          <strong>{{ r.box_count }} box(es) planned.</strong>
-          Open the route to manage boxes and packing.
-        </div>
-        {% endif %}
-
-      </div>
-      {% endif %}
-    </div>
+      {% if r.route_status == 'ready_for_dispatch' %}{% set ns_rd.count = ns_rd.count + 1 %}
+      {% else %}{% set ns_na.count = ns_na.count + 1 %}{% endif %}
     {% endfor %}
+
+    <ul class="nav nav-pills mb-3 gap-1 flex-wrap" id="coolerFilterTabs">
+      <li class="nav-item">
+        <button class="nav-link active" data-filter="all">
+          All <span class="badge bg-secondary ms-1">{{ routes|length }}</span>
+        </button>
+      </li>
+      {% if ns_na.count %}
+      <li class="nav-item">
+        <button class="nav-link" data-filter="needs_action">
+          Needs Action <span class="badge bg-warning text-dark ms-1">{{ ns_na.count }}</span>
+        </button>
+      </li>
+      {% endif %}
+      {% if ns_rd.count %}
+      <li class="nav-item">
+        <button class="nav-link" data-filter="ready">
+          Ready for Dispatch <span class="badge bg-success ms-1">{{ ns_rd.count }}</span>
+        </button>
+      </li>
+      {% endif %}
+    </ul>
+
+    {# ── Route table ────────────────────────────────────────────────────── #}
+    <div class="card shadow-sm border-0">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="coolerRouteTable">
+          <thead class="table-light">
+            <tr>
+              <th>Route</th>
+              <th>Date</th>
+              <th>Driver</th>
+              <th class="text-center">Items</th>
+              <th class="text-center">Boxes</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in routes %}
+            <tr class="route-row" data-status="{{ r.route_status }}">
+              <td>
+                <span class="fw-bold">
+                  <i class="fas fa-truck me-1 text-info"></i>{{ r.route_id }}
+                </span>
+                {% if r.route_name %}
+                <div class="small text-muted">{{ r.route_name }}</div>
+                {% endif %}
+              </td>
+              <td class="text-nowrap small">{{ r.delivery_date }}</td>
+              <td class="small">{{ r.driver or '—' }}</td>
+              <td class="text-center">
+                {% if r.total > 0 %}
+                  <span class="fw-semibold {{ 'text-success' if r.picked == r.total else '' }}">
+                    {{ r.picked }}/{{ r.total }}
+                  </span>
+                  {% if r.exception > 0 %}
+                  <div class="small text-danger">{{ r.exception }} exception</div>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if r.box_count > 0 %}
+                  <span class="fw-semibold {{ 'text-success' if r.boxes_closed == r.box_count else '' }}">
+                    {{ r.boxes_closed }}/{{ r.box_count }}
+                  </span>
+                  {% if r.boxes_open > 0 %}
+                  <div class="small text-primary">{{ r.boxes_open }} open</div>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted small">none</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.route_status == 'ready_for_dispatch' %}
+                  <span class="badge bg-success">
+                    <i class="fas fa-check-circle me-1"></i>Ready for Dispatch
+                  </span>
+                {% elif r.route_status == 'picking_in_progress' %}
+                  <span class="badge bg-info text-dark">
+                    <i class="fas fa-warehouse me-1"></i>Picking In Progress
+                  </span>
+                {% elif r.route_status == 'needs_planning' %}
+                  <span class="badge bg-warning text-dark">
+                    <i class="fas fa-layer-group me-1"></i>Needs Planning
+                  </span>
+                {% elif r.route_status == 'boxes_open' %}
+                  <span class="badge bg-primary">
+                    <i class="fas fa-box-open me-1"></i>Boxes Open
+                  </span>
+                {% elif r.route_status == 'exception' %}
+                  <span class="badge bg-danger">
+                    <i class="fas fa-exclamation-triangle me-1"></i>Exception
+                  </span>
+                {% else %}
+                  <span class="badge bg-secondary">In Progress</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="d-flex gap-1 flex-wrap">
+                  <a class="btn btn-sm btn-primary text-nowrap"
+                     href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}">
+                    <i class="fas fa-snowflake me-1"></i>
+                    {{ 'Open Handover' if r.route_status == 'ready_for_dispatch' else 'Prepare Boxes' }}
+                  </a>
+                  {% if has_permission('cooler.print_labels') and r.box_count > 0 %}
+                  <a class="btn btn-sm btn-outline-secondary text-nowrap"
+                     href="{{ url_for('cooler.route_labels', route_id=r.route_id, delivery_date=r.delivery_date) }}"
+                     target="_blank">
+                    <i class="fas fa-tags me-1"></i>Labels
+                  </a>
+                  <a class="btn btn-sm btn-outline-secondary text-nowrap"
+                     href="{{ url_for('cooler.route_manifest', route_id=r.route_id, delivery_date=r.delivery_date) }}"
+                     target="_blank">
+                    <i class="fas fa-file-pdf me-1"></i>Manifest
+                  </a>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   {% endif %}
 </div>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('#coolerFilterTabs button[data-filter]');
+  var rows = document.querySelectorAll('#coolerRouteTable tbody .route-row');
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      var f = tab.dataset.filter;
+      rows.forEach(function (row) {
+        var st = row.dataset.status;
+        if (f === 'all') { row.style.display = ''; return; }
+        var show = (f === 'ready' && st === 'ready_for_dispatch') ||
+                   (f === 'needs_action' && st !== 'ready_for_dispatch');
+        row.style.display = show ? '' : 'none';
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

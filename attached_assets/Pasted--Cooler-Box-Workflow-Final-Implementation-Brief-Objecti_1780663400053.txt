@@ -1,0 +1,1130 @@
+# Cooler Box Workflow Final Implementation Brief
+
+## Objective
+
+Simplify and finalise the cooler box process as a **warehouse operation**, not a delivery-route operation.
+
+The system should support this operational flow:
+
+1. Warehouse selects a cooler route/date.
+2. Warehouse confirms the delivery sequence.
+3. Warehouse plans cooler boxes using the delivery stop order.
+4. Box 1 contains the **last delivery stops**.
+5. Picker starts picking Box 1 and continues until Box 1 is complete.
+6. When Box 1 is complete, the picker gets a clear message to close/seal Box 1 and start Box 2.
+7. Repeat until all boxes are picked and closed.
+8. After completion, the route becomes **Cooler Ready for Dispatch**.
+9. Warehouse must be able to access completed cooler boxes from the Warehouse menu, not only from Delivery Route.
+
+---
+
+# 1. Clarify screen responsibility
+
+The screen:
+
+```text
+/cooler/route/<route_id>/<delivery_date>
+```
+
+must be treated as a **warehouse cooler route control / handover screen**, not as a delivery screen and not as the mobile picker screen.
+
+Rename visible page wording to:
+
+```text
+Prepare Cooler Route
+```
+
+or:
+
+```text
+Cooler Packing & Handover
+```
+
+Add subtitle:
+
+```text
+Warehouse cooler packing based on delivery stop sequence.
+```
+
+This screen should handle:
+
+* confirm route sequence;
+* plan cooler boxes;
+* assign picker;
+* monitor route item status;
+* show box status;
+* print route status;
+* print box labels;
+* print manifest;
+* show final dispatch handover.
+
+The actual picker must continue using:
+
+```text
+/picker/batch/start/<batch_id>
+/picker/batch/item/<batch_id>
+```
+
+---
+
+# 2. Add permanent Warehouse menu access
+
+Problem:
+After picking is complete and all cooler boxes are closed, there is currently no clear Warehouse menu/link to access completed cooler boxes. The user can only access them through Delivery Route.
+
+Required change:
+
+Add a permanent menu item under Warehouse:
+
+```text
+Warehouse → Cooler Packing
+```
+
+or:
+
+```text
+Warehouse → Cooler Boxes / Handover
+```
+
+Link it to:
+
+```python
+url_for('cooler.route_list')
+```
+
+Also update the active menu state so these routes are recognised as Warehouse pages:
+
+```text
+cooler.route_list
+cooler.route_picking
+cooler.route_manifest
+```
+
+Optional but recommended:
+
+Create a cleaner alias URL:
+
+```text
+/warehouse/cooler
+```
+
+This can map to or redirect to:
+
+```text
+/cooler/route-list
+```
+
+Keep `/cooler/route-list` working so existing links do not break.
+
+---
+
+# 3. Improve `/cooler/route-list`
+
+Rename page title from any wording like:
+
+```text
+Cooler Routes Overview
+```
+
+to:
+
+```text
+Cooler Packing & Handover
+```
+
+This page must show both active and completed cooler work.
+
+It must not only show routes with open/unboxed items. It must also show routes that already have closed cooler boxes.
+
+Use both data sources:
+
+1. `batch_pick_queue` / cooler route items;
+2. `cooler_boxes` / `cooler_box_items`.
+
+Completed cooler routes must still appear even when:
+
+* all items are picked;
+* all boxes are closed;
+* no unboxed items remain;
+* batch is completed.
+
+Group rows by:
+
+```text
+route_id
+delivery_date
+```
+
+Suggested tabs/filters:
+
+```text
+Needs Action
+Ready for Dispatch
+Completed Today
+All
+```
+
+Each row should show:
+
+```text
+Route
+Delivery Date
+Driver
+Cooler Items
+Picked / Total
+Boxes Closed / Total
+Open Boxes
+Label Status
+Route Status
+Actions
+```
+
+Suggested status rules:
+
+```text
+Needs Planning
+- cooler items exist
+- no cooler boxes exist
+
+Picking In Progress
+- pending cooler queue items exist
+
+Needs Boxing
+- picked cooler items exist but are not assigned to boxes
+
+Boxes Open
+- at least one non-cancelled cooler box is open
+
+Ready for Dispatch
+- all cooler queue items picked
+- all non-cancelled boxes closed
+- no picked/unboxed items
+- no open boxes
+
+Exception
+- any cooler queue item has exception status
+```
+
+Each row should have actions:
+
+```text
+Open Handover
+Print Route Manifest
+Print Route Status
+Print All Labels
+```
+
+If `Print All Labels` endpoint is not yet available, add it as part of this implementation.
+
+---
+
+# 4. Simplify `/cooler/route/<route_id>/<delivery_date>` layout
+
+Target file:
+
+```text
+templates/cooler/route_picking.html
+```
+
+The page should have this structure:
+
+```text
+1. Top KPI bar
+2. Middle Next Action card
+3. Accordion sections
+```
+
+---
+
+## 4.1 Top KPI bar
+
+Always visible.
+
+Suggested KPIs:
+
+```text
+Picked / Total
+Awaiting Preparation
+Unboxed Picked Items
+Boxes Closed / Total
+Open Boxes
+Exceptions
+Volume / Weight
+```
+
+In completed state, make completion obvious:
+
+```text
+Picked: 9 / 9
+Boxes Closed: 3 / 3
+Open Boxes: 0
+Unboxed: 0
+Exceptions: 0
+Status: READY
+```
+
+---
+
+## 4.2 Middle Next Action card
+
+Always visible.
+
+The card must show only the next required action.
+
+Suggested states:
+
+### Before route is prepared
+
+```text
+Next Action: Confirm Cooler Route
+```
+
+Button:
+
+```text
+Confirm Cooler Route
+```
+
+### After route is prepared but boxes are not planned
+
+```text
+Next Action: Plan Cooler Boxes
+```
+
+Button:
+
+```text
+Get Box Recommendation
+```
+
+### After boxes are planned but picker not assigned / picking not started
+
+```text
+Next Action: Assign Picker / Start Picking
+```
+
+Buttons:
+
+```text
+Assign Picker
+Start Picking
+```
+
+### During picking
+
+```text
+Next Action: Continue Picking
+```
+
+Button:
+
+```text
+Continue Picking
+```
+
+### Picking complete but boxes still open
+
+```text
+Next Action: Close Open Boxes
+```
+
+Button:
+
+```text
+Close Boxes
+```
+
+### All picked and all boxes closed
+
+```text
+Cooler Ready for Dispatch
+```
+
+Subtitle:
+
+```text
+All cooler items have been picked and all cooler boxes are closed.
+```
+
+Buttons:
+
+```text
+Print All Box Labels
+Print Route Manifest
+Print Route Status
+Back to Warehouse Dashboard
+```
+
+At this final stage, do not show Start Picking or Planning as main actions.
+
+---
+
+# 5. Accordion sections on route page
+
+Below the Next Action card, create these accordion sections:
+
+```text
+A. Route Item Status
+B. Box Planning
+C. Cooler Boxes / Dispatch Handover
+D. Picker / Picking Control
+E. Manager Recovery Tools
+```
+
+---
+
+## A. Route Item Status
+
+This is the operational truth table.
+
+Default state:
+
+* expanded during active work;
+* collapsed by default only when route is fully completed, but still easily available.
+
+Add button:
+
+```text
+Print Route Status
+```
+
+Columns:
+
+```text
+Stop
+Invoice No
+Customer Name
+Item Code
+Item Description
+Qty
+Picked?
+Box
+Box Status
+```
+
+Do not include:
+
+```text
+Customer Code
+Queue ID
+```
+
+Group rows by stop sequence.
+
+Example group header:
+
+```text
+Stop 8 — CUSTOMER NAME
+```
+
+Display rules:
+
+Picked column:
+
+```text
+Awaiting preparation
+Not picked
+Picked
+Exception
+```
+
+Box column:
+
+```text
+—
+Box 1
+Box 2
+Box 3
+```
+
+Box Status column:
+
+```text
+Unboxed
+Open
+Closed
+Cancelled
+```
+
+Add filter buttons:
+
+```text
+All
+Awaiting preparation
+Not picked
+Picked
+Unboxed
+Box open
+Box closed
+Exception
+```
+
+The table must be printable at any stage, even before boxes are planned.
+
+Print layout should show:
+
+```text
+Route
+Delivery Date
+Driver
+Printed timestamp
+Route Item Status grouped by stop
+```
+
+Print should hide:
+
+```text
+navigation
+buttons
+planning controls
+picker controls
+recovery tools
+large KPI cards if they take too much space
+```
+
+---
+
+## B. Box Planning
+
+This section should handle all normal box adjustments before confirmation.
+
+Default state:
+
+* expanded if boxes need planning;
+* collapsed after box plan is confirmed.
+
+If no boxes exist, title:
+
+```text
+Box Planning
+```
+
+If boxes already exist but picked/unboxed items remain, title:
+
+```text
+Plan Remaining Items
+```
+
+Normal box adjustments should happen here before confirmation:
+
+```text
+Get Recommendation
+Add Box
+Move items between draft boxes
+Change box type
+Remove box
+Confirm Box Plan
+```
+
+Once Confirm Box Plan is pressed, create/update real records:
+
+```text
+cooler_boxes
+cooler_box_items
+```
+
+Do not use the old Advanced Box Adjustments as the normal workflow.
+
+If boxes already exist, the planning section should only plan remaining unboxed items and append new boxes. It must not modify closed boxes.
+
+---
+
+## C. Cooler Boxes / Dispatch Handover
+
+During active work, this section can show compact box cards.
+
+After completion, this section becomes the main final-state handover section and must be expanded by default.
+
+Final-state title:
+
+```text
+Closed Boxes / Dispatch Handover
+```
+
+Show a compact table, one row per box.
+
+Columns:
+
+```text
+Box No
+Status
+Box Type
+Delivery Stops
+Items
+Invoices
+Customers
+Fill %
+Weight
+Closed By
+Closed At
+Label Status
+Actions
+```
+
+Actions per box:
+
+```text
+Print Label
+Print Manifest
+View Items
+```
+
+Fetch and display:
+
+```text
+label_printed_at
+closed_at
+closed_by
+```
+
+Label Status:
+
+```text
+Printed at HH:MM
+Not printed
+```
+
+Important loading guidance:
+
+Because Box 1 contains the last delivery stops, show:
+
+```text
+Box 1 contains the last delivery stops. Load Box 1 first / deeper in the vehicle. The highest box number contains the earlier delivery stops and should stay most accessible.
+```
+
+This section should answer:
+
+```text
+Which boxes are ready?
+Which stops do they cover?
+Are they closed?
+Have labels been printed?
+How should they be loaded?
+```
+
+---
+
+## D. Picker / Picking Control
+
+Default state:
+
+* collapsed normally;
+* expanded only if picker is unassigned, picking has not started, or picking is in progress.
+
+Show:
+
+```text
+Batch name
+Batch status
+Assigned picker
+Assign / Change picker
+Start Picking
+Continue Picking
+```
+
+Do not mix item-by-item picker actions into the route page.
+
+---
+
+## E. Manager Recovery Tools
+
+Rename from:
+
+```text
+Advanced Box Adjustments
+```
+
+to:
+
+```text
+Manager Recovery Tools
+```
+
+Default state:
+
+```text
+collapsed
+```
+
+Visible only to manager/admin permission users.
+
+Keep emergency actions only here:
+
+```text
+Reopen box
+Cancel box
+Move item between boxes
+Force close box
+Emergency manual assignment
+Reprint label
+Reprint manifest
+```
+
+This is not part of the normal warehouse flow.
+
+---
+
+# 6. Box-first picking logic
+
+The picker must not pick by general location-first order across all boxes.
+
+For cooler batches, picking sequence must follow confirmed cooler boxes:
+
+```text
+Box 1
+Box 1
+Box 1
+Box 1 complete
+Box 2
+Box 2
+Box 2 complete
+Box 3
+...
+```
+
+Box 1 contains the last delivery stops.
+
+Inside each box, items may be sorted by warehouse location.
+
+Required order:
+
+```text
+box_no ASC
+then warehouse location order inside the box
+```
+
+Do not consolidate items across different boxes.
+
+Grouping key must include:
+
+```text
+box_id
+item_code
+location
+```
+
+Do not group only by:
+
+```text
+item_code
+location
+```
+
+For `session_type = 'cooler_route'`, build picker items from confirmed:
+
+```text
+cooler_boxes
+cooler_box_items
+batch_pick_queue
+```
+
+not from the normal location-only batch list.
+
+Use or improve existing helper:
+
+```python
+build_cooler_box_picking_items(batch_session)
+```
+
+Each picker item should include:
+
+```text
+box_id
+box_no
+box_type_name
+box_status
+box_stop_display
+item_index_in_box
+total_items_in_box
+is_first_item_in_box
+is_last_item_in_box
+next_box_no
+next_box_type_name
+invoice_no
+item_code
+item_name
+location
+qty
+barcode
+```
+
+Before starting cooler picking, require a confirmed box plan.
+
+If no confirmed boxes exist, block Start Picking and redirect user to the route packing screen to plan boxes first.
+
+---
+
+# 7. Picker mobile screen behaviour
+
+Target file:
+
+```text
+templates/batch_picking_item.html
+```
+
+Supporting logic:
+
+```text
+routes_batch.py
+```
+
+Remove the three separate stacked banners:
+
+```text
+Open a new box
+Put in cooler box
+Last item — close & seal
+```
+
+Replace them with one compact current box card.
+
+Mobile visual order:
+
+```text
+Header:
+COOLER-430 | Item 1 of 8 | SENSITIVE | Back
+
+Current Box:
+Box 1 Small
+Item 1 of 5 in this box
+Stops 9 → 7
+
+Location:
+30-01-C03
+
+Item:
+TWIX TWIN XTRA MILK BAR
+
+Invoice:
+IN10055558
+
+Qty:
+1
+
+Buttons:
+Confirm Picked
+Exception
+```
+
+---
+
+## 7.1 Box start modal
+
+When picker reaches the first item of a new box, show a clear modal/window:
+
+```text
+START BOX 1
+
+Open Box 1 now.
+This box contains Stops 9 → 7.
+Pick all following items into Box 1 until the system tells you to close it.
+
+[Start Box 1]
+```
+
+For single-item box:
+
+```text
+START BOX 3
+
+Single-item box.
+Open Box 3, pick the item, then close after confirming.
+
+[Start Box 3]
+```
+
+Do not show multiple stacked messages.
+
+---
+
+## 7.2 Box complete transition
+
+After the last item of a box is confirmed, do not immediately show the next item.
+
+Show:
+
+```text
+BOX 1 COMPLETE
+
+Close and seal Box 1 now.
+
+Next: Open Box 2 Small
+Stops 6 → 4
+
+[Box 1 closed — start Box 2]
+```
+
+For final box:
+
+```text
+FINAL BOX COMPLETE
+
+Close and seal Box 3 now.
+All cooler picking is complete.
+
+[Finish Cooler Picking]
+```
+
+When picker confirms the box is closed, update:
+
+```text
+cooler_boxes.status = 'closed'
+```
+
+Only allow closing if all box items are picked and no exceptions/pending items remain.
+
+Log events:
+
+```text
+Box X started by picker
+Box X completed by picker
+Box X closed by picker
+Box Y started by picker
+```
+
+---
+
+# 8. Final completed state
+
+After all cooler items are picked and all boxes are closed, the UI should not look like a picking/planning page.
+
+It should become:
+
+```text
+Cooler Ready for Dispatch
+```
+
+Completed layout:
+
+```text
+Top:
+Completed KPIs
+
+Middle:
+Cooler Ready for Dispatch card
+
+Main expanded section:
+Closed Boxes / Dispatch Handover
+
+Secondary:
+Route Item Status
+
+Hidden/collapsed:
+Box Planning
+Picker / Picking Control
+Manager Recovery Tools
+```
+
+Hide or collapse:
+
+```text
+Box Planning
+Start Picking
+Continue Picking
+Close Box buttons
+manual picking tables
+advanced adjustment UI
+```
+
+Keep visible:
+
+```text
+Print All Box Labels
+Print Route Manifest
+Print Route Status
+Closed Boxes table
+Loading guidance
+```
+
+---
+
+# 9. Print All Box Labels
+
+Add a route-level print all labels action.
+
+Preferred endpoint:
+
+```text
+/cooler/route/<route_id>/<delivery_date>/labels
+```
+
+This should generate/print all labels for non-cancelled boxes on that route/date.
+
+If a combined PDF is difficult, provide a button that opens/prints each box label, but preferred is one combined route label print.
+
+Also show label status in the handover table using:
+
+```text
+label_printed_at
+```
+
+---
+
+# 10. Dashboard / Warehouse link after completion
+
+On the Warehouse dashboard or Picking dashboard, do not only show cooler links when there are open boxes or unboxed items.
+
+Also show completed/ready cooler routes.
+
+Example:
+
+```text
+Cooler ready: Route 430 — 3 closed boxes
+```
+
+Button:
+
+```text
+Open Cooler Handover
+```
+
+This must link to:
+
+```text
+/cooler/route/<route_id>/<delivery_date>
+```
+
+or the new alias.
+
+Warehouse users must never need to go through Delivery Route just to find closed cooler boxes.
+
+---
+
+# 11. Remove or hide old/duplicate UI
+
+Remove from normal workflow:
+
+```text
+Advanced Box Adjustments
+manual Create Extra Box
+manual Assign Picked Item to Box
+Pick → Box buttons on route page
+large duplicate Pick List table
+separate Awaiting Route Preparation table
+duplicate item lists where Route Item Status already shows the information
+```
+
+Keep backend recovery routes, but expose them only under Manager Recovery Tools:
+
+```text
+box_reopen
+box_cancel
+move_box_item
+box_label
+box_manifest
+route_manifest
+```
+
+Do not remove backend recovery capabilities.
+
+---
+
+# 12. Do not reintroduce old pack-by-stop mode
+
+Do not reintroduce:
+
+```text
+pack_stop
+sequential_stop
+```
+
+The correct process is not pack-by-stop.
+
+The correct process is:
+
+```text
+box-first picking based on confirmed box plan
+```
+
+Box planning uses delivery stop sequence.
+
+Picking follows box number.
+
+Inside each box, sort by warehouse location.
+
+---
+
+# 13. Route Item Status backend data
+
+In `blueprints/cooler_picking.py`, extend the route page data so each item row includes:
+
+```text
+stop sequence
+invoice number
+customer name
+item code
+item description
+qty
+pick status
+box number if assigned
+box status if assigned
+```
+
+Use LEFT JOIN:
+
+```text
+batch_pick_queue.id = cooler_box_items.queue_item_id
+cooler_box_items.cooler_box_id = cooler_boxes.id
+```
+
+If no box:
+
+```text
+Box = —
+Box Status = Unboxed
+```
+
+Do not show customer code or queue ID in the UI.
+
+---
+
+# 14. Validate invoice/status promotion
+
+Check and standardise invoice status flow.
+
+There may be inconsistency between:
+
+```text
+awaiting_packing
+awaiting_batch_items
+ready_for_dispatch
+```
+
+Confirm the correct status after all normal and cooler picking is complete.
+
+When all cooler items are picked, assigned to boxes, and all boxes are closed, ensure relevant invoice/route state can move to:
+
+```text
+ready_for_dispatch
+```
+
+only when all other required non-cooler picking is also complete.
+
+Do not mark invoices ready too early.
+
+---
+
+# 15. Acceptance criteria
+
+Implementation is complete when all of the following are true:
+
+1. Warehouse menu has a permanent Cooler Packing / Cooler Boxes Handover entry.
+2. Completed closed cooler boxes can be accessed without going through Delivery Route.
+3. `/cooler/route-list` shows active and completed cooler routes.
+4. `/cooler/route/<route_id>/<delivery_date>` is visually a warehouse cooler control/handover page.
+5. Top KPIs are always visible.
+6. Middle Next Action card shows only the relevant next action.
+7. Route Item Status table is available and printable.
+8. Customer Code and Queue ID are not shown in normal Route Item Status.
+9. Normal box changes happen only inside Box Planning before confirmation.
+10. Advanced Box Adjustments is renamed to Manager Recovery Tools and hidden/collapsed/admin-only.
+11. Picker follows Box 1 completely, then Box 2, then Box 3.
+12. Picker gets a clear modal/message when starting a new box.
+13. Picker gets a clear modal/message when a box is complete and must be closed.
+14. Single-item boxes show one clear message, not multiple stacked banners.
+15. After all boxes are closed, page shows Cooler Ready for Dispatch.
+16. Final screen shows Closed Boxes / Dispatch Handover expanded by default.
+17. Final handover table shows box status, stops, items, fill, closed time, label status and actions.
+18. Print All Box Labels exists or is clearly implemented.
+19. Route Manifest and Route Status print remain available.
+20. Delivery Route is not the only way to find cooler boxes.

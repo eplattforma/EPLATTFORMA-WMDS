@@ -349,72 +349,141 @@ def _audit(activity_type, details, invoice_no=None, item_code=None):
 @_require_cooler_manage
 @_require_picking_flag
 def route_list():
-    """List route_id + delivery_date pairs that have pending cooler items.
+    """List cooler routes — active AND completed (all boxes closed).
 
-    route identity comes from ``Invoice.route_id``
-    (FK to shipments.id) and the date comes from ``Shipment.delivery_date``,
-    NOT from ``Invoice.routing`` (a free-text label) or ``Invoice.upload_date``
-    (a string). Cooler boxes and the dispatch system both key on the
-    real shipment FK; any other field would mis-attribute boxes.
+    Shows every route that has either pending cooler queue items OR
+    cooler boxes (including routes where all picking is done and all
+    boxes are sealed and ready for dispatch).
+
+    Route identity: ``Invoice.route_id`` → ``shipments.id``.
     """
-    rows = db.session.execute(
-        text(
-            "SELECT bpq.invoice_no, bpq.item_code, bpq.status, "
-            "       i.route_id AS route_id, s.delivery_date AS delivery_date "
-            "FROM batch_pick_queue bpq "
-            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
-            "LEFT JOIN shipments s ON s.id = i.route_id "
-            "WHERE bpq.pick_zone_type = 'cooler' "
-            "ORDER BY i.route_id, s.delivery_date, bpq.invoice_no"
-        )
-    ).fetchall()
+    # ── Step 1: item stats per (route_id, delivery_date_str) ─────────────
+    queue_rows = db.session.execute(text(
+        "SELECT bpq.status, i.route_id, s.delivery_date::text "
+        "FROM batch_pick_queue bpq "
+        "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+        "LEFT JOIN shipments s ON s.id = i.route_id "
+        "WHERE bpq.pick_zone_type = 'cooler'"
+    )).fetchall()
 
-    grouped = {}
-    for r in rows:
-        key = (r[3] or "-", r[4] or "-")
-        bucket = grouped.setdefault(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
-        bucket["total"] += 1
-        st = (r[2] or "").lower()
-        if st == "pending":
-            bucket["pending"] += 1
-        elif st == "picked":
-            bucket["picked"] += 1
-        elif st == "exception":
-            bucket["exception"] += 1
+    item_stats: dict = {}
+    for r in queue_rows:
+        key = (r[1] or "-", r[2] or "-")
+        b = item_stats.setdefault(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
+        b["total"] += 1
+        st = (r[0] or "").lower()
+        if st == "pending":      b["pending"] += 1
+        elif st == "picked":     b["picked"] += 1
+        elif st == "exception":  b["exception"] += 1
 
-    routes = [
-        {
-            "route_id": k[0],
-            "delivery_date": k[1],
-            "pending": v["pending"],
-            "picked": v["picked"],
-            "exception": v["exception"],
-            "total": v["total"],
+    # ── Step 2: box stats per (route_id, delivery_date_str) ──────────────
+    try:
+        box_route_rows = db.session.execute(text(
+            "SELECT route_id, delivery_date::text, "
+            "       COUNT(*) FILTER (WHERE status != 'cancelled') AS total, "
+            "       COUNT(*) FILTER (WHERE status = 'closed')     AS closed, "
+            "       COUNT(*) FILTER (WHERE status = 'open')       AS open_count "
+            "FROM cooler_boxes "
+            "GROUP BY route_id, delivery_date"
+        )).fetchall()
+    except Exception:
+        box_route_rows = []
+
+    box_stats: dict = {}
+    for r in box_route_rows:
+        key = (r[0], r[1])
+        box_stats[key] = {
+            "total":  int(r[2] or 0),
+            "closed": int(r[3] or 0),
+            "open":   int(r[4] or 0),
         }
-        for k, v in sorted(grouped.items(), key=lambda x: (str(x[0][0]), str(x[0][1])))
-        if v["pending"] > 0 or v["picked"] > 0 or v["exception"] > 0
-    ]
-    if not routes:
+
+    # ── Step 3: union of all known (route_id, delivery_date) keys ────────
+    all_keys: set = set(item_stats.keys()) | set(box_stats.keys())
+
+    if not all_keys:
         from flask import flash
         flash(
-            "No pending cooler items found. Make sure SENSITIVE items have been "
+            "No cooler packing work found. Make sure SENSITIVE items have been "
             "attached to a route with summer_cooler_mode_enabled ON.",
             "info",
         )
-    from services.cooler_box_planner import pre_pick_estimate
-    estimates = {}
-    for route in routes:
-        try:
-            estimates[(route["route_id"], str(route["delivery_date"]))] = (
-                pre_pick_estimate(route["route_id"], route["delivery_date"])
-            )
-        except Exception as exc:
-            current_app.logger.warning(
-                "pre_pick_estimate failed for route %s: %s", route["route_id"], exc
-            )
-            estimates[(route["route_id"], str(route["delivery_date"]))] = None
+        return render_template("cooler/route_list.html", routes=[], estimates={}, box_types=[])
 
-    # Box type options for the pre-plan dropdown
+    # ── Step 4: driver / route name from shipments ────────────────────────
+    _rid_ints = []
+    for k in all_keys:
+        try:
+            _rid_ints.append(int(k[0]))
+        except (TypeError, ValueError):
+            pass
+    route_info: dict = {}
+    if _rid_ints:
+        try:
+            _ri = db.session.execute(text(
+                "SELECT id, driver_name, route_name "
+                "FROM shipments WHERE id = ANY(:rids)"
+            ), {"rids": _rid_ints}).fetchall()
+            for _r in _ri:
+                route_info[_r[0]] = {"driver": _r[1] or "", "name": _r[2] or ""}
+        except Exception:
+            pass
+
+    # ── Step 5: build route list with computed status ─────────────────────
+    routes = []
+    for key in sorted(all_keys, key=lambda x: (str(x[0]), str(x[1]))):
+        v  = item_stats.get(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
+        bs = box_stats.get(key,  {"total": 0, "closed": 0, "open": 0})
+        try:
+            rid_int = int(key[0])
+        except (TypeError, ValueError):
+            rid_int = None
+        ri = route_info.get(rid_int, {"driver": "", "name": ""})
+
+        # Derive status label
+        if bs["total"] > 0 and v["pending"] == 0 and bs["open"] == 0 and bs["closed"] >= bs["total"]:
+            route_status = "ready_for_dispatch"
+        elif v["exception"] > 0 and v["pending"] == 0 and bs.get("open", 0) == 0:
+            route_status = "exception"
+        elif v["pending"] > 0:
+            route_status = "picking_in_progress"
+        elif v["total"] > 0 and bs["total"] == 0:
+            route_status = "needs_planning"
+        elif bs["open"] > 0:
+            route_status = "boxes_open"
+        else:
+            route_status = "in_progress"
+
+        routes.append({
+            "route_id":     key[0],
+            "delivery_date": key[1],
+            "pending":      v["pending"],
+            "picked":       v["picked"],
+            "exception":    v["exception"],
+            "total":        v["total"],
+            "box_count":    bs["total"],
+            "boxes_closed": bs["closed"],
+            "boxes_open":   bs["open"],
+            "driver":       ri.get("driver", ""),
+            "route_name":   ri.get("name", ""),
+            "route_status": route_status,
+        })
+
+    # ── Step 6: pre-pick estimates (only for routes with queue items) ─────
+    from services.cooler_box_planner import pre_pick_estimate
+    estimates: dict = {}
+    for route in routes:
+        if route["total"] > 0:
+            try:
+                estimates[(route["route_id"], str(route["delivery_date"]))] = (
+                    pre_pick_estimate(route["route_id"], route["delivery_date"])
+                )
+            except Exception as exc:
+                current_app.logger.warning(
+                    "pre_pick_estimate failed for route %s: %s", route["route_id"], exc
+                )
+
+    # ── Step 7: box type options for the quick pre-plan form ─────────────
     try:
         _bt_rows = db.session.execute(text(
             "SELECT id, name, internal_volume_cm3, fill_efficiency, "
@@ -422,30 +491,9 @@ def route_list():
             "       AS effective_capacity_l "
             "FROM cooler_box_types WHERE is_active = true ORDER BY sort_order, name"
         )).fetchall()
-        box_types_list = [
-            {"id": r[0], "name": r[1], "effective_capacity_l": r[4]}
-            for r in _bt_rows
-        ]
+        box_types_list = [{"id": r[0], "name": r[1], "effective_capacity_l": r[4]} for r in _bt_rows]
     except Exception:
         box_types_list = []
-
-    # Count existing boxes per route so the template can show the pre-planned badge
-    box_counts = {}
-    if routes:
-        try:
-            _bc_rows = db.session.execute(text(
-                "SELECT route_id, delivery_date::text, COUNT(*) "
-                "FROM cooler_boxes GROUP BY route_id, delivery_date"
-            )).fetchall()
-            for _r in _bc_rows:
-                box_counts[(_r[0], _r[1])] = int(_r[2])
-        except Exception:
-            pass
-
-    for route in routes:
-        route["box_count"] = box_counts.get(
-            (route["route_id"], str(route["delivery_date"])), 0
-        )
 
     return render_template(
         "cooler/route_list.html",
@@ -603,6 +651,7 @@ def route_picking(route_id, delivery_date):
             "       (SELECT COUNT(*) FROM cooler_box_items cbi "
             "        WHERE cbi.cooler_box_id = cb.id) AS item_count, "
             "       cb.fill_cm3, cb.fill_weight_kg, cb.closed_by, cb.closed_at, "
+            "       cb.label_printed_at, "
             "       cbt.name AS box_type_name, "
             "       CASE WHEN cbt.internal_volume_cm3 > 0 AND cbt.fill_efficiency > 0 "
             "            THEN ROUND(cb.fill_cm3 / (cbt.internal_volume_cm3 * cbt.fill_efficiency) * 100) "
@@ -622,8 +671,9 @@ def route_picking(route_id, delivery_date):
         _box["fill_weight_kg"] = float(_b[9]) if _b[9] is not None else None
         _box["closed_by"] = _b[10]
         _box["closed_at"] = _b[11]
-        _box["box_type_name"] = _b[12] or ""
-        _box["fill_pct"] = int(_b[13]) if _b[13] is not None else None
+        _box["label_printed_at"] = _b[12]
+        _box["box_type_name"] = _b[13] or ""
+        _box["fill_pct"] = int(_b[14]) if _b[14] is not None else None
         boxes.append(_box)
 
     # LIFO display order: boxes covering later stops are shown first
@@ -2977,6 +3027,58 @@ def _pdf_response(pdf_bytes, filename):
     ))
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+@cooler_bp.route("/route/<route_id>/<delivery_date>/labels")
+@login_required
+@require_permission("cooler.print_labels")
+@_require_cooler_print
+@_require_labels_flag
+def route_labels(route_id, delivery_date):
+    """Warehouse 'Print All Labels' — lists every non-cancelled box for this
+    route/date so the warehouse manager can open/print all labels at once.
+    """
+    try:
+        _route_id_int = int(route_id)
+    except (TypeError, ValueError):
+        abort(404)
+    box_rows = db.session.execute(text(
+        "SELECT cb.id, cb.box_no, cb.status, cb.label_printed_at, "
+        "       cbt.name AS box_type_name, "
+        "       cb.first_stop_sequence, cb.last_stop_sequence "
+        "FROM cooler_boxes cb "
+        "LEFT JOIN cooler_box_types cbt ON cbt.id = cb.box_type_id "
+        "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
+        "  AND cb.status != 'cancelled' "
+        "ORDER BY cb.box_no"
+    ), {"rid": _route_id_int, "dd": str(delivery_date)}).fetchall()
+
+    if not box_rows:
+        abort(404)
+
+    boxes = [{
+        "id": r[0],
+        "box_no": r[1],
+        "status": r[2],
+        "label_printed_at": r[3],
+        "box_type_name": r[4] or "",
+        "first_stop_sequence": float(r[5]) if r[5] is not None else None,
+        "last_stop_sequence":  float(r[6]) if r[6] is not None else None,
+    } for r in box_rows]
+
+    _sinfo = db.session.execute(
+        text("SELECT driver_name, route_name FROM shipments WHERE id = :rid"),
+        {"rid": _route_id_int},
+    ).fetchone()
+
+    return render_template(
+        "cooler/route_labels.html",
+        route_id=route_id,
+        delivery_date=delivery_date,
+        boxes=boxes,
+        route_driver=_sinfo[0] if _sinfo else None,
+        route_name=_sinfo[1] if _sinfo else None,
+    )
 
 
 @cooler_bp.route("/box/<int:box_id>/label")
