@@ -1,7 +1,5 @@
 {% extends "base.html" %}
-{% block title %}
-  {% if picking_phase and picking_phase.complete %}Cooler Packing — Route {{ route_id }}{% else %}Cooler Route {{ route_id }}{% endif %}
-{% endblock %}
+{% block title %}Prepare Cooler Route {{ route_id }}{% if route_name %} / {{ route_name }}{% endif %}{% endblock %}
 {% block content %}
 <div class="container-fluid my-4">
 
@@ -45,15 +43,18 @@
   <div>
     <h2 class="mb-1">
       <i class="fas fa-snowflake me-2 text-info"></i>
-      ❄️ Cooler Packing — Route {{ route_id }}{% if route_name %} / {{ route_name }}{% endif %}
+      ❄️ Prepare Cooler Route {{ route_id }}{% if route_name %} / {{ route_name }}{% endif %}
     </h2>
+    <p class="text-muted mb-1 small">
+      Warehouse cooler packing based on delivery stop sequence.
+    </p>
     <p class="text-muted mb-0 small">
       {% if route_driver %}<i class="fas fa-user me-1"></i><strong>Driver:</strong> {{ route_driver }}{% if delivery_date %} &nbsp;|&nbsp; {% endif %}{% endif %}
       {% if delivery_date %}<i class="fas fa-calendar me-1"></i><strong>Delivery date:</strong> {{ delivery_date }}{% endif %}
     </p>
   </div>
-  <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm align-self-start">
-    <i class="fas fa-arrow-left me-1"></i>Dashboard
+  <a href="{{ url_for('cooler.route_list') }}" class="btn btn-outline-secondary btn-sm align-self-start">
+    <i class="fas fa-arrow-left me-1"></i>Cooler Packing
   </a>
 </div>
 

@@ -93,6 +93,12 @@
                                     <i class="fas fa-exchange-alt me-2"></i>Cross Shipping Orders
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint in ['cooler.route_list', 'cooler.route_picking'] %}active{% endif %}"
+                                   href="{{ url_for('cooler.route_list') }}">
+                                    <i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing
+                                </a>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'import_excel' %}active{% endif %}" 

@@ -5781,3 +5781,15 @@ import routes_time_analysis  # noqa: F401
 
 # Import shift tracking routes
 from routes_shifts import *
+
+
+# ── Warehouse cooler packing — friendly URL alias ──────────────────────────
+# Old: /cooler/route/<route_id>/<delivery_date>  (kept; existing links work)
+# New: /warehouse/cooler/packing/<route_id>/<delivery_date>
+@app.route('/warehouse/cooler/packing/<route_id>/<delivery_date>')
+@login_required
+def warehouse_cooler_packing(route_id, delivery_date):
+    from flask import redirect, url_for
+    return redirect(url_for('cooler.route_picking',
+                            route_id=route_id,
+                            delivery_date=delivery_date))
