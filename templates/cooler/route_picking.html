@@ -244,24 +244,14 @@
     <div class="accordion-body p-0">
 
       {# Toolbar #}
-      <div class="d-flex flex-wrap align-items-center gap-2 p-3 border-bottom d-print-none">
-        <div class="d-flex flex-wrap gap-1" id="statusFilterBtns">
-          <button type="button" class="btn btn-sm btn-light status-filter active" data-filt="all">All</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="awaiting">Awaiting</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="not-picked">Not Picked</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="picked">Picked</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="unboxed">Unboxed</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="box-open">Box Open</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="box-closed">Box Closed</button>
-          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="exception">Exception</button>
-        </div>
-        <div class="ms-auto d-flex gap-2 flex-wrap">
-          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnExpandAllStops">
-            <i class="fas fa-expand-alt me-1"></i>Expand all
-          </button>
-          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCollapseAllStops">
-            <i class="fas fa-compress-alt me-1"></i>Collapse all
-          </button>
+      <div class="d-flex flex-wrap align-items-center gap-2 p-2 border-bottom bg-light d-print-none">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnExpandAllStops">
+          <i class="fas fa-expand-alt me-1"></i>Expand all
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCollapseAllStops">
+          <i class="fas fa-compress-alt me-1"></i>Collapse all
+        </button>
+        <div class="ms-auto">
           <button type="button" class="btn btn-sm btn-outline-primary" id="btnPrintStatus">
             <i class="fas fa-print me-1"></i>Print Route Status
           </button>
@@ -1317,26 +1307,6 @@
   var btnPrintFinal = document.getElementById('btnPrintStatusFinal');
   if (btnPrintFinal) btnPrintFinal.addEventListener('click', doPrintRouteStatus);
 
-  /* Route Item Status filter buttons */
-  var filterBtns = document.querySelectorAll('.status-filter');
-  filterBtns.forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      filterBtns.forEach(function(b){ b.classList.remove('active', 'btn-light'); b.classList.add('btn-outline-light'); });
-      btn.classList.add('active', 'btn-light'); btn.classList.remove('btn-outline-light');
-      var f = btn.dataset.filt;
-      document.querySelectorAll('#statusTableWrapper .status-row').forEach(function(row) {
-        if (f === 'all') { row.style.display = ''; return; }
-        var filters = (row.dataset.filters || '').split(' ');
-        row.style.display = filters.indexOf(f) !== -1 ? '' : 'none';
-      });
-      /* show/hide stop group headers that have all rows hidden */
-      document.querySelectorAll('.status-stop-group').forEach(function(grp) {
-        if (f === 'all') { grp.style.display = ''; return; }
-        var visible = Array.from(grp.querySelectorAll('.status-row')).some(function(r){ return r.style.display !== 'none'; });
-        grp.style.display = visible ? '' : 'none';
-      });
-    });
-  });
 
 })();
 </script>
