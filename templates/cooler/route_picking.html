@@ -173,9 +173,10 @@
              target="_blank" class="btn btn-light btn-sm text-nowrap">
             <i class="fas fa-file-pdf me-1"></i>Route Manifest
           </a>
-          <button type="button" class="btn btn-outline-light btn-sm text-nowrap" id="btnPrintStatusFinal">
+          <a href="{{ url_for('cooler.route_status_print', route_id=route_id, delivery_date=delivery_date) }}"
+             target="_blank" class="btn btn-outline-light btn-sm text-nowrap">
             <i class="fas fa-print me-1"></i>Route Status
-          </button>
+          </a>
           <a href="{{ url_for('cooler.route_list') }}" class="btn btn-outline-light btn-sm text-nowrap">
             <i class="fas fa-arrow-left me-1"></i>Cooler Packing
           </a>
@@ -252,9 +253,10 @@
           <i class="fas fa-compress-alt me-1"></i>Collapse all
         </button>
         <div class="ms-auto">
-          <button type="button" class="btn btn-sm btn-outline-primary" id="btnPrintStatus">
+          <a href="{{ url_for('cooler.route_status_print', route_id=route_id, delivery_date=delivery_date) }}"
+             target="_blank" class="btn btn-sm btn-outline-primary text-nowrap">
             <i class="fas fa-print me-1"></i>Print Route Status
-          </button>
+          </a>
         </div>
       </div>
 
@@ -1295,24 +1297,6 @@
     document.querySelectorAll('.status-stop-group .collapse').forEach(function(el){ el.classList.remove('show'); });
   });
 
-  /* Print Route Status (toolbar button + final-state button) */
-  function doPrintRouteStatus() {
-    document.querySelectorAll('.status-stop-group .collapse').forEach(function(el){ el.classList.add('show'); });
-    var colS = document.getElementById('collapseStatus');
-    if (colS) colS.classList.add('show');
-    var el = document.getElementById('printRouteStatus');
-    if (el) el.style.display = 'block';
-    setTimeout(function() { window.print(); }, 150);
-  }
-  var btnPrint = document.getElementById('btnPrintStatus');
-  if (btnPrint) btnPrint.addEventListener('click', doPrintRouteStatus);
-  var btnPrintFinal = document.getElementById('btnPrintStatusFinal');
-  if (btnPrintFinal) btnPrintFinal.addEventListener('click', doPrintRouteStatus);
-
-  /* Auto-print when opened with ?autoprint=status from the overview page */
-  if (new URLSearchParams(window.location.search).get('autoprint') === 'status') {
-    setTimeout(doPrintRouteStatus, 800);
-  }
 
 })();
 </script>

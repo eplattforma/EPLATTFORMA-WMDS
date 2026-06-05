@@ -3036,6 +3036,260 @@ def _pdf_response(pdf_bytes, filename):
     return resp
 
 
+# ---------------------------------------------------------------------------
+# Helper: build all data needed for the Route Status Print report
+# ---------------------------------------------------------------------------
+def get_cooler_route_status_data(route_id, delivery_date):
+    """Return a dict with everything needed by route_status_print."""
+    import collections as _col
+    import datetime as _dt
+
+    try:
+        _rid = int(route_id)
+    except (TypeError, ValueError):
+        _rid = None
+
+    # ── Route info ────────────────────────────────────────────────────────
+    route_info = {"driver": "", "route_name": ""}
+    if _rid:
+        try:
+            _ri = db.session.execute(
+                text("SELECT driver_name, route_name FROM shipments WHERE id = :rid"),
+                {"rid": _rid},
+            ).fetchone()
+            if _ri:
+                route_info = {"driver": _ri[0] or "", "route_name": _ri[1] or ""}
+        except Exception:
+            pass
+
+    # ── Queue items with box assignment ───────────────────────────────────
+    try:
+        item_rows = db.session.execute(text(
+            "SELECT bpq.invoice_no, bpq.item_code, bpq.qty_required, "
+            "       bpq.status, i.customer_name, bpq.delivery_sequence, "
+            "       ii.item_name, cb.box_no, cb.status AS box_status "
+            "FROM batch_pick_queue bpq "
+            "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
+            "JOIN shipments s ON s.id = i.route_id "
+            "LEFT JOIN cooler_box_items cbi ON cbi.queue_item_id = bpq.id "
+            "LEFT JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "LEFT JOIN invoice_items ii "
+            "       ON ii.invoice_no = bpq.invoice_no AND ii.item_code = bpq.item_code "
+            "WHERE bpq.pick_zone_type = 'cooler' "
+            "  AND i.route_id = :route_id "
+            "  AND s.delivery_date = :delivery_date "
+            "ORDER BY bpq.delivery_sequence NULLS LAST, i.customer_name, "
+            "         bpq.invoice_no, bpq.item_code"
+        ), {"route_id": _rid, "delivery_date": str(delivery_date)}).fetchall()
+    except Exception:
+        item_rows = []
+
+    items = []
+    total = picked = exc_count = pending = unboxed_picked = awaiting = 0
+    for r in item_rows:
+        total += 1
+        st       = (r[3] or "").lower()
+        seq      = r[5]
+        box_no   = r[7]
+        box_st   = (r[8] or "").lower() if r[8] else None
+
+        if seq is None:
+            pick_label = "Awaiting"; awaiting += 1
+        elif st == "picked":
+            pick_label = "Picked"; picked += 1
+            if box_no is None: unboxed_picked += 1
+        elif st == "exception":
+            pick_label = "Exception"; exc_count += 1
+        else:
+            pick_label = "Not Picked"; pending += 1
+
+        if box_no is None:               box_st_text = "Unboxed"
+        elif box_st == "closed":         box_st_text = "Closed"
+        elif box_st == "open":           box_st_text = "Open"
+        elif box_st == "cancelled":      box_st_text = "Cancelled"
+        else:                            box_st_text = box_st or "—"
+
+        items.append({
+            "invoice_no":     r[0] or "",
+            "item_code":      r[1] or "",
+            "qty":            float(r[2]) if r[2] is not None else 0,
+            "pick_label":     pick_label,
+            "customer_name":  r[4] or "",
+            "delivery_seq":   float(seq) if seq is not None else None,
+            "item_name":      r[6] or "",
+            "box_no":         box_no,
+            "box_st_text":    box_st_text,
+        })
+
+    # ── Box summary ───────────────────────────────────────────────────────
+    try:
+        box_rows = db.session.execute(text(
+            "SELECT cb.box_no, cb.status, cb.first_stop_sequence, cb.last_stop_sequence, "
+            "       cb.fill_cm3, cb.fill_weight_kg, cb.closed_by, cb.closed_at, "
+            "       cb.label_printed_at, cbt.name AS box_type_name, "
+            "       CASE WHEN cbt.internal_volume_cm3 > 0 AND cbt.fill_efficiency > 0 "
+            "            THEN ROUND(cb.fill_cm3 / (cbt.internal_volume_cm3 * cbt.fill_efficiency) * 100) "
+            "            ELSE NULL END AS fill_pct, "
+            "       cb.item_count, "
+            "       COUNT(DISTINCT cbi.invoice_no) AS inv_count, "
+            "       COUNT(DISTINCT i.customer_name) AS cust_count "
+            "FROM cooler_boxes cb "
+            "LEFT JOIN cooler_box_types cbt ON cbt.id = cb.box_type_id "
+            "LEFT JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id "
+            "LEFT JOIN invoices i ON i.invoice_no = cbi.invoice_no "
+            "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
+            "  AND cb.status != 'cancelled' "
+            "GROUP BY cb.id, cbt.name, cbt.internal_volume_cm3, cbt.fill_efficiency, cb.item_count "
+            "ORDER BY cb.box_no"
+        ), {"rid": _rid, "dd": str(delivery_date)}).fetchall()
+    except Exception:
+        box_rows = []
+
+    boxes_out = []
+    tv_l = tw_kg = 0.0
+    box_count = boxes_closed = boxes_open = labels_prt = 0
+    for b in box_rows:
+        box_count += 1
+        bst = (b[1] or "").lower()
+        if bst == "closed":  boxes_closed += 1
+        elif bst == "open":  boxes_open += 1
+        if b[8] is not None: labels_prt += 1
+        fc = float(b[4]) if b[4] else 0.0
+        fw = float(b[5]) if b[5] else 0.0
+        tv_l  += fc / 1000.0
+        tw_kg += fw
+        fs, ls = b[2], b[3]
+        if fs is not None and ls is not None:
+            stops_txt = f"Stop {int(ls)}" if fs == ls else f"Stops {int(ls)}→{int(fs)}"
+        else:
+            stops_txt = "—"
+        _lpa = b[8]
+        if _lpa:
+            try:    lbl_txt = f"Printed {_lpa.strftime('%H:%M')}"
+            except Exception: lbl_txt = f"Printed {str(_lpa)[:5]}"
+        elif bst == "closed": lbl_txt = "Not printed"
+        else:                 lbl_txt = "—"
+        _cat = b[7]
+        try:    cat_txt = _cat.strftime("%d/%m %H:%M") if _cat else "—"
+        except Exception: cat_txt = str(_cat)[:16] if _cat else "—"
+
+        boxes_out.append({
+            "box_no":        b[0],
+            "status":        (b[1] or "").title(),
+            "box_type_name": b[9] or "—",
+            "stops_text":    stops_txt,
+            "fill_pct":      int(b[10]) if b[10] is not None else None,
+            "weight_kg":     fw,
+            "closed_at":     cat_txt,
+            "label_status":  lbl_txt,
+            "item_count":    int(b[11]) if b[11] else 0,
+            "inv_count":     int(b[12]) if b[12] else 0,
+            "cust_count":    int(b[13]) if b[13] else 0,
+        })
+
+    # ── Route status ──────────────────────────────────────────────────────
+    if box_count > 0 and pending == 0 and awaiting == 0 and boxes_open == 0 \
+            and boxes_closed >= box_count and unboxed_picked == 0:
+        route_status = "ready_for_dispatch"
+    elif exc_count > 0 and pending == 0 and boxes_open == 0:
+        route_status = "exception"
+    elif pending > 0:
+        route_status = "picking_in_progress"
+    elif total > 0 and box_count == 0:
+        route_status = "needs_planning"
+    elif unboxed_picked > 0:
+        route_status = "needs_boxing"
+    elif boxes_open > 0:
+        route_status = "boxes_open"
+    else:
+        route_status = "in_progress"
+
+    route_status_label = {
+        "ready_for_dispatch": "Ready for Dispatch",
+        "exception":          "Exception",
+        "picking_in_progress":"Picking In Progress",
+        "needs_planning":     "Needs Planning",
+        "needs_boxing":       "Needs Boxing",
+        "boxes_open":         "Boxes Open",
+    }.get(route_status, "In Progress")
+
+    # ── Group items by stop ───────────────────────────────────────────────
+    groups_d = _col.OrderedDict()
+    await_items = []
+    for it in items:
+        seq = it["delivery_seq"]
+        if seq is None:
+            await_items.append(it)
+        else:
+            groups_d.setdefault(seq, []).append(it)
+
+    stop_groups = []
+    for seq in sorted(groups_d.keys()):
+        grp = groups_d[seq]
+        custs = sorted({i["customer_name"] for i in grp if i["customer_name"]})
+        stop_groups.append({
+            "stop_no":      int(seq),
+            "is_awaiting":  False,
+            "header":       f"Stop {int(seq)}" + (f" — {custs[0]}" if custs else ""),
+            "items":        grp,
+        })
+    if await_items:
+        stop_groups.append({
+            "stop_no":     None,
+            "is_awaiting": True,
+            "header":      "Awaiting Route Preparation",
+            "items":       await_items,
+        })
+
+    # ── Printed timestamp (Cairo) ─────────────────────────────────────────
+    try:
+        import pytz as _pytz
+        _now = _dt.datetime.now(_pytz.timezone("Africa/Cairo"))
+    except Exception:
+        _now = _dt.datetime.utcnow()
+    printed_at = _now.strftime("%d/%m/%Y %H:%M")
+    printed_by = current_user.username if current_user.is_authenticated else "—"
+
+    return {
+        "route_id":          route_id,
+        "delivery_date":     delivery_date,
+        "driver":            route_info["driver"],
+        "route_name":        route_info["route_name"],
+        "route_status":      route_status,
+        "route_status_label":route_status_label,
+        "kpi": {
+            "total":          total,
+            "picked":         picked,
+            "exception":      exc_count,
+            "pending":        pending,
+            "awaiting":       awaiting,
+            "unboxed_picked": unboxed_picked,
+            "box_count":      box_count,
+            "boxes_closed":   boxes_closed,
+            "boxes_open":     boxes_open,
+            "labels_printed": labels_prt,
+            "total_volume_l": round(tv_l, 2),
+            "total_weight_kg":round(tw_kg, 2),
+        },
+        "boxes":             boxes_out,
+        "all_boxes_closed":  box_count > 0 and boxes_closed == box_count and boxes_open == 0,
+        "stop_groups":       stop_groups,
+        "printed_at":        printed_at,
+        "printed_by":        printed_by,
+    }
+
+
+@cooler_bp.route("/route/<route_id>/<delivery_date>/status-print")
+@login_required
+@require_permission("cooler.manage_boxes")
+def route_status_print(route_id, delivery_date):
+    """Dedicated A4-landscape print view for the Cooler Route Status report."""
+    if _parse_date(delivery_date) is None:
+        return "Invalid delivery_date — expected YYYY-MM-DD", 400
+    data = get_cooler_route_status_data(route_id, delivery_date)
+    return render_template("cooler/route_status_print.html", **data)
+
+
 @cooler_bp.route("/route/<route_id>/<delivery_date>/labels")
 @login_required
 @require_permission("cooler.print_labels")

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cooler Route Status — Route {{ route_id }}</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9pt;
+      color: #000;
+      background: #fff;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── Screen-only toolbar ── */
+    .screen-toolbar {
+      background: #f0f0f0;
+      border-bottom: 1px solid #ccc;
+      padding: 8px 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .screen-toolbar .toolbar-title {
+      font-weight: bold;
+      font-size: 11pt;
+      flex: 1;
+    }
+    .btn {
+      display: inline-block;
+      padding: 5px 12px;
+      font-size: 9pt;
+      border-radius: 4px;
+      border: 1px solid #888;
+      background: #fff;
+      cursor: pointer;
+      text-decoration: none;
+      color: #000;
+    }
+    .btn-primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+    .btn-secondary { background: #6c757d; color: #fff; border-color: #6c757d; }
+
+    /* ── Report wrapper ── */
+    .report {
+      padding: 6mm;
+    }
+
+    /* ── Header ── */
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #000;
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+    }
+    .report-header .left-col .app-name {
+      font-size: 11pt;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+    .report-header .left-col .report-title {
+      font-size: 9pt;
+      color: #444;
+    }
+    .report-header .meta-table td {
+      font-size: 8.5pt;
+      padding: 1px 4px;
+      border: none;
+      vertical-align: top;
+    }
+    .report-header .meta-table td:first-child {
+      font-weight: bold;
+      color: #555;
+      padding-right: 6px;
+      white-space: nowrap;
+    }
+    .report-header .right-col {
+      text-align: right;
+      font-size: 8pt;
+      color: #444;
+      min-width: 130px;
+    }
+    .report-header .right-col div { margin-bottom: 2px; }
+
+    /* ── Dispatch ready banner ── */
+    .dispatch-banner {
+      border: 2px solid #155724;
+      background: #d4edda;
+      color: #155724;
+      text-align: center;
+      font-size: 12pt;
+      font-weight: bold;
+      padding: 5px 10px;
+      margin-bottom: 6px;
+      letter-spacing: 1px;
+    }
+
+    /* ── Section headings ── */
+    .section-heading {
+      font-size: 9pt;
+      font-weight: bold;
+      background: #ddd;
+      padding: 3px 5px;
+      margin: 7px 0 3px 0;
+      border-left: 3px solid #666;
+    }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+    th, td {
+      border: 1px solid #444;
+      padding: 2px 4px;
+      vertical-align: top;
+    }
+    th {
+      font-weight: bold;
+      background: #eee;
+      font-size: 8pt;
+      white-space: nowrap;
+    }
+    td { font-size: 8.5pt; }
+
+    /* ── KPI summary ── */
+    .kpi-table th { text-align: center; font-size: 7.5pt; }
+    .kpi-table td { text-align: center; font-size: 9pt; font-weight: bold; }
+
+    /* ── Box summary ── */
+    .box-table .col-box       { width: 6%; }
+    .box-table .col-status    { width: 7%; }
+    .box-table .col-type      { width: 9%; }
+    .box-table .col-stops     { width: 11%; }
+    .box-table .col-items     { width: 5%; text-align: center; }
+    .box-table .col-inv       { width: 5%; text-align: center; }
+    .box-table .col-cust      { width: 5%; text-align: center; }
+    .box-table .col-fill      { width: 6%; text-align: center; }
+    .box-table .col-weight    { width: 8%; text-align: right; }
+    .box-table .col-closedat  { width: 10%; }
+    .box-table .col-label     { width: 12%; }
+
+    /* ── Item status table ── */
+    .item-table .col-stop     { width: 5%; white-space: nowrap; }
+    .item-table .col-inv      { width: 11%; }
+    .item-table .col-cust     { width: 18%; }
+    .item-table .col-code     { width: 10%; }
+    .item-table .col-desc     { width: 29%; }
+    .item-table .col-qty      { width: 5%; text-align: center; }
+    .item-table .col-picked   { width: 7%; text-align: center; }
+    .item-table .col-box      { width: 7%; text-align: center; }
+    .item-table .col-boxst    { width: 8%; text-align: center; }
+
+    .item-table td.col-items  { text-align: center; }
+    .item-table td.col-inv    { text-align: center; }
+    .item-table td.col-cust   { text-align: center; }
+
+    .item-description {
+      max-width: 260px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .customer-name {
+      max-width: 170px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .small-text { font-size: 8pt; }
+
+    /* ── Stop group header ── */
+    .stop-group-header {
+      page-break-after: avoid;
+      break-after: avoid;
+      font-weight: bold;
+      background: #ddd;
+      font-size: 8.5pt;
+    }
+    .stop-group-header td {
+      border-color: #666;
+      padding: 2px 5px;
+    }
+
+    /* ── Status badges (text-based, no colour dependency) ── */
+    .badge-picked    { font-weight: bold; }
+    .badge-notpicked { font-style: italic; }
+    .badge-exception { font-weight: bold; text-decoration: underline; }
+    .badge-awaiting  { font-style: italic; color: #555; }
+    .badge-closed    { font-weight: bold; }
+    .badge-open      { font-style: italic; }
+    .badge-unboxed   { color: #555; }
+
+    /* ── Loading guidance ── */
+    .loading-guidance {
+      border: 1px solid #999;
+      background: #f9f9f9;
+      padding: 5px 8px;
+      font-size: 8.5pt;
+      margin-bottom: 6px;
+    }
+    .loading-guidance strong { font-size: 9pt; }
+
+    /* ── No items notice ── */
+    .notice {
+      border: 1px dashed #aaa;
+      background: #fafafa;
+      padding: 5px 8px;
+      font-size: 8.5pt;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    /* ── Footer ── */
+    .report-footer {
+      margin-top: 10px;
+      border-top: 1px solid #aaa;
+      padding-top: 3px;
+      font-size: 8pt;
+      color: #666;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Print overrides ── */
+    @media print {
+      .screen-toolbar { display: none !important; }
+      .report { padding: 0; }
+      body { font-size: 9pt; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Screen toolbar (hidden in print) ── -->
+  <div class="screen-toolbar">
+    <span class="toolbar-title">
+      Cooler Route Status Report — Route {{ route_id }} /
+      {{ delivery_date | string }}
+    </span>
+    <button class="btn btn-primary" onclick="window.print()">&#128424; Print</button>
+    <a class="btn btn-secondary"
+       href="{{ url_for('cooler.route_picking', route_id=route_id, delivery_date=delivery_date) }}">
+      &#8592; Back to Cooler Handover
+    </a>
+  </div>
+
+  <div class="report">
+
+    <!-- ══ 1. Header ══ -->
+    <div class="report-header">
+      <div class="left-col">
+        <div class="app-name">EPLATTFORMA WMDS</div>
+        <div class="report-title">Cooler Route Status Report</div>
+        <table class="meta-table" style="margin-top:4px; border:none;">
+          <tr>
+            <td>Route:</td>
+            <td><strong>{{ route_id }}</strong>{% if route_name %} — {{ route_name }}{% endif %}</td>
+          </tr>
+          <tr>
+            <td>Delivery Date:</td>
+            <td>
+              {% set _d = delivery_date | string %}
+              {% if _d | length == 10 %}
+                {{ _d[8:10] }}/{{ _d[5:7] }}/{{ _d[0:4] }}
+              {% else %}
+                {{ _d }}
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td>Driver:</td>
+            <td>{{ driver if driver else '—' }}</td>
+          </tr>
+          <tr>
+            <td>Route Status:</td>
+            <td><strong>{{ route_status_label }}</strong></td>
+          </tr>
+        </table>
+      </div>
+      <div class="right-col">
+        <div>Printed: {{ printed_at }}</div>
+        <div>Printed by: {{ printed_by }}</div>
+      </div>
+    </div>
+
+    <!-- ══ 2. Dispatch Ready Banner ══ -->
+    {% if route_status == 'ready_for_dispatch' %}
+    <div class="dispatch-banner">&#10003; COOLER READY FOR DISPATCH</div>
+    {% endif %}
+
+    <!-- ══ 3. KPI Summary ══ -->
+    <div class="section-heading">Status Summary</div>
+    <table class="kpi-table" style="margin-bottom:6px;">
+      <thead>
+        <tr>
+          <th>Cooler Items</th>
+          <th>Picked</th>
+          <th>Awaiting Prep</th>
+          <th>Unboxed Picked</th>
+          <th>Boxes Closed</th>
+          <th>Open Boxes</th>
+          <th>Exceptions</th>
+          <th>Total Volume</th>
+          <th>Total Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{{ kpi.total }}</td>
+          <td>{{ kpi.picked }} / {{ kpi.total }}</td>
+          <td>{{ kpi.awaiting }}</td>
+          <td>{{ kpi.unboxed_picked }}</td>
+          <td>{{ kpi.boxes_closed }} / {{ kpi.box_count }}</td>
+          <td>{{ kpi.boxes_open }}</td>
+          <td>{{ kpi.exception }}</td>
+          <td>{{ kpi.total_volume_l }} L</td>
+          <td>{{ kpi.total_weight_kg }} kg</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ══ 4. Box Summary ══ -->
+    <div class="section-heading">Cooler Boxes / Dispatch Handover</div>
+
+    {% if boxes %}
+    <table class="box-table" style="margin-bottom:6px;">
+      <thead>
+        <tr>
+          <th class="col-box">Box</th>
+          <th class="col-status">Status</th>
+          <th class="col-type">Box Type</th>
+          <th class="col-stops">Delivery Stops</th>
+          <th class="col-items">Items</th>
+          <th class="col-inv">Invoices</th>
+          <th class="col-cust">Customers</th>
+          <th class="col-fill">Fill %</th>
+          <th class="col-weight">Weight</th>
+          <th class="col-closedat">Closed At</th>
+          <th class="col-label">Label Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in boxes %}
+        <tr>
+          <td class="col-box"><strong>Box {{ b.box_no }}</strong></td>
+          <td class="col-status">{{ b.status }}</td>
+          <td class="col-type small-text">{{ b.box_type_name }}</td>
+          <td class="col-stops small-text">{{ b.stops_text }}</td>
+          <td class="col-items">{{ b.item_count }}</td>
+          <td class="col-inv">{{ b.inv_count }}</td>
+          <td class="col-cust">{{ b.cust_count }}</td>
+          <td class="col-fill">{{ b.fill_pct ~ '%' if b.fill_pct is not none else '—' }}</td>
+          <td class="col-weight">{{ '%.2f kg' | format(b.weight_kg) if b.weight_kg else '—' }}</td>
+          <td class="col-closedat small-text">{{ b.closed_at }}</td>
+          <td class="col-label small-text">{{ b.label_status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="notice">No cooler boxes have been planned yet.</div>
+    {% endif %}
+
+    <!-- ══ 5. Loading Guidance ══ -->
+    <div class="section-heading">Loading Guidance</div>
+    {% if all_boxes_closed and boxes %}
+    <div class="loading-guidance">
+      <strong>Loading order:</strong>
+      Box {{ boxes | map(attribute='box_no') | max }} contains the earliest delivery stops.
+      Load Box {{ boxes | map(attribute='box_no') | max }} first (deepest in vehicle).
+      Box 1 contains the last delivery stops and should stay most accessible (nearest exit).
+    </div>
+    {% else %}
+    <div class="loading-guidance" style="color:#555;">
+      Loading guidance will apply after all cooler boxes are closed.
+    </div>
+    {% endif %}
+
+    <!-- ══ 6. Route Item Status ══ -->
+    <div class="section-heading">Route Item Status</div>
+
+    {% if stop_groups %}
+    <table class="item-table">
+      <thead>
+        <tr>
+          <th class="col-stop">Stop</th>
+          <th class="col-inv">Invoice No</th>
+          <th class="col-cust">Customer Name</th>
+          <th class="col-code">Item Code</th>
+          <th class="col-desc">Item Description</th>
+          <th class="col-qty">Qty</th>
+          <th class="col-picked">Picked?</th>
+          <th class="col-box">Box</th>
+          <th class="col-boxst">Box Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for grp in stop_groups %}
+        {# Stop group header #}
+        <tr class="stop-group-header">
+          <td colspan="9">{{ grp.header }}</td>
+        </tr>
+        {# Item rows #}
+        {% for it in grp.items %}
+        <tr>
+          <td class="col-stop">
+            {% if not grp.is_awaiting %}{{ grp.stop_no }}{% else %}—{% endif %}
+          </td>
+          <td class="col-inv small-text">{{ it.invoice_no }}</td>
+          <td class="col-cust">
+            <span class="customer-name small-text">{{ it.customer_name }}</span>
+          </td>
+          <td class="col-code small-text">{{ it.item_code }}</td>
+          <td class="col-desc">
+            <span class="item-description small-text">{{ it.item_name or it.item_code }}</span>
+          </td>
+          <td class="col-qty">
+            {% if it.qty == it.qty | int %}{{ it.qty | int }}{% else %}{{ '%.1f' | format(it.qty) }}{% endif %}
+          </td>
+          <td class="col-picked">
+            {% if it.pick_label == 'Picked' %}
+              <span class="badge-picked">Picked</span>
+            {% elif it.pick_label == 'Exception' %}
+              <span class="badge-exception">Exception</span>
+            {% elif it.pick_label == 'Awaiting' %}
+              <span class="badge-awaiting">Awaiting</span>
+            {% else %}
+              <span class="badge-notpicked">Not Picked</span>
+            {% endif %}
+          </td>
+          <td class="col-box">
+            {{ 'Box ' ~ it.box_no if it.box_no is not none else '—' }}
+          </td>
+          <td class="col-boxst">
+            {% if it.box_st_text == 'Closed' %}
+              <span class="badge-closed">Closed</span>
+            {% elif it.box_st_text == 'Open' %}
+              <span class="badge-open">Open</span>
+            {% elif it.box_st_text == 'Unboxed' %}
+              <span class="badge-unboxed">Unboxed</span>
+            {% elif it.box_st_text == 'Cancelled' %}
+              <span>Cancelled</span>
+            {% else %}
+              {{ it.box_st_text }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="notice">No cooler items found for this route and date.</div>
+    {% endif %}
+
+    <!-- ══ 7. Footer ══ -->
+    <div class="report-footer">
+      <span>End of Cooler Route Status Report</span>
+      <span>Generated by EPLATTFORMA WMDS</span>
+    </div>
+
+  </div>{# /report #}
+
+</body>
+</html>

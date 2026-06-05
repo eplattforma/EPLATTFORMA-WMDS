@@ -205,9 +205,9 @@
 
                 {% endif %}
 
-                {# Print Route Status — opens detail page and auto-triggers print #}
+                {# Print Route Status — dedicated A4 print view #}
                 <a class="btn btn-sm btn-outline-secondary text-nowrap"
-                   href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}?autoprint=status"
+                   href="{{ url_for('cooler.route_status_print', route_id=r.route_id, delivery_date=r.delivery_date) }}"
                    target="_blank">
                   <i class="fas fa-print me-1"></i>Route Status
                 </a>
