@@ -964,7 +964,7 @@
 </div>
 
 {# ── Box plan styles ───────────────────────────────────────────────────────── #}
-{% if has_permission('cooler.manage_boxes') and (not boxes or picked_unboxed_count > 0) %}
+{% if has_permission('cooler.manage_boxes') and _is_locked and (not boxes or picked_unboxed_count > 0) %}
 <style>
   .bp-type-sel {
     color: #fff !important;
@@ -991,7 +991,7 @@
 </style>
 
 {# ── Box plan JavaScript ───────────────────────────────────────────────────── #}
-{% if has_permission('cooler.manage_boxes') and (not boxes or picked_unboxed_count > 0) %}
+{% if has_permission('cooler.manage_boxes') and _is_locked and (not boxes or picked_unboxed_count > 0) %}
 <script>
 (function () {
   'use strict';
