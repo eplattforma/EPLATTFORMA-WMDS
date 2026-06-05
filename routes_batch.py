@@ -3275,6 +3275,53 @@ def complete_batch_confirm(batch_id):
                         "cooler box %s closed by %s (batch %s)",
                         _cooler_box_id, current_user.username, batch_id,
                     )
+
+                    # ── Advance invoice status after box close ─────────────────
+                    # For cooler routes, closing the box IS the packing step.
+                    # Any invoice whose cooler_box_items are ALL in closed boxes
+                    # should be promoted from awaiting_packing → ready_for_dispatch.
+                    try:
+                        _box_invoice_nos = db.session.execute(
+                            text(
+                                "SELECT DISTINCT cbi.invoice_no "
+                                "FROM cooler_box_items cbi "
+                                "WHERE cbi.cooler_box_id = :bid"
+                            ),
+                            {"bid": int(_cooler_box_id)},
+                        ).fetchall()
+                        for (_inv_no,) in _box_invoice_nos:
+                            # Count any cooler_box_items for this invoice that are
+                            # NOT yet in a closed box
+                            _open_cbi = db.session.execute(
+                                text(
+                                    "SELECT COUNT(*) FROM cooler_box_items cbi "
+                                    "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+                                    "WHERE cbi.invoice_no = :inv "
+                                    "  AND cb.status != 'closed'"
+                                    "  AND cb.status != 'cancelled'"
+                                ),
+                                {"inv": _inv_no},
+                            ).scalar() or 0
+                            if _open_cbi == 0:
+                                _adv_inv = Invoice.query.filter_by(
+                                    invoice_no=_inv_no
+                                ).first()
+                                if _adv_inv and _adv_inv.status == 'awaiting_packing':
+                                    try:
+                                        from services.order_readiness import is_order_ready as _ior
+                                        _ready = _ior(_inv_no)
+                                    except Exception:
+                                        _ready = True
+                                    if _ready:
+                                        _adv_inv.status = 'ready_for_dispatch'
+                                        current_app.logger.info(
+                                            "invoice %s advanced to ready_for_dispatch"
+                                            " (all cooler boxes closed)", _inv_no
+                                        )
+                    except Exception as _adv_err:
+                        current_app.logger.warning(
+                            "invoice advance after box close failed: %s", _adv_err
+                        )
             except Exception as _close_err:
                 current_app.logger.warning(
                     "cooler box close failed for box %s: %s",
