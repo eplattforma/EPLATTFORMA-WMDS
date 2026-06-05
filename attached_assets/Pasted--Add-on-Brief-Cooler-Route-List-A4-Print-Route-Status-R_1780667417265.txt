@@ -1,0 +1,864 @@
+# Add-on Brief: Cooler Route List + A4 Print Route Status Report
+
+## Objective
+
+Keep `/cooler/route-list` as the Warehouse Cooler Packing & Handover overview page, and improve the **Print Route Status** report so it becomes a clean A4 warehouse handover document.
+
+The print report must work at every stage:
+
+* before boxes are planned;
+* during picking;
+* when boxes are open;
+* when all boxes are closed;
+* after the cooler route is ready for dispatch.
+
+---
+
+# 1. Keep `/cooler/route-list`
+
+Keep this link:
+
+```text
+/cooler/route-list
+```
+
+It is necessary as the **Warehouse Cooler Packing & Handover overview page**.
+
+It must not be used as the picker screen.
+
+The actual picker screen remains:
+
+```text
+/picker/batch/item/<batch_id>
+```
+
+The detail/handover page remains:
+
+```text
+/cooler/route/<route_id>/<delivery_date>
+```
+
+---
+
+# 2. Rename `/cooler/route-list`
+
+Rename the visible page title from:
+
+```text
+Cooler Routes Overview
+```
+
+to:
+
+```text
+Cooler Packing & Handover
+```
+
+Add subtitle:
+
+```text
+Warehouse overview of cooler routes, box planning, picking progress and dispatch handover.
+```
+
+---
+
+# 3. Add Warehouse menu item
+
+In the Warehouse menu, add a visible menu item:
+
+```text
+Warehouse → Cooler Packing
+```
+
+Link:
+
+```python
+url_for('cooler.route_list')
+```
+
+Make sure the Warehouse menu active state includes:
+
+```text
+cooler.route_list
+cooler.route_picking
+cooler.route_manifest
+cooler.box_label
+cooler.box_manifest
+```
+
+Optional alias:
+
+```text
+/warehouse/cooler
+```
+
+This can redirect to:
+
+```text
+/cooler/route-list
+```
+
+---
+
+# 4. `/cooler/route-list` data requirements
+
+The page must show **all route/date cooler work**, not only pending work.
+
+It must include:
+
+```text
+routes needing planning
+routes being picked
+routes with open boxes
+routes ready for dispatch
+completed closed boxes for today
+```
+
+Use both data sources:
+
+```text
+batch_pick_queue
+cooler_boxes
+cooler_box_items
+```
+
+Do not build the overview only from `batch_pick_queue`, because completed closed cooler boxes may disappear from the overview.
+
+Group by:
+
+```text
+route_id
+delivery_date
+```
+
+---
+
+# 5. `/cooler/route-list` row columns
+
+Each row should show:
+
+```text
+Route
+Delivery Date
+Driver
+Cooler Items
+Picked / Total
+Boxes Closed / Total
+Open Boxes
+Label Status
+Route Status
+Actions
+```
+
+Suggested status rules:
+
+```text
+Needs Planning
+- cooler items exist
+- no cooler boxes exist
+
+Picking In Progress
+- pending cooler queue items exist
+
+Needs Boxing
+- picked cooler items exist but are not assigned to boxes
+
+Boxes Open
+- at least one non-cancelled cooler box is open
+
+Ready for Dispatch
+- all cooler queue items picked
+- all non-cancelled boxes closed
+- no picked/unboxed items
+- no open boxes
+
+Exception
+- any cooler queue item has exception status
+```
+
+Actions per row:
+
+```text
+Open Handover
+Print Route Manifest
+Print Route Status
+Print All Labels
+```
+
+---
+
+# 6. Improve Print Route Status report
+
+## Preferred approach
+
+Create a dedicated print route instead of relying only on screen CSS.
+
+Add endpoint:
+
+```text
+/cooler/route/<route_id>/<delivery_date>/status-print
+```
+
+Suggested Flask route name:
+
+```python
+cooler.route_status_print
+```
+
+The existing “Print Route Status” button should open this dedicated print view.
+
+This report should be printable directly from browser and optimised for A4.
+
+---
+
+# 7. Print Route Status report purpose
+
+The report should answer:
+
+```text
+Which cooler items belong to this route?
+Which stop/customer/invoice do they belong to?
+Have they been picked?
+Which box are they in?
+Is the box open or closed?
+Are the cooler boxes ready for dispatch?
+```
+
+It should be useful for:
+
+```text
+warehouse manager
+picker supervisor
+driver handover
+dispatch checking
+reprinting after completion
+```
+
+---
+
+# 8. A4 format
+
+Use A4 landscape as the default because the item status table is wide.
+
+CSS:
+
+```css
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+```
+
+General print style:
+
+```css
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9pt;
+  color: #000;
+  background: #fff;
+}
+
+.no-print {
+  display: none !important;
+}
+
+.print-only {
+  display: block !important;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  display: table-header-group;
+}
+
+tr {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+th, td {
+  border: 1px solid #444;
+  padding: 3px 4px;
+  vertical-align: top;
+}
+
+th {
+  font-weight: bold;
+  background: #eee;
+}
+```
+
+Do not rely only on colours. Use text labels like:
+
+```text
+Picked
+Not Picked
+Open
+Closed
+Unboxed
+Exception
+```
+
+---
+
+# 9. Print report layout
+
+The report should have these sections:
+
+```text
+1. Header
+2. Route summary
+3. KPI / status summary
+4. Box summary / handover
+5. Loading guidance
+6. Route item status table
+7. Footer
+```
+
+---
+
+# 10. Header
+
+Top of page:
+
+```text
+EPLATTFORMA WMDS
+Cooler Route Status Report
+```
+
+Right side:
+
+```text
+Printed: DD/MM/YYYY HH:MM
+Printed by: username
+```
+
+Main details:
+
+```text
+Route: 430
+Delivery Date: 05/06/2026
+Driver: Driver Name
+Route Status: Ready for Dispatch
+```
+
+If driver is missing:
+
+```text
+Driver: —
+```
+
+---
+
+# 11. KPI / status summary
+
+Add a compact summary row.
+
+Fields:
+
+```text
+Cooler Items: 9
+Picked: 9 / 9
+Awaiting Preparation: 0
+Unboxed Picked Items: 0
+Boxes Closed: 3 / 3
+Open Boxes: 0
+Exceptions: 0
+Total Volume: 29.89 L
+Total Weight: 11.89 kg
+```
+
+Use compact boxes or a small table. Do not use large dashboard cards in print.
+
+Example:
+
+```text
+Cooler Items | Picked | Boxes Closed | Open Boxes | Unboxed | Exceptions | Volume | Weight
+9            | 9/9    | 3/3          | 0          | 0       | 0          | 29.89L | 11.89kg
+```
+
+---
+
+# 12. Box summary / dispatch handover
+
+Show this section if boxes exist.
+
+Title:
+
+```text
+Cooler Boxes / Dispatch Handover
+```
+
+Columns:
+
+```text
+Box
+Status
+Box Type
+Delivery Stops
+Items
+Invoices
+Customers
+Fill %
+Weight
+Closed At
+Label Status
+```
+
+Example row:
+
+```text
+Box 1 | Closed | Small | Stops 9 → 7 | 5 | 3 | 3 | 78% | 4.2kg | 10:42 | Printed 10:45
+```
+
+If label not printed:
+
+```text
+Not printed
+```
+
+If box is open:
+
+```text
+Open
+```
+
+If boxes do not exist yet, show:
+
+```text
+No cooler boxes have been planned yet.
+```
+
+---
+
+# 13. Loading guidance
+
+If all boxes are closed, show:
+
+```text
+Loading guidance:
+Box 1 contains the last delivery stops. Load Box 1 first / deeper in the vehicle.
+The highest box number contains the earlier delivery stops and should stay most accessible.
+```
+
+If boxes are not all closed, show:
+
+```text
+Loading guidance will apply after all cooler boxes are closed.
+```
+
+---
+
+# 14. Route Item Status table
+
+This is the main part of the report.
+
+Title:
+
+```text
+Route Item Status
+```
+
+Columns:
+
+```text
+Stop
+Invoice No
+Customer Name
+Item Code
+Item Description
+Qty
+Picked?
+Box
+Box Status
+```
+
+Do not include:
+
+```text
+Customer Code
+Queue ID
+```
+
+Group by stop sequence.
+
+Recommended group header:
+
+```text
+Stop 8 — CUSTOMER NAME
+```
+
+Then item rows under it.
+
+For print, all stop groups must be expanded. Do not print collapsed groups.
+
+---
+
+# 15. Column formatting for A4 landscape
+
+Use these approximate widths:
+
+```text
+Stop: 6%
+Invoice No: 12%
+Customer Name: 18%
+Item Code: 11%
+Item Description: 28%
+Qty: 5%
+Picked?: 8%
+Box: 6%
+Box Status: 6%
+```
+
+Item description should wrap to maximum two lines if possible.
+
+CSS suggestion:
+
+```css
+.item-description {
+  max-width: 260px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.customer-name {
+  max-width: 170px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+```
+
+Use smaller font for long text:
+
+```css
+.small-text {
+  font-size: 8pt;
+}
+```
+
+---
+
+# 16. Row display rules
+
+Picked column:
+
+```text
+Awaiting preparation
+Not picked
+Picked
+Exception
+```
+
+Box column:
+
+```text
+—
+Box 1
+Box 2
+Box 3
+```
+
+Box Status column:
+
+```text
+Unboxed
+Open
+Closed
+Cancelled
+```
+
+If no box assigned:
+
+```text
+Box = —
+Box Status = Unboxed
+```
+
+If picked but unboxed, make this very clear:
+
+```text
+Picked?
+Picked
+
+Box
+—
+
+Box Status
+Unboxed
+```
+
+If exception:
+
+```text
+Picked?
+Exception
+```
+
+If possible, include exception note in a smaller second line.
+
+---
+
+# 17. Page breaks
+
+Avoid breaking inside:
+
+```text
+box summary rows
+stop group headers
+item rows
+```
+
+CSS:
+
+```css
+.stop-group-header {
+  page-break-after: avoid;
+  break-after: avoid;
+  font-weight: bold;
+  background: #ddd;
+}
+
+.stop-group {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+```
+
+However, if a stop has many items and cannot fit on one page, allow it to continue, but repeat table headers.
+
+Use:
+
+```css
+thead {
+  display: table-header-group;
+}
+```
+
+---
+
+# 18. Footer
+
+Add footer at bottom or after table:
+
+```text
+End of Cooler Route Status Report
+```
+
+Optional:
+
+```text
+Generated by EPLATTFORMA WMDS
+```
+
+If page numbers are feasible with CSS/browser support, add:
+
+```text
+Page X
+```
+
+Do not spend too much time on page-number perfection if browser printing does not support it reliably.
+
+---
+
+# 19. Screen print button
+
+On `/cooler/route/<route_id>/<delivery_date>`, the Print Route Status button should link to:
+
+```python
+url_for('cooler.route_status_print', route_id=route_id, delivery_date=delivery_date)
+```
+
+Open in a new tab:
+
+```html
+target="_blank"
+```
+
+In the print page, add top-right buttons:
+
+```text
+Print
+Back to Cooler Handover
+```
+
+These buttons must be hidden in print using `.no-print`.
+
+The print page can auto-trigger print if preferred:
+
+```javascript
+window.addEventListener('load', function () {
+  // optional
+  // window.print();
+});
+```
+
+Do not auto-close the tab.
+
+---
+
+# 20. Backend data needed for print report
+
+In `blueprints/cooler_picking.py`, build a reusable function for route status data so both screen and print use the same source.
+
+Suggested helper:
+
+```python
+get_cooler_route_status_data(route_id, delivery_date)
+```
+
+It should return:
+
+```text
+route info
+driver
+delivery date
+route status
+KPI counts
+box summary
+item status rows
+warnings
+printed timestamp
+printed by
+```
+
+Item rows need:
+
+```text
+stop sequence
+invoice number
+customer name
+item code
+item description
+qty
+pick status
+box number
+box status
+exception note if available
+```
+
+Use LEFT JOIN:
+
+```text
+batch_pick_queue.id = cooler_box_items.queue_item_id
+cooler_box_items.cooler_box_id = cooler_boxes.id
+```
+
+Box summary needs:
+
+```text
+box_no
+status
+box type
+delivery stops covered
+item count
+invoice count
+customer count
+fill %
+weight
+closed_at
+closed_by
+label_printed_at
+```
+
+---
+
+# 21. Print report when no boxes exist
+
+If boxes are not planned yet, the report should still print.
+
+Box summary section:
+
+```text
+No cooler boxes have been planned yet.
+```
+
+Route Item Status should still show items with:
+
+```text
+Box = —
+Box Status = Unboxed
+```
+
+This allows warehouse to print the current state before planning.
+
+---
+
+# 22. Print report when route is completed
+
+When all picked and all boxes closed, make the status obvious:
+
+```text
+COOLER READY FOR DISPATCH
+```
+
+Show this near the top of the report.
+
+Summary should show:
+
+```text
+Picked: 9 / 9
+Boxes Closed: 3 / 3
+Open Boxes: 0
+Unboxed: 0
+Exceptions: 0
+```
+
+The first operational section should be:
+
+```text
+Cooler Boxes / Dispatch Handover
+```
+
+Then show the detailed item table.
+
+---
+
+# 23. Print report from `/cooler/route-list`
+
+In `/cooler/route-list`, each row should have:
+
+```text
+Print Route Status
+```
+
+This should open the same endpoint:
+
+```text
+/cooler/route/<route_id>/<delivery_date>/status-print
+```
+
+This allows warehouse to print directly from the overview page.
+
+---
+
+# 24. Acceptance criteria
+
+This implementation is complete when:
+
+1. `/cooler/route-list` remains available.
+2. Page title is renamed to `Cooler Packing & Handover`.
+3. Warehouse menu has visible `Cooler Packing` entry.
+4. `/cooler/route-list` shows active and completed cooler routes.
+5. `/cooler/route-list` uses both `batch_pick_queue` and `cooler_boxes`.
+6. Completed closed cooler boxes still appear after picking is done.
+7. Each route row has `Open Handover`, `Print Route Manifest`, `Print Route Status`, and `Print All Labels`.
+8. `Print Route Status` opens a dedicated A4-optimised print view.
+9. Print report works before boxes are planned.
+10. Print report works during picking.
+11. Print report works after all boxes are closed.
+12. Print report uses A4 landscape.
+13. Print report shows route header, driver, delivery date, printed timestamp and printed by.
+14. Print report shows compact KPI summary.
+15. Print report shows box summary / dispatch handover.
+16. Print report shows loading guidance when boxes are closed.
+17. Print report shows Route Item Status grouped by stop.
+18. Print report does not show Customer Code or Queue ID.
+19. Long item descriptions wrap cleanly.
+20. Table headers repeat on each printed page.
+21. Buttons/navigation are hidden in print.
+22. The printout is readable on A4 without cutting off columns.

@@ -1309,6 +1309,10 @@
   var btnPrintFinal = document.getElementById('btnPrintStatusFinal');
   if (btnPrintFinal) btnPrintFinal.addEventListener('click', doPrintRouteStatus);
 
+  /* Auto-print when opened with ?autoprint=status from the overview page */
+  if (new URLSearchParams(window.location.search).get('autoprint') === 'status') {
+    setTimeout(doPrintRouteStatus, 800);
+  }
 
 })();
 </script>

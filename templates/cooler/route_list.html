@@ -1,181 +1,226 @@
 {% extends "base.html" %}
 {% block title %}Cooler Packing & Handover{% endblock %}
 {% block content %}
-<div class="container my-4">
-  <h2 class="mb-1"><i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing &amp; Handover</h2>
-  <p class="text-muted mb-3 small">Warehouse cooler packing based on delivery stop sequence.</p>
+<div class="container-fluid my-4 px-3 px-md-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
+    <h2 class="mb-0"><i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing &amp; Handover</h2>
+  </div>
+  <p class="text-muted mb-3 small">All cooler packing work — active, in-progress and completed today.</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="alert alert-{{ 'info' if cat == 'info' else cat }} alert-dismissible fade show">
+        {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
 
   {% if not routes %}
-    <div class="alert alert-info">No cooler packing work found.</div>
+    <div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>No cooler packing work found.</div>
   {% else %}
 
-    {# ── Count tabs ──────────────────────────────────────────────────────── #}
-    {% set ns_all = namespace(count=0) %}
-    {% set ns_na  = namespace(count=0) %}
-    {% set ns_rd  = namespace(count=0) %}
-    {% set ns_ct  = namespace(count=0) %}
-    {% for r in routes %}
-      {% set ns_all.count = ns_all.count + 1 %}
-      {% if r.route_status == 'ready_for_dispatch' %}
-        {% set ns_rd.count = ns_rd.count + 1 %}
-      {% else %}
-        {% set ns_na.count = ns_na.count + 1 %}
-      {% endif %}
-      {% if r.delivery_date == today_str %}{% set ns_ct.count = ns_ct.count + 1 %}{% endif %}
-    {% endfor %}
+  {# ── Tab counts ─────────────────────────────────────────────────────────── #}
+  {% set ns_na = namespace(count=0) %}
+  {% set ns_rd = namespace(count=0) %}
+  {% set ns_ct = namespace(count=0) %}
+  {% for r in routes %}
+    {% if r.route_status == 'ready_for_dispatch' %}{% set ns_rd.count = ns_rd.count + 1 %}
+    {% else %}{% set ns_na.count = ns_na.count + 1 %}{% endif %}
+    {% if r.delivery_date == today_str %}{% set ns_ct.count = ns_ct.count + 1 %}{% endif %}
+  {% endfor %}
 
-    <ul class="nav nav-pills mb-3 gap-1 flex-wrap" id="coolerFilterTabs">
-      <li class="nav-item">
-        <button class="nav-link active" data-filter="all">
-          All <span class="badge bg-secondary ms-1">{{ ns_all.count }}</span>
-        </button>
-      </li>
-      {% if ns_na.count %}
-      <li class="nav-item">
-        <button class="nav-link" data-filter="needs_action">
-          Needs Action <span class="badge bg-warning text-dark ms-1">{{ ns_na.count }}</span>
-        </button>
-      </li>
-      {% endif %}
-      {% if ns_rd.count %}
-      <li class="nav-item">
-        <button class="nav-link" data-filter="ready">
-          Ready for Dispatch <span class="badge bg-success ms-1">{{ ns_rd.count }}</span>
-        </button>
-      </li>
-      {% endif %}
-      {% if ns_ct.count %}
-      <li class="nav-item">
-        <button class="nav-link" data-filter="today">
-          Completed Today <span class="badge bg-info text-dark ms-1">{{ ns_ct.count }}</span>
-        </button>
-      </li>
-      {% endif %}
-    </ul>
+  <ul class="nav nav-pills mb-3 gap-1 flex-wrap" id="coolerFilterTabs">
+    <li class="nav-item">
+      <button class="nav-link active" data-filter="all">
+        All <span class="badge bg-secondary ms-1">{{ routes|length }}</span>
+      </button>
+    </li>
+    {% if ns_na.count %}
+    <li class="nav-item">
+      <button class="nav-link" data-filter="needs_action">
+        Needs Action <span class="badge bg-warning text-dark ms-1">{{ ns_na.count }}</span>
+      </button>
+    </li>
+    {% endif %}
+    {% if ns_rd.count %}
+    <li class="nav-item">
+      <button class="nav-link" data-filter="ready">
+        Ready for Dispatch <span class="badge bg-success ms-1">{{ ns_rd.count }}</span>
+      </button>
+    </li>
+    {% endif %}
+    {% if ns_ct.count %}
+    <li class="nav-item">
+      <button class="nav-link" data-filter="today">
+        Today <span class="badge bg-info text-dark ms-1">{{ ns_ct.count }}</span>
+      </button>
+    </li>
+    {% endif %}
+  </ul>
 
-    {# ── Route table ─────────────────────────────────────────────────────── #}
-    <div class="card shadow-sm border-0">
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" id="coolerRouteTable">
-          <thead class="table-light">
-            <tr>
-              <th>Route</th>
-              <th>Date</th>
-              <th>Driver</th>
-              <th class="text-center">Items</th>
-              <th class="text-center">Boxes</th>
-              <th class="text-center">Labels</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in routes %}
-            <tr class="route-row"
-                data-status="{{ r.route_status }}"
-                data-date="{{ r.delivery_date }}"
-                data-today="{{ today_str }}">
-              <td>
-                <span class="fw-bold">
-                  <i class="fas fa-truck me-1 text-info"></i>{{ r.route_id }}
+  <div class="card shadow-sm border-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" id="coolerRouteTable" style="font-size:0.9rem;">
+        <thead class="table-light">
+          <tr>
+            <th>Route</th>
+            <th>Date</th>
+            <th>Driver</th>
+            <th class="text-center">Cooler Items</th>
+            <th class="text-center">Picked&nbsp;/&nbsp;Total</th>
+            <th class="text-center">Boxes&nbsp;Closed&nbsp;/&nbsp;Total</th>
+            <th class="text-center">Open Boxes</th>
+            <th class="text-center">Labels</th>
+            <th>Status</th>
+            <th class="d-print-none">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in routes %}
+          <tr class="route-row" data-status="{{ r.route_status }}" data-date="{{ r.delivery_date }}">
+
+            {# Route #}
+            <td>
+              <span class="fw-bold text-nowrap">
+                <i class="fas fa-truck me-1 text-info"></i>{{ r.route_id }}
+              </span>
+              {% if r.route_name %}<div class="small text-muted">{{ r.route_name }}</div>{% endif %}
+            </td>
+
+            {# Date #}
+            <td class="small text-nowrap {{ 'fw-semibold text-primary' if r.delivery_date == today_str else '' }}">
+              {{ r.delivery_date }}
+              {% if r.delivery_date == today_str %}<div class="small text-info">Today</div>{% endif %}
+            </td>
+
+            {# Driver #}
+            <td class="small">{{ r.driver or '<span class="text-muted">—</span>'|safe }}</td>
+
+            {# Cooler Items total #}
+            <td class="text-center">
+              {% if r.total > 0 %}
+                <span class="fw-semibold">{{ r.total }}</span>
+                {% if r.exception > 0 %}<div class="small text-danger">{{ r.exception }} exc.</div>{% endif %}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+
+            {# Picked / Total #}
+            <td class="text-center">
+              {% if r.total > 0 %}
+                <span class="{{ 'text-success fw-semibold' if r.picked == r.total else '' }}">
+                  {{ r.picked }}&nbsp;/&nbsp;{{ r.total }}
                 </span>
-                {% if r.route_name %}
-                <div class="small text-muted">{{ r.route_name }}</div>
+                {% if r.picked == r.total %}
+                  <div class="small text-success"><i class="fas fa-check"></i></div>
                 {% endif %}
-              </td>
-              <td class="text-nowrap small">{{ r.delivery_date }}</td>
-              <td class="small">{{ r.driver or '—' }}</td>
-              <td class="text-center">
-                {% if r.total > 0 %}
-                  <span class="fw-semibold {{ 'text-success' if r.picked == r.total else '' }}">
-                    {{ r.picked }}/{{ r.total }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+
+            {# Boxes Closed / Total #}
+            <td class="text-center">
+              {% if r.box_count > 0 %}
+                <span class="{{ 'text-success fw-semibold' if r.boxes_closed == r.box_count else '' }}">
+                  {{ r.boxes_closed }}&nbsp;/&nbsp;{{ r.box_count }}
+                </span>
+              {% else %}
+                <span class="text-muted small">no boxes</span>
+              {% endif %}
+            </td>
+
+            {# Open Boxes #}
+            <td class="text-center">
+              {% if r.boxes_open > 0 %}
+                <span class="badge bg-primary">{{ r.boxes_open }} open</span>
+              {% elif r.box_count > 0 %}
+                <span class="text-success small"><i class="fas fa-check-circle"></i></span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+
+            {# Label Status #}
+            <td class="text-center small">
+              {% if r.box_count > 0 %}
+                {% if r.labels_printed == r.box_count %}
+                  <span class="text-success fw-semibold">
+                    <i class="fas fa-tags me-1"></i>{{ r.labels_printed }}/{{ r.box_count }}
                   </span>
-                  {% if r.exception > 0 %}
-                  <div class="small text-danger">{{ r.exception }} exception</div>
-                  {% endif %}
+                {% elif r.labels_printed > 0 %}
+                  <span class="text-warning">{{ r.labels_printed }}/{{ r.box_count }}</span>
                 {% else %}
-                  <span class="text-muted">—</span>
+                  <span class="text-muted">0/{{ r.box_count }}</span>
                 {% endif %}
-              </td>
-              <td class="text-center">
-                {% if r.box_count > 0 %}
-                  <span class="fw-semibold {{ 'text-success' if r.boxes_closed == r.box_count else '' }}">
-                    {{ r.boxes_closed }}/{{ r.box_count }}
-                  </span>
-                  {% if r.boxes_open > 0 %}
-                  <div class="small text-primary">{{ r.boxes_open }} open</div>
-                  {% endif %}
-                {% else %}
-                  <span class="text-muted small">none</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+
+            {# Route Status #}
+            <td class="text-nowrap">
+              {% if r.route_status == 'ready_for_dispatch' %}
+                <span class="badge bg-success"><i class="fas fa-check-circle me-1"></i>Ready for Dispatch</span>
+              {% elif r.route_status == 'picking_in_progress' %}
+                <span class="badge bg-info text-dark"><i class="fas fa-warehouse me-1"></i>Picking</span>
+              {% elif r.route_status == 'needs_planning' %}
+                <span class="badge bg-warning text-dark"><i class="fas fa-layer-group me-1"></i>Needs Planning</span>
+              {% elif r.route_status == 'boxes_open' %}
+                <span class="badge bg-primary"><i class="fas fa-box-open me-1"></i>Boxes Open</span>
+              {% elif r.route_status == 'exception' %}
+                <span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i>Exception</span>
+              {% else %}
+                <span class="badge bg-secondary">In Progress</span>
+              {% endif %}
+            </td>
+
+            {# Actions #}
+            <td class="d-print-none">
+              <div class="d-flex gap-1 flex-wrap">
+
+                {# Open Handover — always visible #}
+                <a class="btn btn-sm btn-primary text-nowrap"
+                   href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}">
+                  <i class="fas fa-snowflake me-1"></i>Open
+                </a>
+
+                {% if has_permission('cooler.print_labels') and r.box_count > 0 %}
+
+                {# Print Route Manifest #}
+                <a class="btn btn-sm btn-outline-secondary text-nowrap"
+                   href="{{ url_for('cooler.route_manifest', route_id=r.route_id, delivery_date=r.delivery_date) }}"
+                   target="_blank">
+                  <i class="fas fa-file-pdf me-1"></i>Manifest
+                </a>
+
+                {# Print All Labels #}
+                <a class="btn btn-sm btn-outline-secondary text-nowrap"
+                   href="{{ url_for('cooler.route_labels', route_id=r.route_id, delivery_date=r.delivery_date) }}"
+                   target="_blank">
+                  <i class="fas fa-tags me-1"></i>Labels
+                </a>
+
                 {% endif %}
-              </td>
-              <td class="text-center small">
-                {% if r.box_count > 0 %}
-                  {% if r.labels_printed == r.box_count %}
-                    <span class="text-success fw-semibold">
-                      <i class="fas fa-check-circle me-1"></i>{{ r.labels_printed }}/{{ r.box_count }}
-                    </span>
-                  {% elif r.labels_printed > 0 %}
-                    <span class="text-warning">{{ r.labels_printed }}/{{ r.box_count }}</span>
-                  {% else %}
-                    <span class="text-muted">0/{{ r.box_count }}</span>
-                  {% endif %}
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if r.route_status == 'ready_for_dispatch' %}
-                  <span class="badge bg-success">
-                    <i class="fas fa-check-circle me-1"></i>Ready for Dispatch
-                  </span>
-                {% elif r.route_status == 'picking_in_progress' %}
-                  <span class="badge bg-info text-dark">
-                    <i class="fas fa-warehouse me-1"></i>Picking In Progress
-                  </span>
-                {% elif r.route_status == 'needs_planning' %}
-                  <span class="badge bg-warning text-dark">
-                    <i class="fas fa-layer-group me-1"></i>Needs Planning
-                  </span>
-                {% elif r.route_status == 'boxes_open' %}
-                  <span class="badge bg-primary">
-                    <i class="fas fa-box-open me-1"></i>Boxes Open
-                  </span>
-                {% elif r.route_status == 'exception' %}
-                  <span class="badge bg-danger">
-                    <i class="fas fa-exclamation-triangle me-1"></i>Exception
-                  </span>
-                {% else %}
-                  <span class="badge bg-secondary">In Progress</span>
-                {% endif %}
-              </td>
-              <td>
-                <div class="d-flex gap-1 flex-wrap">
-                  <a class="btn btn-sm btn-primary text-nowrap"
-                     href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}">
-                    <i class="fas fa-snowflake me-1"></i>
-                    {{ 'Open Handover' if r.route_status == 'ready_for_dispatch' else 'Prepare Boxes' }}
-                  </a>
-                  {% if has_permission('cooler.print_labels') and r.box_count > 0 %}
-                  <a class="btn btn-sm btn-outline-secondary text-nowrap"
-                     href="{{ url_for('cooler.route_labels', route_id=r.route_id, delivery_date=r.delivery_date) }}"
-                     target="_blank">
-                    <i class="fas fa-tags me-1"></i>Labels
-                  </a>
-                  <a class="btn btn-sm btn-outline-secondary text-nowrap"
-                     href="{{ url_for('cooler.route_manifest', route_id=r.route_id, delivery_date=r.delivery_date) }}"
-                     target="_blank">
-                    <i class="fas fa-file-pdf me-1"></i>Manifest
-                  </a>
-                  {% endif %}
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+
+                {# Print Route Status — opens detail page and auto-triggers print #}
+                <a class="btn btn-sm btn-outline-secondary text-nowrap"
+                   href="{{ url_for('cooler.route_picking', route_id=r.route_id, delivery_date=r.delivery_date) }}?autoprint=status"
+                   target="_blank">
+                  <i class="fas fa-print me-1"></i>Route Status
+                </a>
+
+              </div>
+            </td>
+
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </div>
 
   {% endif %}
 </div>
@@ -192,11 +237,10 @@
       rows.forEach(function (row) {
         var st   = row.dataset.status;
         var date = row.dataset.date;
-        var today = row.dataset.today;
         if (f === 'all')          { row.style.display = ''; return; }
         if (f === 'needs_action') { row.style.display = st !== 'ready_for_dispatch' ? '' : 'none'; return; }
         if (f === 'ready')        { row.style.display = st === 'ready_for_dispatch' ? '' : 'none'; return; }
-        if (f === 'today')        { row.style.display = date === today ? '' : 'none'; return; }
+        if (f === 'today')        { row.style.display = date === '{{ today_str }}' ? '' : 'none'; return; }
         row.style.display = 'none';
       });
     });
