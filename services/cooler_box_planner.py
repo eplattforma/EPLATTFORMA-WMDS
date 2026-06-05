@@ -356,12 +356,12 @@ def generate_box_plan(
                        "missing": sub2_miss, "items": sub2_items}
             continue
 
-        # Try to add stop to current slot
+        # Try to add stop to current slot — seal when fill ceiling is reached
         if cur is not None:
             new_vol = cur["vol"] + svol
             new_wt  = cur["wt"]  + swt
-            vol_ok  = largest_cap <= 0 or new_vol <= largest_cap
-            wt_ok   = largest_wt  <= 0 or new_wt  <= largest_wt
+            vol_ok  = fill_ceil <= 0 or new_vol <= fill_ceil
+            wt_ok   = largest_wt <= 0 or new_wt  <= largest_wt
             if vol_ok and wt_ok:
                 cur["seqs"].append(seq)
                 cur["vol"]    = new_vol
@@ -380,8 +380,13 @@ def generate_box_plan(
     plan = []
 
     def _pick_box_type(V, W):
-        """Pick the best available box type for volume V and weight W."""
-        max_cap_for_target = (V / target_fill_pct) if target_fill_pct > 0 else float("inf")
+        """Pick the best available box type for volume V and weight W.
+
+        MAX fill semantics: target_fill_pct is the *maximum* allowed fill.
+        Pick the smallest box whose usable capacity >= V / target_fill_pct so
+        that fill% <= target.  Falls back to smallest that physically holds V.
+        """
+        min_cap_for_target = (V / target_fill_pct) if target_fill_pct > 0 else V
 
         def _avail(bt):
             if available_type_counts is None:
@@ -390,18 +395,18 @@ def generate_box_plan(
 
         asc = sorted(box_types, key=lambda t: t["usable_capacity"])
 
-        # 1. Hits fill target + fits + available
+        # 1. Respects max fill target + fits + available
+        #    (cap >= V/target  →  fill = V/cap <= target)
         candidates = [
             bt for bt in asc
-            if bt["usable_capacity"] >= V
-            and bt["usable_capacity"] <= max_cap_for_target
+            if bt["usable_capacity"] >= min_cap_for_target
             and (bt["max_weight_kg"] <= 0 or bt["max_weight_kg"] >= W)
             and _avail(bt)
         ]
         if candidates:
             return candidates[0]
 
-        # 2. Physically fits + available (ignore fill target)
+        # 2. Physically fits + available (ignore fill target — nothing large enough)
         fits_avail = [
             bt for bt in asc
             if bt["usable_capacity"] >= V
