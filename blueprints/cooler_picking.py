@@ -382,7 +382,8 @@ def route_list():
             "SELECT route_id, delivery_date::text, "
             "       COUNT(*) FILTER (WHERE status != 'cancelled') AS total, "
             "       COUNT(*) FILTER (WHERE status = 'closed')     AS closed, "
-            "       COUNT(*) FILTER (WHERE status = 'open')       AS open_count "
+            "       COUNT(*) FILTER (WHERE status = 'open')       AS open_count, "
+            "       COUNT(*) FILTER (WHERE label_printed_at IS NOT NULL AND status != 'cancelled') AS labels_printed "
             "FROM cooler_boxes "
             "GROUP BY route_id, delivery_date"
         )).fetchall()
@@ -393,9 +394,10 @@ def route_list():
     for r in box_route_rows:
         key = (r[0], r[1])
         box_stats[key] = {
-            "total":  int(r[2] or 0),
-            "closed": int(r[3] or 0),
-            "open":   int(r[4] or 0),
+            "total":           int(r[2] or 0),
+            "closed":          int(r[3] or 0),
+            "open":            int(r[4] or 0),
+            "labels_printed":  int(r[5] or 0),
         }
 
     # ── Step 3: union of all known (route_id, delivery_date) keys ────────
@@ -455,18 +457,19 @@ def route_list():
             route_status = "in_progress"
 
         routes.append({
-            "route_id":     key[0],
-            "delivery_date": key[1],
-            "pending":      v["pending"],
-            "picked":       v["picked"],
-            "exception":    v["exception"],
-            "total":        v["total"],
-            "box_count":    bs["total"],
-            "boxes_closed": bs["closed"],
-            "boxes_open":   bs["open"],
-            "driver":       ri.get("driver", ""),
-            "route_name":   ri.get("name", ""),
-            "route_status": route_status,
+            "route_id":        key[0],
+            "delivery_date":   key[1],
+            "pending":         v["pending"],
+            "picked":          v["picked"],
+            "exception":       v["exception"],
+            "total":           v["total"],
+            "box_count":       bs["total"],
+            "boxes_closed":    bs["closed"],
+            "boxes_open":      bs["open"],
+            "labels_printed":  bs.get("labels_printed", 0),
+            "driver":          ri.get("driver", ""),
+            "route_name":      ri.get("name", ""),
+            "route_status":    route_status,
         })
 
     # ── Step 6: pre-pick estimates (only for routes with queue items) ─────
@@ -495,11 +498,15 @@ def route_list():
     except Exception:
         box_types_list = []
 
+    import datetime as _dt
+    _today_str = _dt.date.today().strftime("%Y-%m-%d")
+
     return render_template(
         "cooler/route_list.html",
         routes=routes,
         estimates=estimates,
         box_types=box_types_list,
+        today_str=_today_str,
     )
 
 

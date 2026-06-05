@@ -352,7 +352,7 @@
                     {% elif _qbox.obj and _qbox.obj.status == 'closed' %}{% set _rfilters = 'all picked box-closed' %}
                     {% else %}{% set _rfilters = 'all picked' %}{% endif %}
                   {% elif q.status == 'exception' %}
-                    {% set _rfilters = 'all not-picked' %}
+                    {% set _rfilters = 'all exception' %}
                   {% else %}
                     {% if _qbn is none %}{% set _rfilters = 'all not-picked' %}
                     {% elif _qbox.obj and _qbox.obj.status == 'open' %}{% set _rfilters = 'all not-picked box-open' %}
@@ -488,13 +488,17 @@
           </div>
         </div>
         <div class="col-md-3 col-sm-6">
-          <label class="form-label fw-bold small mb-1">Max fill target</label>
+          <label class="form-label fw-bold small mb-1">Max Fill %</label>
           <select id="fillTargetSelect" class="form-select form-select-sm">
-            <option value="0.70">70 %</option>
-            <option value="0.80" selected>80 %</option>
-            <option value="0.85">85 %</option>
-            <option value="0.90">90 %</option>
+            <option value="0.70">70%</option>
+            <option value="0.75">75%</option>
+            <option value="0.80" selected>80%</option>
+            <option value="0.85">85%</option>
+            <option value="0.90">90%</option>
+            <option value="0.95">95%</option>
+            <option value="1.00">100%</option>
           </select>
+          <div class="small text-muted mt-1">Use as few boxes as possible without exceeding this fill %.</div>
         </div>
         <div class="col-auto d-flex gap-2">
           <button type="button" class="btn btn-primary" id="btnGetRecommendation">
@@ -568,108 +572,139 @@
       </div>
       {% endif %}
 
-      <div class="row g-3">
-        {% for b in boxes %}
-        {% set _bitems = box_items_by_box.get(b.id, []) %}
-        <div class="col-md-6 col-xl-4">
-          <div class="card h-100 shadow-sm {{ 'border-primary' if b.status == 'open' else 'border-success' if b.status == 'closed' else 'border-danger' }}">
-            <div class="card-header py-2 d-flex justify-content-between align-items-center
-                {{ 'bg-primary text-white' if b.status == 'open' else 'bg-success text-white' if b.status == 'closed' else 'bg-danger text-white' }}">
-              <span class="fw-bold">Box {{ b.box_no }}</span>
-              <div class="d-flex align-items-center gap-2 small">
-                {% if b.status == 'open' %}<span class="badge bg-light text-primary">Open</span>
-                {% elif b.status == 'closed' %}<span class="badge bg-light text-success">Closed</span>
-                {% elif b.status == 'cancelled' %}<span class="badge bg-light text-danger">Cancelled</span>
-                {% else %}<span class="badge bg-light text-dark">{{ b.status }}</span>{% endif %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" style="font-size:0.9rem;">
+          <thead class="table-light">
+            <tr>
+              <th>Box</th>
+              <th>Status</th>
+              <th>Type</th>
+              <th>Delivery Stops</th>
+              <th class="text-center">Items</th>
+              <th style="min-width:110px;">Fill</th>
+              <th class="text-center">Weight</th>
+              <th>Closed</th>
+              <th>Label</th>
+              <th class="d-print-none">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in boxes %}
+            {% set _bitems = box_items_by_box.get(b.id, []) %}
+            <tr class="{{ 'table-success' if b.status == 'closed' else '' }}">
+              <td class="fw-bold text-nowrap">
+                <i class="fas fa-box me-1 {{ 'text-success' if b.status == 'closed' else 'text-primary' if b.status == 'open' else 'text-secondary' }}"></i>Box {{ b.box_no }}
+              </td>
+              <td>
+                {% if b.status == 'open' %}<span class="badge bg-primary">Open</span>
+                {% elif b.status == 'closed' %}<span class="badge bg-success"><i class="fas fa-lock me-1"></i>Closed</span>
+                {% elif b.status == 'cancelled' %}<span class="badge bg-secondary">Cancelled</span>
+                {% else %}<span class="badge bg-secondary">{{ b.status|title }}</span>{% endif %}
+              </td>
+              <td class="small text-muted text-nowrap">{{ b.box_type_name or '—' }}</td>
+              <td class="small text-nowrap">
                 {% if b.first_stop_sequence is not none and b.last_stop_sequence is not none %}
-                <span class="opacity-75">
                   {% if b.first_stop_sequence == b.last_stop_sequence %}Stop {{ b.last_stop_sequence|int }}
                   {% else %}Stops {{ b.last_stop_sequence|int }}→{{ b.first_stop_sequence|int }}{% endif %}
-                </span>
-                {% endif %}
-              </div>
-            </div>
-            <div class="card-body py-2">
-              <div class="row g-1 mb-2" style="font-size:0.85rem;">
-                {% if b.box_type_name %}<div class="col-6 text-muted"><i class="fas fa-box me-1"></i>{{ b.box_type_name }}</div>{% endif %}
-                <div class="col-6 text-muted"><i class="fas fa-list me-1"></i>{{ b.item_count }} item(s)</div>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-center small">{{ b.item_count }}</td>
+              <td>
                 {% if b.fill_pct is not none %}
-                <div class="col-6">
-                  <span class="{{ 'text-danger' if b.fill_pct > 100 else 'text-warning' if b.fill_pct > 85 else 'text-success' }}">
-                    <i class="fas fa-fill-drip me-1"></i>{{ b.fill_pct }}% full
-                  </span>
+                <div class="d-flex align-items-center gap-1">
+                  <div class="progress flex-grow-1" style="height:6px;min-width:40px;">
+                    <div class="progress-bar {{ 'bg-danger' if b.fill_pct > 100 else 'bg-warning' if b.fill_pct > 85 else 'bg-success' }}"
+                         style="width:{{ [b.fill_pct, 100]|min }}%;"></div>
+                  </div>
+                  <span class="small {{ 'text-danger fw-bold' if b.fill_pct > 100 else 'text-muted' }}">{{ b.fill_pct }}%</span>
                 </div>
-                {% endif %}
-                {% if b.fill_weight_kg is not none and b.fill_weight_kg > 0 %}
-                <div class="col-6 text-muted"><i class="fas fa-weight-hanging me-1"></i>{{ '%.1f'|format(b.fill_weight_kg) }} kg</div>
-                {% endif %}
-              </div>
-              {% if b.fill_pct is not none %}
-              <div class="progress mb-2" style="height:4px;">
-                <div class="progress-bar {{ 'bg-danger' if b.fill_pct > 100 else 'bg-warning' if b.fill_pct > 85 else 'bg-success' }}"
-                     style="width:{{ [b.fill_pct, 100]|min }}%;"></div>
-              </div>
-              {% endif %}
-              {% if b.status == 'closed' and b.closed_by %}
-              <div class="small text-muted mb-1"><i class="fas fa-lock me-1"></i>Closed by <strong>{{ b.closed_by }}</strong></div>
-              {% endif %}
-              {% if b.label_printed_at %}
-              <div class="small text-success mb-1"><i class="fas fa-tag me-1"></i>Label printed {{ b.label_printed_at.strftime('%H:%M') if b.label_printed_at.strftime is defined else b.label_printed_at }}</div>
-              {% elif b.status == 'closed' %}
-              <div class="small text-muted mb-1"><i class="far fa-tag me-1"></i>Label not printed</div>
-              {% endif %}
-              {% if _bitems %}
-              <button class="btn btn-outline-secondary btn-sm w-100 d-print-none"
-                      data-bs-toggle="collapse" data-bs-target="#boxItems{{ b.id }}">
-                <i class="fas fa-list-ul me-1"></i>View {{ _bitems | length }} Items
-              </button>
-              <div class="collapse mt-2" id="boxItems{{ b.id }}">
-                <div class="table-responsive">
-                  <table class="table table-sm mb-0" style="font-size:0.82rem;">
-                    <thead class="table-light">
-                      <tr><th>Invoice</th><th>Item</th><th>Description</th><th class="text-end">Qty</th><th>Status</th></tr>
-                    </thead>
-                    <tbody>
-                      {% for it in _bitems %}
-                      <tr>
-                        <td>{{ it.invoice_no[-5:] if it.invoice_no else '—' }}</td>
-                        <td class="fw-semibold">{{ it.item_code }}</td>
-                        <td class="text-muted">{{ it.item_name or '' }}</td>
-                        <td class="text-end">×{{ it.qty|int }}</td>
-                        <td>
-                          {% if it.status == 'pending' %}<span class="badge bg-warning text-dark">Not picked</span>
-                          {% elif it.status == 'exception' or (it.picked_qty is not none and it.picked_qty == 0) %}<span class="badge bg-danger">Exception</span>
-                          {% endif %}
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-center small text-muted text-nowrap">
+                {% if b.fill_weight_kg %}{{ '%.1f'|format(b.fill_weight_kg) }} kg{% else %}—{% endif %}
+              </td>
+              <td class="small">
+                {% if b.closed_by %}
+                  <div class="fw-semibold">{{ b.closed_by }}</div>
+                  {% if b.closed_at %}
+                  <div class="text-muted">
+                    {{ b.closed_at.strftime('%d/%m %H:%M') if b.closed_at.strftime is defined else b.closed_at }}
+                  </div>
+                  {% endif %}
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td class="small">
+                {% if b.label_printed_at %}
+                  <span class="text-success"><i class="fas fa-check-circle me-1"></i>{{ b.label_printed_at.strftime('%H:%M') if b.label_printed_at.strftime is defined else b.label_printed_at }}</span>
+                {% elif b.status == 'closed' %}
+                  <span class="text-warning"><i class="fas fa-exclamation-circle me-1"></i>Not printed</span>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td class="d-print-none">
+                <div class="d-flex gap-1 flex-wrap">
+                  {% if has_permission('cooler.manage_boxes') and b.status == 'open' %}
+                  <form method="post" action="{{ url_for('cooler.box_close', box_id=b.id) }}" class="d-inline">
+                    <input type="hidden" name="_html_form" value="1">
+                    <button type="submit" class="btn btn-sm btn-success text-nowrap">
+                      <i class="fas fa-lock me-1"></i>Close
+                    </button>
+                  </form>
+                  {% endif %}
+                  {% if has_permission('cooler.print_labels') %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooler.box_label', box_id=b.id) }}" target="_blank">
+                    <i class="fas fa-tag me-1"></i>Label
+                  </a>
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooler.box_manifest', box_id=b.id) }}" target="_blank">
+                    <i class="fas fa-file-alt me-1"></i>Manifest
+                  </a>
+                  {% endif %}
+                  {% if _bitems %}
+                  <button class="btn btn-sm btn-outline-secondary" type="button"
+                          data-bs-toggle="collapse" data-bs-target="#boxItemsRow{{ b.id }}">
+                    <i class="fas fa-list me-1"></i>{{ _bitems|length }}
+                  </button>
+                  {% endif %}
                 </div>
-              </div>
-              {% endif %}
-            </div>
-            <div class="card-footer py-2 d-flex gap-1 flex-wrap">
-              {% if has_permission('cooler.manage_boxes') and b.status == 'open' %}
-              <form method="post" action="{{ url_for('cooler.box_close', box_id=b.id) }}" class="d-inline">
-                <input type="hidden" name="_html_form" value="1">
-                <button type="submit" class="btn btn-sm btn-success">
-                  <i class="fas fa-lock me-1"></i>Close Box
-                </button>
-              </form>
-              {% endif %}
-              {% if has_permission('cooler.print_labels') %}
-              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooler.box_label', box_id=b.id) }}" target="_blank">
-                <i class="fas fa-tag me-1"></i>Label
-              </a>
-              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooler.box_manifest', box_id=b.id) }}" target="_blank">
-                <i class="fas fa-file-alt me-1"></i>Manifest
-              </a>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-        {% endfor %}
+              </td>
+            </tr>
+            {% if _bitems %}
+            <tr class="d-print-none">
+              <td colspan="10" class="p-0 border-0">
+                <div class="collapse" id="boxItemsRow{{ b.id }}">
+                  <div class="p-2 ps-4" style="background:#f8f9fa;">
+                    <table class="table table-sm mb-0" style="font-size:0.82rem;">
+                      <thead class="table-light">
+                        <tr>
+                          <th>Invoice</th><th>Customer</th><th>Item</th>
+                          <th>Description</th><th class="text-end">Qty</th><th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for it in _bitems %}
+                        <tr>
+                          <td class="font-monospace">{{ it.invoice_no[-7:] if it.invoice_no else '—' }}</td>
+                          <td class="small">{{ it.customer_name or '—' }}</td>
+                          <td class="fw-bold small">{{ it.item_code }}</td>
+                          <td class="text-muted small">{{ it.item_name or '' }}</td>
+                          <td class="text-end">×{{ it.qty|int }}</td>
+                          <td>
+                            {% if it.status in ('pending', 'planned') %}<span class="badge bg-warning text-dark">Not picked</span>
+                            {% elif it.status == 'picked' %}<span class="badge bg-success">Picked</span>
+                            {% elif it.status == 'exception' %}<span class="badge bg-danger">Exception</span>
+                            {% endif %}
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
   </div>

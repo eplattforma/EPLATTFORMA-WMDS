@@ -1,26 +1,33 @@
 {% extends "base.html" %}
-{% block title %}Cooler Packing{% endblock %}
+{% block title %}Cooler Packing & Handover{% endblock %}
 {% block content %}
 <div class="container my-4">
-  <h2 class="mb-1"><i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing</h2>
+  <h2 class="mb-1"><i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing &amp; Handover</h2>
   <p class="text-muted mb-3 small">Warehouse cooler packing based on delivery stop sequence.</p>
 
   {% if not routes %}
     <div class="alert alert-info">No cooler packing work found.</div>
   {% else %}
 
-    {# ── Filter tabs ────────────────────────────────────────────────────── #}
-    {% set ns_na = namespace(count=0) %}
-    {% set ns_rd = namespace(count=0) %}
+    {# ── Count tabs ──────────────────────────────────────────────────────── #}
+    {% set ns_all = namespace(count=0) %}
+    {% set ns_na  = namespace(count=0) %}
+    {% set ns_rd  = namespace(count=0) %}
+    {% set ns_ct  = namespace(count=0) %}
     {% for r in routes %}
-      {% if r.route_status == 'ready_for_dispatch' %}{% set ns_rd.count = ns_rd.count + 1 %}
-      {% else %}{% set ns_na.count = ns_na.count + 1 %}{% endif %}
+      {% set ns_all.count = ns_all.count + 1 %}
+      {% if r.route_status == 'ready_for_dispatch' %}
+        {% set ns_rd.count = ns_rd.count + 1 %}
+      {% else %}
+        {% set ns_na.count = ns_na.count + 1 %}
+      {% endif %}
+      {% if r.delivery_date == today_str %}{% set ns_ct.count = ns_ct.count + 1 %}{% endif %}
     {% endfor %}
 
     <ul class="nav nav-pills mb-3 gap-1 flex-wrap" id="coolerFilterTabs">
       <li class="nav-item">
         <button class="nav-link active" data-filter="all">
-          All <span class="badge bg-secondary ms-1">{{ routes|length }}</span>
+          All <span class="badge bg-secondary ms-1">{{ ns_all.count }}</span>
         </button>
       </li>
       {% if ns_na.count %}
@@ -37,9 +44,16 @@
         </button>
       </li>
       {% endif %}
+      {% if ns_ct.count %}
+      <li class="nav-item">
+        <button class="nav-link" data-filter="today">
+          Completed Today <span class="badge bg-info text-dark ms-1">{{ ns_ct.count }}</span>
+        </button>
+      </li>
+      {% endif %}
     </ul>
 
-    {# ── Route table ────────────────────────────────────────────────────── #}
+    {# ── Route table ─────────────────────────────────────────────────────── #}
     <div class="card shadow-sm border-0">
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="coolerRouteTable">
@@ -50,13 +64,17 @@
               <th>Driver</th>
               <th class="text-center">Items</th>
               <th class="text-center">Boxes</th>
+              <th class="text-center">Labels</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {% for r in routes %}
-            <tr class="route-row" data-status="{{ r.route_status }}">
+            <tr class="route-row"
+                data-status="{{ r.route_status }}"
+                data-date="{{ r.delivery_date }}"
+                data-today="{{ today_str }}">
               <td>
                 <span class="fw-bold">
                   <i class="fas fa-truck me-1 text-info"></i>{{ r.route_id }}
@@ -89,6 +107,21 @@
                   {% endif %}
                 {% else %}
                   <span class="text-muted small">none</span>
+                {% endif %}
+              </td>
+              <td class="text-center small">
+                {% if r.box_count > 0 %}
+                  {% if r.labels_printed == r.box_count %}
+                    <span class="text-success fw-semibold">
+                      <i class="fas fa-check-circle me-1"></i>{{ r.labels_printed }}/{{ r.box_count }}
+                    </span>
+                  {% elif r.labels_printed > 0 %}
+                    <span class="text-warning">{{ r.labels_printed }}/{{ r.box_count }}</span>
+                  {% else %}
+                    <span class="text-muted">0/{{ r.box_count }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">—</span>
                 {% endif %}
               </td>
               <td>
@@ -157,11 +190,14 @@
       tab.classList.add('active');
       var f = tab.dataset.filter;
       rows.forEach(function (row) {
-        var st = row.dataset.status;
-        if (f === 'all') { row.style.display = ''; return; }
-        var show = (f === 'ready' && st === 'ready_for_dispatch') ||
-                   (f === 'needs_action' && st !== 'ready_for_dispatch');
-        row.style.display = show ? '' : 'none';
+        var st   = row.dataset.status;
+        var date = row.dataset.date;
+        var today = row.dataset.today;
+        if (f === 'all')          { row.style.display = ''; return; }
+        if (f === 'needs_action') { row.style.display = st !== 'ready_for_dispatch' ? '' : 'none'; return; }
+        if (f === 'ready')        { row.style.display = st === 'ready_for_dispatch' ? '' : 'none'; return; }
+        if (f === 'today')        { row.style.display = date === today ? '' : 'none'; return; }
+        row.style.display = 'none';
       });
     });
   });
