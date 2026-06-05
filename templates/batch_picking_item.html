@@ -231,12 +231,6 @@
         </div>
     </div>
 </div>
-<script>
-(function(){
-    var el = document.getElementById('boxStartModal');
-    if(el){ var m = new bootstrap.Modal(el,{backdrop:'static'}); m.show(); }
-})();
-</script>
 {% endif %}
 {% endif %}
 
@@ -610,6 +604,10 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        // Auto-show box-start modal on first item of a new box (cooler box-first flow)
+        var boxStartEl = document.getElementById('boxStartModal');
+        if (boxStartEl) { new bootstrap.Modal(boxStartEl, {backdrop:'static'}).show(); }
+
         // Initialize modals
         var confirmPickModal = new bootstrap.Modal(document.getElementById('confirmPickModal'));
         var skipModal = new bootstrap.Modal(document.getElementById('skipModal'));
