@@ -167,7 +167,11 @@
                                 <td colspan="3" class="py-1 text-end pe-2">
                                     <div class="btn-group btn-group-sm" role="group">
                                         <button class="btn btn-outline-primary btn-sm batch-qv-btn" data-batch-id="{{ _bs.id }}" data-batch-label="{{ (_bs.batch_number or _bs.name)|e }}" title="Quick View"><i class="fas fa-eye"></i></button>
+                                        {% if _bs.session_type == 'cooler_route' and route.delivery_date %}
+                                        <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date.strftime('%Y-%m-%d')) }}" class="btn btn-outline-info btn-sm" title="Open cooler route"><i class="fas fa-snowflake"></i></a>
+                                        {% else %}
                                         <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-outline-secondary btn-sm" title="Manage batch"><i class="fas fa-cog"></i></a>
+                                        {% endif %}
                                         {% if _bs.status not in ('Completed', 'Cancelled') %}
                                         <button class="btn btn-outline-success btn-sm"
                                                 data-bs-toggle="modal"
@@ -236,7 +240,11 @@
                                 <td colspan="3" class="py-1 text-end pe-2">
                                     <div class="btn-group btn-group-sm" role="group">
                                         <button class="btn btn-outline-primary btn-sm batch-qv-btn" data-batch-id="{{ _bs.id }}" data-batch-label="{{ (_bs.batch_number or _bs.name)|e }}" title="Quick View"><i class="fas fa-eye"></i></button>
+                                        {% if _bs.session_type == 'cooler_route' and route.delivery_date %}
+                                        <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date.strftime('%Y-%m-%d')) }}" class="btn btn-outline-info btn-sm" title="Open cooler route"><i class="fas fa-snowflake"></i></a>
+                                        {% else %}
                                         <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-outline-secondary btn-sm" title="Manage batch"><i class="fas fa-cog"></i></a>
+                                        {% endif %}
                                         {% if _bs.status not in ('Completed', 'Cancelled') %}
                                         <button class="btn btn-outline-success btn-sm"
                                                 data-bs-toggle="modal"
