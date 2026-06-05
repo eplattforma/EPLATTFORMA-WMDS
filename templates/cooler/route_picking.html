@@ -250,13 +250,26 @@
   <div id="packing" style="scroll-margin-top:72px;"></div>
 
   {# ── Box Plan card ────────────────────────────────────────────────────── #}
-  {% if has_permission('cooler.manage_boxes') and not boxes %}
+  {% if has_permission('cooler.manage_boxes') and (not boxes or picked_unboxed_count > 0) %}
   <div class="card mb-4 border-primary shadow-sm" id="boxPlanCard">
     <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
-      <span><i class="fas fa-layer-group me-2"></i>Plan Cooler Boxes</span>
-      <span class="badge bg-light text-primary ms-2" id="planItemBadge">Ready to plan</span>
+      <span><i class="fas fa-layer-group me-2"></i>{% if not boxes %}Plan Cooler Boxes{% else %}Plan Remaining Unboxed Items{% endif %}</span>
+      <span class="badge bg-light text-primary ms-2" id="planItemBadge">{% if boxes %}{{ picked_unboxed_count }} item(s) unboxed{% else %}Ready to plan{% endif %}</span>
     </div>
     <div class="card-body">
+
+      {% if boxes %}
+      <div class="alert alert-info py-2 small mb-3">
+        <i class="fas fa-info-circle me-1"></i>
+        <strong>{{ picked_unboxed_count }} picked item(s) are not yet in a box.</strong>
+        This will plan only the unboxed items and append new box number(s) after the existing ones. Confirmed boxes will not be modified.
+      </div>
+      {% endif %}
+
+      <div class="alert alert-secondary py-2 small mb-3">
+        <i class="fas fa-exclamation-circle me-1"></i>
+        Box changes should be done before confirming the plan. After confirmation, use recovery tools only if a physical packing mistake happened.
+      </div>
 
       {# ── Step 1: Availability + Fill target ───────────────────────────── #}
       <div class="row g-3 align-items-end mb-3" id="planSetupRow">
@@ -1031,153 +1044,23 @@
   </div>
   {% endif %}
 
-  {# ── Advanced box adjustments (collapsed) ──────────────────────────────── #}
-  {% if has_permission('cooler.manage_boxes') %}
+  {# ── Manager recovery tools (collapsed) ────────────────────────────────── #}
+  {% if has_permission('cooler.manage_boxes') and boxes %}
   <div class="mt-4 mb-4">
-    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advancedBoxMgmt">
-      <i class="fas fa-cog me-1"></i>Advanced box adjustments
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#managerRecoveryTools">
+      <i class="fas fa-tools me-1"></i>Manager recovery tools
     </button>
-    <div class="collapse mt-3" id="advancedBoxMgmt">
+    <div class="collapse mt-3" id="managerRecoveryTools">
       <div class="card border-secondary">
         <div class="card-header bg-light text-secondary small fw-bold">
-          Manual box controls — use only if the automated box plan cannot be applied
+          <i class="fas fa-exclamation-triangle me-1 text-warning"></i>
+          Use only if a physical packing mistake happened after the plan was confirmed.
+          Box changes should be done before confirming the plan.
         </div>
         <div class="card-body">
 
-          {# Create a box manually #}
-          <h6 class="fw-bold">Create extra box manually</h6>
-          <form method="post" action="{{ url_for('cooler.box_create') }}" class="d-flex gap-2 align-items-end flex-wrap mb-4">
-            <input type="hidden" name="_html_form" value="1">
-            <input type="hidden" name="route_id" value="{{ route_id }}">
-            <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-            <div>
-              <label class="form-label form-label-sm mb-1">Box number</label>
-              <input type="number" name="box_no" class="form-control form-control-sm"
-                     value="{{ (boxes|length + 1) }}" min="1" style="width:90px">
-            </div>
-            <button type="submit" class="btn btn-sm btn-primary">Create box</button>
-          </form>
-
-          {# Manually assign a picked item to an open box #}
-          {% if open_boxes and sequenced %}
-          {% set _unboxed_picked = sequenced | selectattr('status', 'equalto', 'picked') | rejectattr('queue_item_id', 'in', assigned_to_box) | list %}
-          <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
-            <h6 class="fw-bold mb-0">Assign picked item to box</h6>
-            {% if _unboxed_picked %}
-            <div class="btn-group btn-group-sm ms-auto" role="group">
-              <button type="button" class="btn btn-outline-secondary active" id="assignViewStopBtn"
-                      onclick="setAssignView('stop')"><i class="fas fa-route me-1"></i>By stop</button>
-              <button type="button" class="btn btn-outline-secondary" id="assignViewItemBtn"
-                      onclick="setAssignView('item')"><i class="fas fa-layer-group me-1"></i>By item</button>
-            </div>
-            {% endif %}
-          </div>
-          <p class="small text-muted">Only physically-picked items can be assigned. Box assignment is separate from picking.</p>
-
-          {# By-stop view #}
-          <div id="assignViewStop">
-          <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead class="table-light">
-              <tr><th>Stop</th><th>Customer</th><th>Item</th><th>Description</th><th class="text-end">Qty</th><th>Status</th><th>Assign to box</th></tr>
-            </thead>
-            <tbody>
-              {% for q in sequenced if q.status == 'picked' and not assigned_to_box.get(q.queue_item_id) %}
-                <tr>
-                  <td>{{ q.delivery_sequence|int }}</td>
-                  <td>{{ q.customer_name or q.customer_code or '-' }}</td>
-                  <td><strong>{{ q.item_code }}</strong></td>
-                  <td class="text-secondary small">{{ q.item_name or '' }}</td>
-                  <td class="text-end">{{ q.expected_qty|int }}</td>
-                  <td><span class="badge bg-success">Picked</span></td>
-                  <td>
-                    <form method="post" action="{{ url_for('cooler.queue_assign_box', queue_item_id=q.queue_item_id) }}" class="d-inline-flex gap-1 align-items-center">
-                      <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-                      <input type="hidden" name="picked_qty" value="{{ q.expected_qty }}">
-                      <select name="box_id" class="form-select form-select-sm" style="width:auto">
-                        {% for b in open_boxes %}<option value="{{ b.id }}">Box #{{ b.box_no }}</option>{% endfor %}
-                      </select>
-                      <button type="submit" class="btn btn-sm btn-success text-nowrap">
-                        <i class="fas fa-box me-1"></i>Assign
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              {% else %}
-                <tr><td colspan="7" class="text-muted text-center small">No unboxed picked items.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          </div>
-          </div>
-
-          {# By-item grouped view #}
-          <div id="assignViewItem" style="display:none;">
-            {% for item_code, rows in _unboxed_picked | groupby('item_code') %}
-            {% set rows = rows | list %}
-            <div class="card mb-2">
-              <div class="card-header py-2 d-flex align-items-center gap-2">
-                <strong>{{ item_code }}</strong>
-                <span class="text-secondary small">{{ rows[0].item_name or '' }}</span>
-                <span class="badge bg-success ms-auto">{{ rows | sum(attribute='expected_qty') | int }} total</span>
-                <span class="badge bg-secondary">{{ rows | length }} stop(s)</span>
-              </div>
-              <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead class="table-light">
-                  <tr><th>Stop</th><th>Customer</th><th class="text-end">Qty</th><th>Assign to box</th></tr>
-                </thead>
-                <tbody>
-                  {% for q in rows %}
-                  <tr>
-                    <td>{{ q.delivery_sequence|int }}</td>
-                    <td>{{ q.customer_name or q.customer_code or '-' }}</td>
-                    <td class="text-end">{{ q.expected_qty|int }}</td>
-                    <td>
-                      <form method="post" action="{{ url_for('cooler.queue_assign_box', queue_item_id=q.queue_item_id) }}" class="d-inline-flex gap-1 align-items-center">
-                        <input type="hidden" name="delivery_date" value="{{ delivery_date }}">
-                        <input type="hidden" name="picked_qty" value="{{ q.expected_qty }}">
-                        <select name="box_id" class="form-select form-select-sm" style="width:auto">
-                          {% for b in open_boxes %}<option value="{{ b.id }}">Box #{{ b.box_no }}</option>{% endfor %}
-                        </select>
-                        <button type="submit" class="btn btn-sm btn-success text-nowrap">
-                          <i class="fas fa-box me-1"></i>Assign
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-              </div>
-            </div>
-            {% else %}
-              <p class="text-muted small">No unboxed picked items.</p>
-            {% endfor %}
-          </div>
-
-          <script>
-          function setAssignView(mode) {
-            var stop = document.getElementById('assignViewStop');
-            var item = document.getElementById('assignViewItem');
-            var stopBtn = document.getElementById('assignViewStopBtn');
-            var itemBtn = document.getElementById('assignViewItemBtn');
-            if (!stop || !item) return;
-            if (mode === 'item') {
-              stop.style.display = 'none'; item.style.display = '';
-              itemBtn.classList.add('active'); stopBtn.classList.remove('active');
-            } else {
-              stop.style.display = ''; item.style.display = 'none';
-              stopBtn.classList.add('active'); itemBtn.classList.remove('active');
-            }
-          }
-          </script>
-          {% endif %}
-
-          {# Remove item from box / reopen box #}
-          {% if boxes %}
-          <h6 class="fw-bold mt-3">Reopen a closed box</h6>
-          <div class="d-flex gap-2 flex-wrap">
+          <h6 class="fw-bold">Reopen a closed box</h6>
+          <div class="d-flex gap-2 flex-wrap mb-3">
             {% for b in boxes if b.status == 'closed' %}
             <form method="post" action="{{ url_for('cooler.box_reopen', box_id=b.id) }}" class="d-inline">
               <input type="hidden" name="_html_form" value="1">
@@ -1191,7 +1074,7 @@
             {% endfor %}
           </div>
 
-          <h6 class="fw-bold mt-3">Cancel (delete) a box</h6>
+          <h6 class="fw-bold">Cancel (delete) a box</h6>
           <div class="d-flex gap-2 flex-wrap">
             {% for b in boxes if b.status == 'open' %}
             <form method="post" action="{{ url_for('cooler.box_cancel', box_id=b.id) }}" class="d-inline">
@@ -1205,7 +1088,6 @@
             <span class="text-muted small">No open boxes to cancel.</span>
             {% endfor %}
           </div>
-          {% endif %}
 
         </div>
       </div>
@@ -1215,7 +1097,7 @@
 
 </div>
 
-{% if has_permission('cooler.manage_boxes') and not boxes %}
+{% if has_permission('cooler.manage_boxes') and (not boxes or picked_unboxed_count > 0) %}
 <style>
   .bp-type-sel {
     color: #fff !important;

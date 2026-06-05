@@ -110,50 +110,11 @@
         </div>
         {% endif %}
 
-        {# ── Pre-plan boxes ──────────────────────────────────────────────── #}
         {% if r.box_count and r.box_count > 0 %}
-        <div class="alert alert-success py-2 px-3 mb-0 d-flex align-items-center justify-content-between flex-wrap gap-2">
-          <span>
-            <i class="fas fa-check-circle text-success me-1"></i>
-            <strong>{{ r.box_count }} box(es) pre-planned.</strong>
-            Picker can see box assignments on the picking screen.
-          </span>
-          <form method="POST"
-                action="{{ url_for('cooler.cancel_pre_plan', route_id=r.route_id, delivery_date=r.delivery_date) }}"
-                onsubmit="return confirm('Cancel pre-plan? All open boxes for this route will be deleted.')">
-            <button type="submit" class="btn btn-sm btn-outline-danger">
-              <i class="fas fa-times me-1"></i>Cancel Pre-Plan
-            </button>
-          </form>
-        </div>
-        {% elif r.pending > 0 %}
-        <div class="border rounded p-3 mb-0" style="background:#f0fff4;">
-          <div class="fw-semibold mb-1 text-success">
-            <i class="fas fa-box me-1"></i>Pre-Plan Cooler Boxes
-          </div>
-          <p class="small text-muted mb-2">
-            Plan boxes before picking starts. The picker will see which box
-            each item goes into on the picking screen.
-          </p>
-          <form method="POST"
-                action="{{ url_for('cooler.pre_plan_boxes', route_id=r.route_id, delivery_date=r.delivery_date) }}">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <select name="box_type_id" class="form-select form-select-sm" style="max-width:240px;">
-                <option value="">— auto: best fit combination —</option>
-                {% for bt in box_types %}
-                <option value="{{ bt.id }}">{{ bt.name }} ({{ bt.effective_capacity_l }}L usable)</option>
-                {% endfor %}
-              </select>
-              <button type="submit" class="btn btn-success btn-sm">
-                <i class="fas fa-magic me-1"></i>Pre-Plan Boxes
-              </button>
-            </div>
-          </form>
-        </div>
-        {% else %}
-        <div class="text-muted small fst-italic">
-          <i class="fas fa-info-circle me-1"></i>
-          Sequence not yet set — lock delivery sequence before pre-planning.
+        <div class="alert alert-success py-2 px-3 mb-0">
+          <i class="fas fa-check-circle text-success me-1"></i>
+          <strong>{{ r.box_count }} box(es) planned.</strong>
+          Open the route to manage boxes and packing.
         </div>
         {% endif %}
 

@@ -1,0 +1,50 @@
+Review and simplify the cooler box packing UI.
+
+Goal:
+Remove “Advanced box adjustments” from the normal warehouse workflow. The normal user should adjust boxes only inside the draft box planning screen before confirming.
+
+Required changes:
+
+1. In templates/cooler/route_picking.html, remove or hide the collapsed “Advanced box adjustments” section from the normal flow:
+   - remove the visible button labelled “Advanced box adjustments”;
+   - remove normal access to manual “Create extra box manually”;
+   - remove normal access to manual “Assign picked item to box”.
+
+2. Keep backend routes for emergency/admin use only:
+   - box_reopen
+   - box_cancel
+   - move_box_item
+   - box_label
+   - box_manifest
+
+3. Change the Plan Cooler Boxes card visibility.
+   Currently it only appears when no boxes exist:
+   {% if has_permission('cooler.manage_boxes') and not boxes %}
+
+   Replace this logic so the planning card also appears when there are unboxed cooler items:
+   - show it if no boxes exist;
+   - or if picked_unboxed_count > 0;
+   - label it differently depending on state:
+     a) if no boxes exist: “Plan Cooler Boxes”
+     b) if boxes already exist and unboxed items remain: “Plan Remaining Unboxed Items”
+
+4. When boxes already exist, the planning screen should make clear that it will only plan unboxed items and append new boxes. It should not modify closed boxes.
+
+5. Keep the existing /box-plan and /confirm-box-plan backend behaviour, because generate_box_plan already excludes items that are already in cooler_box_items, and confirm_box_plan already appends box numbers using max_box_no + idx.
+
+6. Do not use the old /route-list pre-plan flow as the main workflow.
+   In templates/cooler/route_list.html:
+   - remove or hide the “Pre-Plan Cooler Boxes” form;
+   - replace it with an “Open Route” / “Prepare Cooler Route” button that sends the manager to the main route_picking screen.
+
+7. Keep cancel/reopen/move as manager/admin exception tools only.
+   Add a small collapsed section named “Manager recovery tools” if needed, but do not call it “Advanced box adjustments”.
+
+8. Do not reintroduce pack_stop or sequential_stop.
+   pack_stop should remain disabled.
+   location_order remains the active picking mode.
+
+9. Make sure labels and manifests are generated only from confirmed cooler_boxes and cooler_box_items records.
+
+10. Add a short note in the UI:
+   “Box changes should be done before confirming the plan. After confirmation, use recovery tools only if a physical packing mistake happened.”
