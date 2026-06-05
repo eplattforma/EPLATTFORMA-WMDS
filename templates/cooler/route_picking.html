@@ -246,14 +246,14 @@
       {# Toolbar #}
       <div class="d-flex flex-wrap align-items-center gap-2 p-3 border-bottom d-print-none">
         <div class="d-flex flex-wrap gap-1" id="statusFilterBtns">
-          <button type="button" class="btn btn-sm btn-secondary status-filter active" data-filt="all">All</button>
-          <button type="button" class="btn btn-sm btn-outline-warning status-filter" data-filt="awaiting">Awaiting</button>
-          <button type="button" class="btn btn-sm btn-outline-secondary status-filter" data-filt="not-picked">Not Picked</button>
-          <button type="button" class="btn btn-sm btn-outline-success status-filter" data-filt="picked">Picked</button>
-          <button type="button" class="btn btn-sm btn-outline-warning status-filter" data-filt="unboxed">Unboxed</button>
-          <button type="button" class="btn btn-sm btn-outline-primary status-filter" data-filt="box-open">Box Open</button>
-          <button type="button" class="btn btn-sm btn-outline-success status-filter" data-filt="box-closed">Box Closed</button>
-          <button type="button" class="btn btn-sm btn-outline-danger status-filter" data-filt="exception">Exception</button>
+          <button type="button" class="btn btn-sm btn-light status-filter active" data-filt="all">All</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="awaiting">Awaiting</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="not-picked">Not Picked</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="picked">Picked</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="unboxed">Unboxed</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="box-open">Box Open</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="box-closed">Box Closed</button>
+          <button type="button" class="btn btn-sm btn-outline-light status-filter" data-filt="exception">Exception</button>
         </div>
         <div class="ms-auto d-flex gap-2 flex-wrap">
           <button type="button" class="btn btn-sm btn-outline-secondary" id="btnExpandAllStops">
@@ -1286,8 +1286,8 @@
   var filterBtns = document.querySelectorAll('.status-filter');
   filterBtns.forEach(function(btn) {
     btn.addEventListener('click', function() {
-      filterBtns.forEach(function(b){ b.classList.remove('active', 'btn-secondary'); b.classList.add('btn-outline-secondary'); });
-      btn.classList.add('active', 'btn-secondary'); btn.classList.remove('btn-outline-secondary');
+      filterBtns.forEach(function(b){ b.classList.remove('active', 'btn-light'); b.classList.add('btn-outline-light'); });
+      btn.classList.add('active', 'btn-light'); btn.classList.remove('btn-outline-light');
       var f = btn.dataset.filt;
       document.querySelectorAll('#statusTableWrapper .status-row').forEach(function(row) {
         if (f === 'all') { row.style.display = ''; return; }
