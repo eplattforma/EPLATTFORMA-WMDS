@@ -1,0 +1,111 @@
+Simplify templates/cooler/route_picking.html into a cleaner route-control layout.
+
+Required layout:
+
+1. Keep KPI cards at the top and make them always visible.
+   KPIs should be:
+   - Picked / total
+   - Awaiting Preparation
+   - Unboxed Picked Items
+   - Open Boxes
+   - Closed Boxes
+   - Volume / Weight
+
+2. Under the KPI cards, create one central “Next Action” card.
+   This card should show only the next required action based on the current route state:
+   - Confirm Cooler Route
+   - Plan Cooler Boxes
+   - Assign Picker / Start Picking
+   - Continue Picking
+   - Close Open Boxes
+   - Print / Complete
+
+3. Remove duplicated action buttons from other sections where possible.
+   The main action should appear in the Next Action card.
+
+4. Create accordion/collapsible sections below the Next Action card:
+
+   A. Route Item Status
+   B. Box Planning
+   C. Cooler Boxes
+   D. Picker / Picking Control
+   E. Manager Recovery Tools
+
+5. Route Item Status must be always expanded by default.
+   It is the main operational truth table and must be printable.
+
+6. Route Item Status columns must be:
+   - Stop
+   - Invoice No
+   - Customer Name
+   - Item Code
+   - Item Description
+   - Qty
+   - Picked?
+   - Box
+   - Box Status
+
+7. Do not include Customer Code in the normal table.
+   Do not include Queue ID in the normal table.
+
+8. Group Route Item Status by stop sequence.
+   Each stop group should be expandable/collapsible on screen.
+   For print, all stops should print expanded.
+
+9. Add filter buttons above the Route Item Status table:
+   - All
+   - Awaiting preparation
+   - Not picked
+   - Picked
+   - Unboxed
+   - Box open
+   - Box closed
+
+10. Add a “Print Route Status” button.
+    It should print the Route Item Status table at any route stage, including before boxes are planned.
+
+11. Box Planning section:
+    - expanded by default only when boxes need planning;
+    - collapsed after a box plan is confirmed;
+    - if boxes already exist but picked/unboxed items remain, label it “Plan Remaining Items”;
+    - all box adjustments should happen here before Confirm Box Plan.
+
+12. Cooler Boxes section:
+    - collapsed by default;
+    - automatically expanded if there are open boxes that need closing;
+    - show each box as a compact card with:
+      box number, box status, item count, stops covered, fill %, close button, print label button, manifest button;
+    - item list inside each box should be collapsed by default.
+
+13. Picker / Picking Control section:
+    - collapsed by default;
+    - expanded only if picker is unassigned, picking has not started, or picking is in progress;
+    - include batch name, batch status, assigned picker, assign/change picker, start picking, continue picking.
+
+14. Manager Recovery Tools section:
+    - rename from “Advanced box adjustments” to “Manager Recovery Tools”;
+    - collapsed by default;
+    - visible only to manager/admin permission users;
+    - keep reopen box, cancel box, move item between boxes, force close, and emergency manual assignment here only.
+
+15. Remove the separate large Pick List table and the separate Awaiting Route Preparation table from the normal screen.
+    Their information should be represented inside Route Item Status.
+
+16. Keep backend recovery routes, print label, box manifest and route manifest functions.
+    Do not remove those backend functions.
+
+17. Add print CSS so that Print Route Status hides:
+    - KPI cards if too large,
+    - Next Action card,
+    - buttons,
+    - planning controls,
+    - picker assignment controls,
+    - manager recovery tools.
+
+    Print should show:
+    - route number,
+    - route name,
+    - driver,
+    - delivery date,
+    - printed timestamp,
+    - Route Item Status table grouped by stop.
