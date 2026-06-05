@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+
+{% block title %}Box {{ box_info.box_no }} Complete{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    body { background: #0d1117; }
+    .box-complete-card {
+        max-width: 480px;
+        margin: 0 auto;
+        border-radius: 18px;
+        overflow: hidden;
+    }
+    .bc-header {
+        background: linear-gradient(135deg, #145214 0%, #0a3d0a 100%);
+        padding: 2.5rem 2rem 2rem;
+        text-align: center;
+        color: #fff;
+    }
+    .bc-header .icon-wrap {
+        width: 80px; height: 80px;
+        border-radius: 50%;
+        background: rgba(40,167,69,0.25);
+        border: 3px solid #28a745;
+        display: flex; align-items: center; justify-content: center;
+        margin: 0 auto 1.2rem;
+    }
+    .bc-body {
+        background: #1a1f2e;
+        padding: 1.5rem 2rem 2rem;
+        color: #e8e8e8;
+    }
+    .bc-pill {
+        display: inline-block;
+        background: rgba(255,255,255,0.07);
+        border-radius: 20px;
+        padding: 4px 16px;
+        font-size: 0.8rem;
+        color: #a0aab4;
+        margin-bottom: 0.3rem;
+    }
+    .btn-start-next {
+        background: linear-gradient(135deg, #0d6e6e, #0a9e9e);
+        border: none;
+        color: #fff;
+        font-size: 1.15rem;
+        font-weight: 700;
+        padding: 0.85rem;
+        border-radius: 12px;
+        width: 100%;
+    }
+    .btn-start-next:hover { opacity: 0.9; color: #fff; }
+    .btn-final {
+        background: linear-gradient(135deg, #155a8a, #0d3d6b);
+        border: none;
+        color: #fff;
+        font-size: 1.15rem;
+        font-weight: 700;
+        padding: 0.85rem;
+        border-radius: 12px;
+        width: 100%;
+    }
+    .btn-final:hover { opacity: 0.9; color: #fff; }
+    .divider { border-top: 1px solid rgba(255,255,255,0.07); margin: 1.2rem 0; }
+    @media print { .btn-start-next, .btn-final, .bc-back-link { display: none !important; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="box-complete-card shadow-lg">
+
+        <!-- Header -->
+        <div class="bc-header">
+            <div class="icon-wrap">
+                <i class="fas fa-check" style="font-size:2.2rem;color:#6dff6d;"></i>
+            </div>
+            <h3 class="fw-bold mb-1" style="letter-spacing:0.5px;">
+                Box {{ box_info.box_no or '?' }} Complete
+            </h3>
+            <div style="color:#a8ffb0;font-size:0.9rem;">
+                {{ box_info.box_type_name or 'Box' }}
+                {% if box_info.box_stop_display %}
+                &nbsp;·&nbsp;{{ box_info.box_stop_display }}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="bc-body">
+            {% if box_info.is_final_box %}
+            <!-- Final box -->
+            <div class="text-center mb-3">
+                <i class="fas fa-trophy mb-2" style="font-size:2rem;color:#ffd700;"></i>
+                <h5 class="fw-bold" style="color:#ffd700;">All Boxes Complete!</h5>
+                <p style="color:#a0aab4;font-size:0.9rem;">
+                    All cooler boxes have been picked and sealed.
+                </p>
+            </div>
+            <div class="divider"></div>
+            <p class="text-center mb-3" style="color:#a0aab4;font-size:0.85rem;">
+                Tap below to finish and return to the picking summary.
+            </p>
+            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch_session.id) }}"
+               class="btn btn-final d-block">
+                <i class="fas fa-flag-checkered me-2"></i>Finish Picking
+            </a>
+
+            {% else %}
+            <!-- More boxes follow -->
+            <div class="text-center mb-3">
+                <div class="bc-pill mb-2">Next box</div>
+                <div style="color:#fff;font-size:2rem;font-weight:800;">
+                    Box {{ box_info.next_box_no }}
+                </div>
+                {% if box_info.next_box_type_name %}
+                <div style="color:#a0aab4;font-size:0.85rem;">{{ box_info.next_box_type_name }}</div>
+                {% endif %}
+            </div>
+            <div class="divider"></div>
+            <p class="text-center mb-3" style="color:#a0aab4;font-size:0.85rem;">
+                Seal Box {{ box_info.box_no }}, then grab a new
+                <strong style="color:#e8e8e8;">{{ box_info.next_box_type_name or 'box' }}</strong>
+                and tap below to start picking Box {{ box_info.next_box_no }}.
+            </p>
+            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch_session.id) }}"
+               class="btn btn-start-next d-block">
+                <i class="fas fa-box-open me-2"></i>
+                Box {{ box_info.box_no }} sealed — start Box {{ box_info.next_box_no }}
+            </a>
+            {% endif %}
+
+            <div class="divider"></div>
+            <div class="text-center">
+                <a href="{{ url_for('batch.picker_batch_list') }}"
+                   class="text-secondary bc-back-link" style="font-size:0.8rem;">
+                    <i class="fas fa-arrow-left me-1"></i>Back to batch list
+                </a>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

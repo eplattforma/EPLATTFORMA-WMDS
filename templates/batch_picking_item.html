@@ -176,64 +176,68 @@
     </div>
 </div>
 
-{% if cooler_box_starting %}
-<!-- NEW BOX banner — shown on the first item of a box -->
-<div class="mb-2 px-3 py-2 d-flex align-items-center gap-3 flex-wrap"
-     style="background:linear-gradient(135deg,#145214 0%,#0a3d0a 100%);border-radius:10px;border:2px solid #28a745;">
-    <i class="fas fa-box-open" style="color:#6dff6d;font-size:1.6rem;"></i>
-    <div>
-        <div style="color:#a8ffb0;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;">
-            Open a new box
-        </div>
-        <div style="color:#fff;font-size:1.25rem;font-weight:800;">
-            {% for b in cooler_box_starting %}
-            <span style="background:#28a745;border-radius:6px;padding:2px 14px;margin-right:6px;">
-                Box {{ b.box_no }} <span style="font-size:0.75rem;font-weight:400;opacity:0.9;">({{ b.box_type_name }})</span>
-            </span>
-            {% endfor %}
-        </div>
-    </div>
-</div>
-{% endif %}
-
-<!-- Cooler Box Assignment Banner -->
-{% if cooler_box_info %}
-<div class="mb-2" style="background:linear-gradient(135deg,#0d6e6e 0%,#0a4f4f 100%);border-radius:10px;border:2px solid #14a0a0;padding:10px 16px;">
+{% if cooler_current_box %}
+<!-- ── BOX-FIRST cooler picking: current-box status card ──────────────── -->
+<div class="mb-2" id="coolerBoxCard"
+     style="border-radius:10px;border:2px solid {% if cooler_current_box.is_last_item_in_box %}#fd7e14{% else %}#14a0a0{% endif %};
+            background:linear-gradient(135deg,{% if cooler_current_box.is_last_item_in_box %}#7a3800,#4d2200{% else %}#0d6e6e,#0a4f4f{% endif %});
+            padding:10px 16px;">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center gap-2">
-            <i class="fas fa-box" style="color:#4dffd2;font-size:1.4rem;"></i>
-            <span style="color:#b2fff2;font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Put in cooler box</span>
+            <i class="fas fa-{% if cooler_current_box.is_last_item_in_box %}box{% else %}box-open{% endif %}"
+               style="color:{% if cooler_current_box.is_last_item_in_box %}#ffb86c{% else %}#4dffd2{% endif %};font-size:1.5rem;"></i>
+            <div>
+                <div style="color:{% if cooler_current_box.is_last_item_in_box %}#ffd0a0{% else %}#b2fff2{% endif %};font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;">
+                    {% if cooler_current_box.is_last_item_in_box %}Last item — seal box after picking{% else %}Current box{% endif %}
+                </div>
+                <div style="color:#fff;font-size:1.3rem;font-weight:800;">
+                    Box {{ cooler_current_box.box_no }}
+                    <span style="font-size:0.8rem;font-weight:400;opacity:0.85;">({{ cooler_current_box.box_type_name }})</span>
+                    {% if cooler_current_box.box_stop_display %}
+                    <span style="font-size:0.75rem;font-weight:400;opacity:0.7;margin-left:6px;">{{ cooler_current_box.box_stop_display }}</span>
+                    {% endif %}
+                </div>
+            </div>
         </div>
-        <div class="d-flex flex-wrap gap-2">
-            {% for b in cooler_box_info %}
-            <span style="background:#14a0a0;color:#fff;font-size:1.3rem;font-weight:800;border-radius:8px;padding:3px 16px;">
-                Box {{ b.box_no }}
-                <span style="font-size:0.72rem;font-weight:400;opacity:0.85;">({{ b.box_type_name }})</span>
-            </span>
-            {% endfor %}
+        <div class="text-end">
+            <div style="color:rgba(255,255,255,0.65);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;">Item in box</div>
+            <div style="color:#fff;font-size:1.2rem;font-weight:700;">
+                {{ cooler_current_box.item_index_in_box }}&nbsp;/&nbsp;{{ cooler_current_box.total_items_in_box }}
+            </div>
         </div>
     </div>
 </div>
-{% endif %}
 
-{% if cooler_box_finishing %}
-<!-- CLOSE BOX banner — shown on the last item of a box -->
-<div class="mb-2 px-3 py-2 d-flex align-items-center gap-3 flex-wrap"
-     style="background:linear-gradient(135deg,#7a3800 0%,#4d2200 100%);border-radius:10px;border:2px solid #fd7e14;">
-    <i class="fas fa-box" style="color:#ffb86c;font-size:1.6rem;"></i>
-    <div>
-        <div style="color:#ffd0a0;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;">
-            Last item — close &amp; seal the box after picking
-        </div>
-        <div style="color:#fff;font-size:1.25rem;font-weight:800;">
-            {% for b in cooler_box_finishing %}
-            <span style="background:#fd7e14;border-radius:6px;padding:2px 14px;margin-right:6px;">
-                Box {{ b.box_no }} <span style="font-size:0.75rem;font-weight:400;opacity:0.9;">({{ b.box_type_name }})</span>
-            </span>
-            {% endfor %}
+<!-- BOX-START modal: auto-shown on first item of each box -->
+{% if cooler_current_box.is_first_item_in_box %}
+<div class="modal fade" id="boxStartModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="boxStartModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0" style="background:linear-gradient(135deg,#145214,#0a3d0a);color:#fff;border-radius:14px;">
+            <div class="modal-body text-center py-4 px-4">
+                <i class="fas fa-box-open mb-3" style="font-size:3rem;color:#6dff6d;"></i>
+                <h4 class="fw-bold mb-1">Open Box {{ cooler_current_box.box_no }}</h4>
+                <p class="mb-2" style="color:#a8ffb0;font-size:0.9rem;">
+                    {{ cooler_current_box.box_type_name }}
+                    {% if cooler_current_box.box_stop_display %} · {{ cooler_current_box.box_stop_display }}{% endif %}
+                </p>
+                <p class="mb-3" style="color:#d4ffd6;font-size:0.85rem;">
+                    {{ cooler_current_box.total_items_in_box }} item{{ 's' if cooler_current_box.total_items_in_box != 1 }} to pick into this box
+                </p>
+                <button type="button" class="btn btn-success btn-lg w-100 fw-bold" data-bs-dismiss="modal"
+                        style="background:#28a745;border:none;font-size:1.1rem;padding:0.75rem;">
+                    <i class="fas fa-check me-2"></i>Box open — start picking
+                </button>
+            </div>
         </div>
     </div>
 </div>
+<script>
+(function(){
+    var el = document.getElementById('boxStartModal');
+    if(el){ var m = new bootstrap.Modal(el,{backdrop:'static'}); m.show(); }
+})();
+</script>
+{% endif %}
 {% endif %}
 
 <!-- Order Details Card -->
@@ -401,6 +405,10 @@
                 <form id="pickForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
                     <input type="hidden" name="picked_qty" id="picked_qty" value="{{ item.total_qty|int }}">
                     <input type="hidden" name="quantity_adjusted" id="quantity_adjusted" value="false">
+                    {% if cooler_current_box %}
+                    <input type="hidden" name="cooler_box_id" value="{{ cooler_current_box.box_id }}">
+                    <input type="hidden" name="is_last_item_in_box" value="{{ 'true' if cooler_current_box.is_last_item_in_box else 'false' }}">
+                    {% endif %}
                 </form>
             </div>
             <div class="modal-footer" style="display: flex; padding: 1rem; gap: 10px;">
@@ -451,6 +459,10 @@
             <div class="modal-body">
                 <form id="issueForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
                     <input type="hidden" name="confirm" value="true">
+                    {% if cooler_current_box %}
+                    <input type="hidden" name="cooler_box_id" value="{{ cooler_current_box.box_id }}">
+                    <input type="hidden" name="is_last_item_in_box" value="{{ 'true' if cooler_current_box.is_last_item_in_box else 'false' }}">
+                    {% endif %}
                     
                     <div class="mb-3">
                         <label for="issue_picked_qty" class="form-label fs-5 fw-bold">Actual Quantity Picked:</label>

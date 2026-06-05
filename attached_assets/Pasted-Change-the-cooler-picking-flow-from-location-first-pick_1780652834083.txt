@@ -1,0 +1,162 @@
+Change the cooler picking flow from location-first picking with box hints to box-first picking.
+
+Business requirement:
+The picker must start with Box 1, which contains the last delivery stops. The picker must continue picking all items for Box 1 until Box 1 is complete. Then the system must show a clear box-change message telling the picker to close/seal Box 1 and open Box 2. This repeats until all boxes are complete.
+
+Important:
+This is not the old pack-by-stop mode. This is box-first picking using the confirmed cooler box plan.
+
+Required behaviour:
+
+1. Cooler route picking must require a confirmed box plan before picking can start.
+   If no confirmed cooler_boxes / cooler_box_items exist for the route, block Start Picking and redirect the user to the route packing screen to plan boxes first.
+
+2. For session_type = 'cooler_route', build the picker item list from confirmed cooler_box_items, not from the normal get_grouped_items() location-only sequence.
+
+3. Add a helper function, for example:
+   build_cooler_box_picking_items(batch_session)
+
+4. This helper should query:
+   - cooler_boxes
+   - cooler_box_items
+   - batch_pick_queue
+   - invoice_items
+   - ps_items_dw if needed for fallback location
+   - cooler_box_types
+
+5. The sequence must be:
+   - box_no ASC
+   - then warehouse location order inside each box
+
+   This means Box 1 is fully picked before Box 2 starts.
+
+6. Do not group/consolidate items across different boxes.
+   The grouping key must include box_id:
+   - box_id
+   - item_code
+   - location
+
+   Do not group only by item_code + location.
+
+7. Each picker item should include:
+   - box_id
+   - box_no
+   - box_type_name
+   - box_status
+   - box_stop_display
+   - item_index_in_box
+   - total_items_in_box
+   - is_first_item_in_box
+   - is_last_item_in_box
+   - next_box_no
+   - next_box_type_name
+   - invoice_no
+   - item_code
+   - item_name
+   - location
+   - qty
+   - barcode
+
+8. In routes_batch.py, when starting a cooler_route batch, use this cooler-specific picking list instead of the normal sort_batch_items / get_grouped_items flow.
+
+9. The picker screen should show one compact current-box card:
+   Example:
+   Current Box: Box 1 Small
+   Item 2 of 5 in this box
+   Stops 9 → 7
+
+10. Remove the three separate cooler banners from templates/batch_picking_item.html:
+   - Open a new box
+   - Put in cooler box
+   - Last item — close & seal
+
+   Replace them with one clear current-box card.
+
+11. Add a box-start modal/window.
+   Show it when the picker reaches the first item of a new box.
+
+   Message example:
+   START BOX 1
+   Open Box 1 now.
+   This box contains Stops 9 → 7.
+   Pick all following items into Box 1 until the system tells you to close it.
+
+   Button:
+   Start Box 1
+
+12. Add a box-complete transition screen or modal.
+   After the picker confirms the last item of a box, do not immediately show the next item.
+   Instead, show:
+
+   BOX 1 COMPLETE
+   Close and seal Box 1 now.
+   Next: Open Box 2 Small.
+
+   Button:
+   Box 1 closed — start Box 2
+
+13. When the picker confirms “Box X closed”, update cooler_boxes.status to 'closed' if all cooler_box_items in that box are picked.
+   Use the same safety guard already used for closing boxes:
+   - no planned items remaining
+   - picked_qty is complete
+   - box is not cancelled
+
+14. If the current box is the final box, the transition screen should say:
+   FINAL BOX COMPLETE
+   Close and seal Box X.
+   All cooler picking is complete.
+
+   Button:
+   Finish Cooler Picking
+
+15. Handle single-item boxes cleanly.
+   If a box has only one item:
+   - before the item, show Start Box X;
+   - after confirming the item, show Box X Complete;
+   - do not show multiple stacked banners.
+
+16. Update the old completion message.
+   Currently the code may say:
+   “Cooler picking complete. Now use Generate Box Plan...”
+   This is now wrong.
+   The correct process is:
+   Generate / Confirm Box Plan before picking.
+   Then pick box by box.
+   Then close boxes as each box is completed.
+
+17. The visual order on mobile should be:
+
+   Header:
+   COOLER-429 | Item 1 of 8 | SENSITIVE | Back
+
+   Current box card:
+   Box 1 Small
+   Item 1 of 5 in this box
+   Stops 9 → 7
+
+   Location:
+   30-01-C03
+
+   Item:
+   TWIX TWIN XTRA MILK BAR
+
+   Invoice:
+   IN10055558
+
+   Qty:
+   1
+
+   Buttons:
+   Confirm Picked
+   Exception
+
+18. Keep the warehouse location sorting only inside each box.
+   Do not let location sorting move the picker to another box before the current box is complete.
+
+19. Keep box labels and manifests based on confirmed cooler_boxes and cooler_box_items.
+
+20. Add logging when moving between boxes:
+   - Box X started by picker
+   - Box X completed by picker
+   - Box X closed by picker
+   - Box Y started by picker

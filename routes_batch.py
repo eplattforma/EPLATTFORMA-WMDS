@@ -2018,6 +2018,145 @@ def start_batch_picking(batch_id):
     # Redirect to the batch picking page
     return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
 
+def build_cooler_box_picking_items(batch_session):
+    """Box-first picking list for cooler_route sessions.
+
+    Returns items ordered by box_no ASC, then warehouse location within each box.
+    Grouping key is (box_id, item_code, location) — no cross-box consolidation.
+    Only returns items not yet picked (cbi.status = 'planned').
+    """
+    from collections import OrderedDict
+    route_id   = batch_session.route_id
+    session_id = batch_session.id
+
+    rows = db.session.execute(
+        text(
+            "SELECT "
+            "  cb.id        AS box_id, "
+            "  cb.box_no, "
+            "  COALESCE(cbt.name, 'Box') AS box_type_name, "
+            "  cb.status    AS box_status, "
+            "  cbi.invoice_no, "
+            "  cbi.item_code, "
+            "  COALESCE(cbi.item_name, ii.item_name, 'Unknown') AS item_name, "
+            "  COALESCE(ii.location, psd.wms_location, '') AS location, "
+            "  cbi.expected_qty AS qty, "
+            "  COALESCE(ii.barcode, '') AS barcode, "
+            "  COALESCE(ii.zone, '') AS zone, "
+            "  COALESCE(ii.unit_type, '') AS unit_type, "
+            "  COALESCE(ii.pack, '') AS pack, "
+            "  COALESCE(inv.customer_name, '') AS customer_name, "
+            "  cb.first_stop_sequence, "
+            "  cb.last_stop_sequence "
+            "FROM cooler_boxes cb "
+            "JOIN cooler_box_items cbi ON cbi.cooler_box_id = cb.id "
+            "LEFT JOIN cooler_box_types cbt ON cbt.id = cb.box_type_id "
+            "LEFT JOIN invoice_items ii  ON ii.invoice_no = cbi.invoice_no "
+            "                           AND ii.item_code  = cbi.item_code "
+            "LEFT JOIN ps_items_dw psd   ON psd.item_code_365 = cbi.item_code "
+            "LEFT JOIN invoices inv       ON inv.invoice_no = cbi.invoice_no "
+            "LEFT JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id "
+            "WHERE cb.route_id          = :rid "
+            "  AND cb.status           != 'cancelled' "
+            "  AND cbi.status           = 'planned' "
+            "  AND bpq.batch_session_id = :sid "
+            "ORDER BY cb.box_no ASC, "
+            "         COALESCE(ii.location, psd.wms_location, 'ZZZ') ASC, "
+            "         cbi.invoice_no ASC, "
+            "         cbi.item_code  ASC"
+        ),
+        {"rid": route_id, "sid": session_id},
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    box_meta = {}
+    grouped  = OrderedDict()
+
+    for r in rows:
+        box_id    = r[0]
+        item_code = r[5]
+        location  = r[7] or ''
+        key       = (box_id, item_code, location)
+
+        if box_id not in box_meta:
+            fsq = r[14]
+            lsq = r[15]
+            if fsq is not None and lsq is not None:
+                fi, li = int(float(fsq)), int(float(lsq))
+                stop_display = f"Stop {fi}" if fi == li else f"Stops {max(fi,li)} → {min(fi,li)}"
+            else:
+                stop_display = ""
+            box_meta[box_id] = {
+                "box_no":         r[1],
+                "box_type_name":  r[2],
+                "box_status":     r[3],
+                "stop_display":   stop_display,
+            }
+
+        if key not in grouped:
+            bm = box_meta[box_id]
+            grouped[key] = {
+                "box_id":           box_id,
+                "box_no":           bm["box_no"],
+                "box_type_name":    bm["box_type_name"],
+                "box_status":       bm["box_status"],
+                "box_stop_display": bm["stop_display"],
+                "item_code":        item_code,
+                "item_name":        r[6],
+                "location":         location or None,
+                "barcode":          r[9],
+                "zone":             r[10],
+                "unit_type":        r[11],
+                "pack":             r[12],
+                "customer_name":    r[13],
+                "total_qty":        0,
+                "source_items":     [],
+                "current_invoice":  None,
+            }
+
+        qty = float(r[8] or 0)
+        grouped[key]["total_qty"] += qty
+        grouped[key]["source_items"].append({
+            "invoice_no": r[4],
+            "item_code":  item_code,
+            "qty":        qty,
+        })
+        if grouped[key]["current_invoice"] is None:
+            grouped[key]["current_invoice"] = r[4]
+
+    items = list(grouped.values())
+
+    # Annotate each item with its in-box position and box-transition metadata
+    by_box = OrderedDict()
+    for idx, item in enumerate(items):
+        by_box.setdefault(item["box_id"], []).append(idx)
+
+    box_ids_ordered = list(by_box.keys())
+
+    for box_pos, bid in enumerate(box_ids_ordered):
+        idxs         = by_box[bid]
+        total_in_box = len(idxs)
+        if box_pos + 1 < len(box_ids_ordered):
+            next_bid = box_ids_ordered[box_pos + 1]
+            next_bno  = items[by_box[next_bid][0]]["box_no"]
+            next_btype = items[by_box[next_bid][0]]["box_type_name"]
+        else:
+            next_bno = next_btype = None
+
+        for i, item_idx in enumerate(idxs):
+            it = items[item_idx]
+            it["item_index_in_box"]  = i + 1
+            it["total_items_in_box"] = total_in_box
+            it["is_first_item_in_box"] = (i == 0)
+            it["is_last_item_in_box"]  = (i == total_in_box - 1)
+            it["next_box_no"]          = next_bno
+            it["next_box_type_name"]   = next_btype
+
+    return items
+
+
 @batch_bp.route('/picker/batch/item/<int:batch_id>')
 @login_required
 def batch_picking_item(batch_id):
@@ -2040,6 +2179,43 @@ def batch_picking_item(batch_id):
         flash('You are not assigned to this batch picking session.', 'danger')
         return redirect(url_for('batch.picker_batch_list'))
     
+    # ── Cooler box-first: intercept pending box-complete transition ───────────
+    if getattr(batch_session, 'session_type', None) == 'cooler_route':
+        _pending_bc = session.pop('cooler_box_complete_pending', None)
+        if _pending_bc:
+            return render_template('cooler_box_complete.html',
+                                   batch_session=batch_session,
+                                   box_info=_pending_bc)
+
+    # ── Cooler box-first: block picking if no confirmed box plan exists ───────
+    if getattr(batch_session, 'session_type', None) == 'cooler_route' and batch_session.route_id:
+        try:
+            _has_box_plan = db.session.execute(
+                text(
+                    "SELECT 1 FROM cooler_box_items cbi "
+                    "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+                    "WHERE cb.route_id = :rid LIMIT 1"
+                ),
+                {"rid": batch_session.route_id},
+            ).fetchone()
+        except Exception:
+            _has_box_plan = True
+        if not _has_box_plan:
+            flash(
+                'A confirmed box plan is required before picking can start. '
+                'Please plan and confirm the boxes first.',
+                'warning',
+            )
+            from models import Shipment as _Shipment
+            _route = _Shipment.query.get(batch_session.route_id)
+            if _route and getattr(_route, 'delivery_date', None):
+                return redirect(url_for(
+                    'cooler.route_picking',
+                    route_id=batch_session.route_id,
+                    delivery_date=_route.delivery_date.strftime('%Y-%m-%d'),
+                ))
+            return redirect(url_for('batch.picker_batch_list'))
+
     # Reset item index if requested (for debugging)
     if request.args.get('reset') == 'true' and current_user.role in ['admin', 'warehouse_manager']:
         batch_session.current_item_index = 0
@@ -2067,12 +2243,53 @@ def batch_picking_item(batch_id):
         if force_regenerate and fixed_batch_key in session:
             session.pop(fixed_batch_key, None)
             current_app.logger.warning(f"🔄 FORCING REGENERATION: Cleared cached data for Sequential mode")
-        
-        # Generate the complete list of ALL items in the batch
-        all_batch_items = batch_session.get_grouped_items()
-        
+
+        # ── Box-first cooler picking: build from cooler_box_items ─────────────
+        if getattr(batch_session, 'session_type', None) == 'cooler_route':
+            _cbp_items = build_cooler_box_picking_items(batch_session)
+            if _cbp_items:
+                _cbp_serialized = []
+                for _ci in _cbp_items:
+                    _cbp_serialized.append({
+                        'box_id':             _ci['box_id'],
+                        'box_no':             _ci['box_no'],
+                        'box_type_name':      _ci['box_type_name'],
+                        'box_status':         _ci['box_status'],
+                        'box_stop_display':   _ci['box_stop_display'],
+                        'item_index_in_box':  _ci['item_index_in_box'],
+                        'total_items_in_box': _ci['total_items_in_box'],
+                        'is_first_item_in_box': _ci['is_first_item_in_box'],
+                        'is_last_item_in_box':  _ci['is_last_item_in_box'],
+                        'next_box_no':          _ci['next_box_no'],
+                        'next_box_type_name':   _ci['next_box_type_name'],
+                        'item_code':    _ci['item_code'],
+                        'item_name':    _ci['item_name'],
+                        'location':     _ci.get('location'),
+                        'zone':         _ci.get('zone', ''),
+                        'barcode':      _ci.get('barcode', ''),
+                        'unit_type':    _ci.get('unit_type', ''),
+                        'pack':         _ci.get('pack', ''),
+                        'total_qty':    _ci['total_qty'],
+                        'current_invoice': _ci['current_invoice'],
+                        'customer_name':   _ci.get('customer_name', ''),
+                        'source_items':    _ci['source_items'],
+                        'order_total_items':  None,
+                        'order_total_weight': None,
+                        'routing':            None,
+                    })
+                session[fixed_batch_key] = _cbp_serialized
+                batch_session.current_item_index = 0
+                db.session.commit()
+                current_app.logger.info(
+                    "cooler box-first: cached %d items for batch %s",
+                    len(_cbp_serialized), batch_id,
+                )
+        else:
+            # Generate the complete list of ALL items in the batch
+            all_batch_items = batch_session.get_grouped_items()
+
         # Save these items in the session
-        if all_batch_items:
+        if getattr(batch_session, 'session_type', None) != 'cooler_route' and all_batch_items:
             # Serialize the batch items for session storage
             serialized_items = []
             for item in all_batch_items:
@@ -2125,19 +2342,60 @@ def batch_picking_item(batch_id):
             batch_session.current_item_index = 0
             db.session.commit()
     
+    def _serialize_cooler_box_items(ci_list):
+        """Serialize build_cooler_box_picking_items output for session storage."""
+        out = []
+        for _ci in ci_list:
+            out.append({
+                'box_id':             _ci['box_id'],
+                'box_no':             _ci['box_no'],
+                'box_type_name':      _ci['box_type_name'],
+                'box_status':         _ci['box_status'],
+                'box_stop_display':   _ci['box_stop_display'],
+                'item_index_in_box':  _ci['item_index_in_box'],
+                'total_items_in_box': _ci['total_items_in_box'],
+                'is_first_item_in_box': _ci['is_first_item_in_box'],
+                'is_last_item_in_box':  _ci['is_last_item_in_box'],
+                'next_box_no':          _ci['next_box_no'],
+                'next_box_type_name':   _ci['next_box_type_name'],
+                'item_code':    _ci['item_code'],
+                'item_name':    _ci['item_name'],
+                'location':     _ci.get('location'),
+                'zone':         _ci.get('zone', ''),
+                'barcode':      _ci.get('barcode', ''),
+                'unit_type':    _ci.get('unit_type', ''),
+                'pack':         _ci.get('pack', ''),
+                'total_qty':    _ci['total_qty'],
+                'current_invoice': _ci['current_invoice'],
+                'customer_name':   _ci.get('customer_name', ''),
+                'source_items':    _ci['source_items'],
+                'order_total_items':  None,
+                'order_total_weight': None,
+                'routing':            None,
+            })
+        return out
+
     # Phase 4: queue-as-source-of-truth resume for DB-backed batches.
+    # For cooler_route sessions we rebuild from box plan instead of the queue,
+    # because queue items lack box metadata required by the box-first UI.
     from services.batch_picking import (
         is_db_backed_batch as _is_db_backed,
         rebuild_items_from_queue as _rebuild_from_queue,
     )
     if fixed_batch_key not in session and _is_db_backed(batch_id):
-        rebuilt = _rebuild_from_queue(batch_id)
+        if getattr(batch_session, 'session_type', None) == 'cooler_route':
+            _resume_items = build_cooler_box_picking_items(batch_session)
+            rebuilt = _serialize_cooler_box_items(_resume_items)
+        else:
+            rebuilt = _rebuild_from_queue(batch_id)
         session[fixed_batch_key] = rebuilt
         batch_session.current_item_index = 0
         batch_session.current_invoice_index = 0
         db.session.commit()
         current_app.logger.info(
-            f"queue-resume: rebuilt {len(rebuilt)} item(s) for DB-backed batch {batch_id}"
+            "queue-resume: rebuilt %d item(s) for batch %s (cooler_route=%s)",
+            len(rebuilt), batch_id,
+            getattr(batch_session, 'session_type', None) == 'cooler_route',
         )
 
     # Now use our fixed item list
@@ -2145,7 +2403,10 @@ def batch_picking_item(batch_id):
         items = session[fixed_batch_key]
         current_app.logger.info(f"Using fixed batch list: {len(items)} items, current index: {batch_session.current_item_index}")
     else:
-        items = batch_session.get_grouped_items()
+        if getattr(batch_session, 'session_type', None) == 'cooler_route':
+            items = _serialize_cooler_box_items(build_cooler_box_picking_items(batch_session))
+        else:
+            items = batch_session.get_grouped_items()
         current_app.logger.info(f"Using database query, found {len(items if items else [])} items")
     
     # CRITICAL DEBUG CHECK - Verify all items are in the fixed list
@@ -2182,11 +2443,14 @@ def batch_picking_item(batch_id):
         if (not items
                 and batch_session.current_item_index == 0
                 and getattr(batch_session, 'picking_mode', None) == 'Cooler'):
-            regenerated = batch_session.get_grouped_items()
-            if regenerated:
-                # Serialize and cache the regenerated list, then show the first item.
+            if getattr(batch_session, 'session_type', None) == 'cooler_route':
+                # Box-first flow: rebuild from confirmed box plan
+                _regen_cbp = build_cooler_box_picking_items(batch_session)
+                serialized_regen = _serialize_cooler_box_items(_regen_cbp)
+            else:
+                regenerated = batch_session.get_grouped_items()
                 serialized_regen = []
-                for _ri in regenerated:
+                for _ri in (regenerated or []):
                     _first_inv = _ri['source_items'][0]['invoice_no'] if _ri['source_items'] else None
                     _inv = Invoice.query.filter_by(invoice_no=_first_inv).first() if _first_inv else None
                     serialized_regen.append({
@@ -2208,6 +2472,7 @@ def batch_picking_item(batch_id):
                         'order_total_items': _inv.total_items if _inv else None,
                         'order_total_weight': _inv.total_weight if _inv else None,
                     })
+            if serialized_regen:
                 session[fixed_batch_key] = serialized_regen
                 items = serialized_regen
                 batch_session.current_item_index = 0
@@ -2405,7 +2670,7 @@ def batch_picking_item(batch_id):
                     route = Shipment.query.get(batch_session.route_id)
                     if route and route.delivery_date:
                         pack_mode = getattr(batch_session, 'cooler_pack_mode', 'location_order')
-                        msg = "✅ Cooler picking complete. Now use Generate Box Plan to assign picked items into cooler boxes."
+                        msg = "✅ Cooler picking complete — all boxes have been picked and sealed."
                         flash(msg, "success")
                         return redirect(url_for(
                             "cooler.route_picking",
@@ -2432,81 +2697,23 @@ def batch_picking_item(batch_id):
     # Debug logging for batch picking
     current_app.logger.info(f"Batch {batch_id}: Processing item {batch_session.current_item_index + 1}/{len(items)} - {current_item['item_code']}")
 
-    # ── Cooler box assignment hint ────────────────────────────────────────────
-    # For cooler-route batches look up which box(es) this item belongs to so
-    # the picker knows where to place it immediately after grabbing it.
-    cooler_box_info = []
-    cooler_box_starting = []   # boxes whose first item is the current item
-    cooler_box_finishing = []  # boxes whose last  item is the current item
-    if getattr(batch_session, 'session_type', None) == 'cooler_route' and batch_session.route_id:
-        try:
-            _cidx = batch_session.current_item_index
-
-            def _item_inv_nos(it):
-                return list({s['invoice_no'] for s in (it or {}).get('source_items', []) if s.get('invoice_no')})
-
-            def _boxes_for(it):
-                """Return set of box_nos assigned to picking item `it`."""
-                if not it:
-                    return set()
-                inv_nos = _item_inv_nos(it)
-                code    = it.get('item_code', '')
-                if not inv_nos or not code:
-                    return set()
-                rows = db.session.execute(
-                    text(
-                        "SELECT DISTINCT cb.box_no "
-                        "FROM cooler_box_items cbi "
-                        "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
-                        "WHERE cbi.invoice_no = ANY(:inv_nos) "
-                        "  AND cbi.item_code  = :icode "
-                        "  AND cb.route_id    = :rid"
-                    ),
-                    {"inv_nos": inv_nos, "icode": code, "rid": batch_session.route_id},
-                ).fetchall()
-                return {r[0] for r in rows}
-
-            _prev_item = items[_cidx - 1] if _cidx > 0 else None
-            _next_item = items[_cidx + 1] if _cidx + 1 < len(items) else None
-
-            _prev_boxes = _boxes_for(_prev_item)
-            _next_boxes = _boxes_for(_next_item)
-
-            # Current item — also fetch name + id for display
-            _src      = current_item.get('source_items', [])
-            _inv_nos  = list({s['invoice_no'] for s in _src if s.get('invoice_no')})
-            _icode    = current_item.get('item_code', '')
-            if _inv_nos and _icode:
-                _box_rows = db.session.execute(
-                    text(
-                        "SELECT DISTINCT cb.box_no, "
-                        "       COALESCE(cbt.name, 'Box') AS box_type_name, "
-                        "       cb.id AS box_id "
-                        "FROM cooler_box_items cbi "
-                        "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
-                        "LEFT JOIN cooler_box_types cbt ON cbt.id = cb.box_type_id "
-                        "WHERE cbi.invoice_no = ANY(:inv_nos) "
-                        "  AND cbi.item_code  = :icode "
-                        "  AND cb.route_id    = :rid "
-                        "ORDER BY cb.box_no"
-                    ),
-                    {"inv_nos": _inv_nos, "icode": _icode, "rid": batch_session.route_id},
-                ).fetchall()
-                cooler_box_info = [
-                    {"box_no": r[0], "box_type_name": r[1], "box_id": r[2]}
-                    for r in _box_rows
-                ]
-                _cur_box_map = {d["box_no"]: d for d in cooler_box_info}
-                # Starting: this box_no did NOT appear in the previous item's boxes
-                cooler_box_starting = [
-                    d for d in cooler_box_info if d["box_no"] not in _prev_boxes
-                ]
-                # Finishing: this box_no will NOT appear in the next item's boxes
-                cooler_box_finishing = [
-                    d for d in cooler_box_info if d["box_no"] not in _next_boxes
-                ]
-        except Exception as _cbe:
-            current_app.logger.warning("cooler box lookup failed for batch %s: %s", batch_id, _cbe)
+    # ── Cooler box-first: extract current-box context from item dict ──────────
+    # (The old location-first banner logic has been replaced by the box-first
+    # card + start-modal rendered in the template.)
+    cooler_current_box = None
+    if getattr(batch_session, 'session_type', None) == 'cooler_route':
+        cooler_current_box = {
+            'box_id':             current_item.get('box_id'),
+            'box_no':             current_item.get('box_no'),
+            'box_type_name':      current_item.get('box_type_name', 'Box'),
+            'box_stop_display':   current_item.get('box_stop_display', ''),
+            'item_index_in_box':  current_item.get('item_index_in_box', 1),
+            'total_items_in_box': current_item.get('total_items_in_box', 1),
+            'is_first_item_in_box': current_item.get('is_first_item_in_box', False),
+            'is_last_item_in_box':  current_item.get('is_last_item_in_box', False),
+            'next_box_no':          current_item.get('next_box_no'),
+            'next_box_type_name':   current_item.get('next_box_type_name'),
+        }
     
     # Get the next item's location (if available) to show to the picker
     show_next_location = False
@@ -2576,9 +2783,7 @@ def batch_picking_item(batch_id):
                           current_index=batch_session.current_item_index,
                           show_multi_qty_warning=show_multi_qty_warning,
                           tracking_ids=tracking_ids,
-                          cooler_box_info=cooler_box_info,
-                          cooler_box_starting=cooler_box_starting,
-                          cooler_box_finishing=cooler_box_finishing)
+                          cooler_current_box=cooler_current_box)
 
 @batch_bp.route('/api/picker/batch/<int:batch_id>/arrived', methods=['POST'])
 @login_required
@@ -2781,7 +2986,19 @@ def complete_batch_confirm(batch_id):
     
     # Get the current item
     current_item = items[batch_session.current_item_index]
-    
+
+    # ── Cooler box-first: read box-transition flags ───────────────────────────
+    _cooler_is_last_in_box = (
+        getattr(batch_session, 'session_type', None) == 'cooler_route'
+        and (
+            request.form.get('is_last_item_in_box') == 'true'
+            or current_item.get('is_last_item_in_box', False)
+        )
+    )
+    _cooler_box_id = request.form.get('cooler_box_id') or (
+        str(current_item['box_id']) if current_item.get('box_id') else None
+    )
+
     # Get the picked quantity from the form
     try:
         picked_qty = int(request.form.get('picked_qty', 0))
@@ -3017,6 +3234,49 @@ def complete_batch_confirm(batch_id):
                         "ic":     _src["item_code"],
                         "bid":    batch_id,
                     },
+                )
+
+        # ── Cooler box-first: close box when its last item is confirmed ──────────
+        if _cooler_is_last_in_box and _cooler_box_id:
+            try:
+                _still_planned = db.session.execute(
+                    text(
+                        "SELECT COUNT(*) FROM cooler_box_items "
+                        "WHERE cooler_box_id = :bid AND status = 'planned'"
+                    ),
+                    {"bid": int(_cooler_box_id)},
+                ).scalar() or 0
+                if _still_planned == 0:
+                    from timezone_utils import get_utc_now as _utcnow_cls
+                    db.session.execute(
+                        text(
+                            "UPDATE cooler_boxes "
+                            "SET status = 'closed', "
+                            "    closed_by = :who, closed_at = :now "
+                            "WHERE id = :bid AND status != 'cancelled'"
+                        ),
+                        {
+                            "bid": int(_cooler_box_id),
+                            "who": current_user.username,
+                            "now": _utcnow_cls(),
+                        },
+                    )
+                    session['cooler_box_complete_pending'] = {
+                        'box_no':            current_item.get('box_no'),
+                        'box_type_name':     current_item.get('box_type_name', 'Box'),
+                        'box_stop_display':  current_item.get('box_stop_display', ''),
+                        'next_box_no':       current_item.get('next_box_no'),
+                        'next_box_type_name': current_item.get('next_box_type_name'),
+                        'is_final_box':      current_item.get('next_box_no') is None,
+                    }
+                    current_app.logger.info(
+                        "cooler box %s closed by %s (batch %s)",
+                        _cooler_box_id, current_user.username, batch_id,
+                    )
+            except Exception as _close_err:
+                current_app.logger.warning(
+                    "cooler box close failed for box %s: %s",
+                    _cooler_box_id, _close_err,
                 )
 
         # Record an activity
@@ -3258,7 +3518,8 @@ def complete_batch_confirm(batch_id):
                     _inv_item, _e_item,
                 )
 
-        # Redirect to the next item
+        # Redirect to the next item (batch_picking_item will intercept the
+        # cooler_box_complete_pending session flag and show the transition screen)
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
         
     except Exception as e:
@@ -3267,6 +3528,27 @@ def complete_batch_confirm(batch_id):
         flash(f'Error processing this item: {str(e)}', 'danger')
         current_app.logger.error(f"Error processing batch item: {str(e)}")
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+
+
+@batch_bp.route('/picker/batch/<int:batch_id>/cooler/box-complete', methods=['GET'])
+@login_required
+def cooler_box_complete(batch_id):
+    """Box-transition screen shown between boxes in cooler box-first picking.
+
+    The session key ``cooler_box_complete_pending`` is set by
+    ``complete_batch_confirm`` when the last item of a box is confirmed.
+    ``batch_picking_item`` pops this key and renders this template directly.
+    This GET endpoint is a fallback in case the user navigates here directly.
+    """
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    if current_user.role not in ['admin', 'warehouse_manager'] and \
+            batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+    box_info = session.pop('cooler_box_complete_pending', {})
+    return render_template('cooler_box_complete.html',
+                           batch_session=batch_session,
+                           box_info=box_info)
 
 
 @batch_bp.route('/batch/<int:batch_id>/force_complete')
