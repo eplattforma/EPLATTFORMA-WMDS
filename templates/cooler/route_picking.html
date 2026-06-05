@@ -214,8 +214,8 @@
 {# ══════════════════════════════════════════════════════════════════════════ #}
 <div class="accordion-item mb-3 shadow-sm border-0 rounded">
   <h2 class="accordion-header" id="headingStatus">
-    <button class="accordion-button fw-bold rounded" type="button"
-            data-bs-toggle="collapse" data-bs-target="#collapseStatus" aria-expanded="true">
+    <button class="accordion-button collapsed fw-bold rounded" type="button"
+            data-bs-toggle="collapse" data-bs-target="#collapseStatus" aria-expanded="false">
       <i class="fas fa-list-ul me-2 text-primary"></i>Route Item Status
       <span class="badge bg-secondary ms-2">{{ (sequenced|length) + (unsequenced|length) }}</span>
       {% if unsequenced %}<span class="badge bg-warning text-dark ms-1">{{ unsequenced|length }} awaiting</span>{% endif %}
@@ -225,7 +225,7 @@
       {% endif %}
     </button>
   </h2>
-  <div id="collapseStatus" class="accordion-collapse collapse show">
+  <div id="collapseStatus" class="accordion-collapse collapse">
     <div class="accordion-body p-0">
 
       {# Toolbar #}
