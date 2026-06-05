@@ -3283,7 +3283,7 @@ def get_cooler_route_status_data(route_id, delivery_date):
 
 @cooler_bp.route("/route/<route_id>/<delivery_date>/status-print")
 @login_required
-@require_permission("cooler.manage_boxes")
+@require_permission("cooler.pick")
 def route_status_print(route_id, delivery_date):
     """Dedicated A4-landscape print view for the Cooler Route Status report."""
     if _parse_date(delivery_date) is None:
