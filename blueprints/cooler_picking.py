@@ -3231,14 +3231,14 @@ def get_cooler_route_status_data(route_id, delivery_date):
             "stop_no":      int(seq),
             "is_awaiting":  False,
             "header":       f"Stop {int(seq)}" + (f" — {custs[0]}" if custs else ""),
-            "items":        grp,
+            "rows":         grp,
         })
     if await_items:
         stop_groups.append({
             "stop_no":     None,
             "is_awaiting": True,
             "header":      "Awaiting Route Preparation",
-            "items":       await_items,
+            "rows":        await_items,
         })
 
     # ── Printed timestamp (Cairo) ─────────────────────────────────────────

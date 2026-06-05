@@ -361,7 +361,7 @@
           <td class="col-inv">{{ b.inv_count }}</td>
           <td class="col-cust">{{ b.cust_count }}</td>
           <td class="col-fill">{{ b.fill_pct ~ '%' if b.fill_pct is not none else '—' }}</td>
-          <td class="col-weight">{{ '%.2f kg' | format(b.weight_kg) if b.weight_kg else '—' }}</td>
+          <td class="col-weight">{{ "{:.2f} kg".format(b.weight_kg) if b.weight_kg else '—' }}</td>
           <td class="col-closedat small-text">{{ b.closed_at }}</td>
           <td class="col-label small-text">{{ b.label_status }}</td>
         </tr>
@@ -377,8 +377,8 @@
     {% if all_boxes_closed and boxes %}
     <div class="loading-guidance">
       <strong>Loading order:</strong>
-      Box {{ boxes | map(attribute='box_no') | max }} contains the earliest delivery stops.
-      Load Box {{ boxes | map(attribute='box_no') | max }} first (deepest in vehicle).
+      Box {{ boxes | map(attribute='box_no') | list | sort | last }} contains the earliest delivery stops.
+      Load Box {{ boxes | map(attribute='box_no') | list | sort | last }} first (deepest in vehicle).
       Box 1 contains the last delivery stops and should stay most accessible (nearest exit).
     </div>
     {% else %}
@@ -412,7 +412,7 @@
           <td colspan="9">{{ grp.header }}</td>
         </tr>
         {# Item rows #}
-        {% for it in grp.items %}
+        {% for it in grp.rows %}
         <tr>
           <td class="col-stop">
             {% if not grp.is_awaiting %}{{ grp.stop_no }}{% else %}—{% endif %}
@@ -426,7 +426,7 @@
             <span class="item-description small-text">{{ it.item_name or it.item_code }}</span>
           </td>
           <td class="col-qty">
-            {% if it.qty == it.qty | int %}{{ it.qty | int }}{% else %}{{ '%.1f' | format(it.qty) }}{% endif %}
+            {% if it.qty == it.qty | int %}{{ it.qty | int }}{% else %}{{ "{:.1f}".format(it.qty) }}{% endif %}
           </td>
           <td class="col-picked">
             {% if it.pick_label == 'Picked' %}
