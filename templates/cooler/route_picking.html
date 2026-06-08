@@ -74,7 +74,7 @@
          style="background:{{ '#fd7e14' if unsequenced else '#6c757d' }};color:#fff;">
       <div class="card-body py-3">
         <div class="fs-4 fw-bold">{{ unsequenced | length }}</div>
-        <div class="small opacity-75 mt-1">Pending Pick</div>
+        <div class="small opacity-75 mt-1">Not Sequenced</div>
       </div>
     </div>
   </div>
@@ -83,7 +83,7 @@
          style="background:{{ '#fd7e14' if picked_unboxed_count > 0 else '#6c757d' }};color:#fff;">
       <div class="card-body py-3">
         <div class="fs-4 fw-bold">{{ picked_unboxed_count }}</div>
-        <div class="small opacity-75 mt-1">Not Yet Boxed</div>
+        <div class="small opacity-75 mt-1">Needs Boxing</div>
       </div>
     </div>
   </div>
@@ -185,12 +185,12 @@
       {% elif _picking_done and _open_boxes %}
         <button type="button" class="btn btn-light btn-lg text-nowrap"
                 onclick="document.getElementById('collapseBoxes').classList.add('show');document.getElementById('collapseBoxes').scrollIntoView({behavior:'smooth',block:'start'});">
-          <i class="fas fa-lock me-2"></i>Close Boxes ↓
+          <i class="fas fa-lock me-2"></i>Go to Boxes
         </button>
       {% elif _picking_done and picked_unboxed_count > 0 %}
         <button type="button" class="btn btn-light btn-lg text-nowrap"
                 onclick="document.getElementById('collapsePlan').classList.add('show');document.getElementById('collapsePlan').scrollIntoView({behavior:'smooth',block:'start'});">
-          <i class="fas fa-layer-group me-2"></i>Plan Remaining ↓
+          <i class="fas fa-layer-group me-2"></i>Go to Box Planning
         </button>
       {% elif _s2 == 2 and not _picking_done %}
         {% if cooler_session %}
@@ -469,7 +469,7 @@
 
       <div class="alert alert-secondary py-2 small mb-3">
         <i class="fas fa-exclamation-circle me-1"></i>
-        Box changes should be done before confirming the plan. After confirmation, you can still reopen or cancel a box if a packing mistake happens.
+        Box changes should be done before confirming the plan. After confirmation, use the Manager Tools below only if a physical packing mistake happened.
       </div>
 
       <div class="row g-3 align-items-end mb-3" id="planSetupRow">
@@ -794,14 +794,14 @@
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════════════════════ #}
-{# E. Manager Recovery Tools                                                  #}
+{# E. Manager Tools                                                           #}
 {# ══════════════════════════════════════════════════════════════════════════ #}
 {% if has_permission('cooler.manage_boxes') and boxes %}
 <div class="accordion-item mb-3 shadow-sm border-0 rounded">
   <h2 class="accordion-header" id="headingRecovery">
     <button class="accordion-button collapsed fw-bold rounded" type="button"
             data-bs-toggle="collapse" data-bs-target="#collapseRecovery" aria-expanded="false">
-      <i class="fas fa-tools me-2 text-warning"></i>Manager Recovery Tools
+      <i class="fas fa-tools me-2 text-warning"></i>Manager Tools
       <span class="badge bg-warning text-dark ms-2">Admin only</span>
     </button>
   </h2>
