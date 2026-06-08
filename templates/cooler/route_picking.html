@@ -45,9 +45,7 @@
       <i class="fas fa-snowflake me-2 text-info"></i>
       Prepare Cooler Route {{ route_id }}{% if route_name %} / {{ route_name }}{% endif %}
     </h2>
-    <p class="text-muted mb-1 small">
-      Warehouse cooler packing based on delivery stop sequence.
-    </p>
+
     <p class="text-muted mb-0 small">
       {% if route_driver %}<i class="fas fa-user me-1"></i><strong>Driver:</strong> {{ route_driver }}{% if delivery_date %} &nbsp;|&nbsp; {% endif %}{% endif %}
       {% if delivery_date %}<i class="fas fa-calendar me-1"></i><strong>Delivery date:</strong> {{ delivery_date }}{% endif %}
