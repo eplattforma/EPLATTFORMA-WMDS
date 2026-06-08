@@ -211,7 +211,7 @@
             data-bs-toggle="collapse" data-bs-target="#collapseStatus" aria-expanded="false">
       <i class="fas fa-list-ul me-2 text-primary"></i>Route Item Status
       <span class="badge bg-secondary ms-2">{{ (sequenced|length) + (unsequenced|length) }}</span>
-      {% if unsequenced %}<span class="badge bg-warning text-dark ms-1">{{ unsequenced|length }} not sequenced</span>{% endif %}
+      {% if unsequenced and _is_locked %}<span class="badge bg-warning text-dark ms-1">{{ unsequenced|length }} not sequenced</span>{% endif %}
       {% if picking_phase %}
         {% if picking_phase.complete %}<span class="badge bg-success ms-1">All picked</span>
         {% else %}<span class="badge bg-info ms-1">{{ picking_phase.picked_count }}/{{ picking_phase.total_count }}</span>{% endif %}
