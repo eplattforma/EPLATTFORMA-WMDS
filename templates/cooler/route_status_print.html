@@ -232,6 +232,12 @@
       justify-content: space-between;
     }
 
+    /* ── Screen-only elements (hidden when printing) ── */
+    .screen-only { display: flex; }
+    @media print {
+      .screen-only { display: none !important; }
+    }
+
     /* ── Print overrides ── */
     @media print {
       .screen-toolbar { display: none !important; }
@@ -297,6 +303,40 @@
     <!-- ══ 2. Dispatch Ready Banner ══ -->
     {% if route_status == 'ready_for_dispatch' %}
     <div class="dispatch-banner">&#10003; COOLER READY FOR DISPATCH</div>
+    {% endif %}
+
+    <!-- ══ 2b. Action Required Banner (unboxed items) ══ -->
+    {% if kpi.unboxed_picked > 0 %}
+    <div class="screen-only" style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:1.3rem;">&#9888;</span>
+      <div>
+        <strong>{{ kpi.unboxed_picked }} item{{ 's' if kpi.unboxed_picked != 1 }} picked but not yet packed into boxes.</strong>
+        <div style="font-size:0.88rem;margin-top:2px;">
+          Go to the Cooler Handover page, click <strong>"Plan Remaining ↓"</strong> to assign items to boxes, then close each box.
+        </div>
+      </div>
+      <a href="{{ url_for('cooler.route_picking', route_id=route_id, delivery_date=delivery_date) }}#collapsePlan"
+         style="margin-left:auto;white-space:nowrap;background:#e65c00;color:#fff;padding:6px 14px;border-radius:4px;text-decoration:none;font-weight:600;">
+        &#8594; Plan Boxes
+      </a>
+    </div>
+    {% endif %}
+
+    <!-- ══ 2c. Open boxes banner ══ -->
+    {% if kpi.boxes_open > 0 %}
+    <div class="screen-only" style="background:#cce5ff;border:1px solid #99caff;border-radius:6px;padding:10px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:1.3rem;">&#128274;</span>
+      <div>
+        <strong>{{ kpi.boxes_open }} box{{ 'es' if kpi.boxes_open != 1 }} still open.</strong>
+        <div style="font-size:0.88rem;margin-top:2px;">
+          Once items are physically packed, close each box on the Cooler Handover page.
+        </div>
+      </div>
+      <a href="{{ url_for('cooler.route_picking', route_id=route_id, delivery_date=delivery_date) }}#collapseBoxes"
+         style="margin-left:auto;white-space:nowrap;background:#0d6efd;color:#fff;padding:6px 14px;border-radius:4px;text-decoration:none;font-weight:600;">
+        &#8594; Close Boxes
+      </a>
+    </div>
     {% endif %}
 
     <!-- ══ 3. KPI Summary ══ -->
@@ -369,7 +409,11 @@
       </tbody>
     </table>
     {% else %}
-    <div class="notice">No cooler boxes have been planned yet.</div>
+    <div class="notice">
+      No cooler boxes have been planned yet. &nbsp;
+      <a href="{{ url_for('cooler.route_picking', route_id=route_id, delivery_date=delivery_date) }}#collapsePlan"
+         style="color:#e65c00;font-weight:600;">&#8594; Go to Cooler Handover to plan boxes</a>
+    </div>
     {% endif %}
 
     <!-- ══ 5. Loading Guidance ══ -->
