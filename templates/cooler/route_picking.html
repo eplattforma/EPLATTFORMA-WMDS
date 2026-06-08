@@ -57,10 +57,10 @@
 </div>
 
 {# ── KPI cards ─────────────────────────────────────────────────────────────── #}
-{% if unsequenced %}
+{% if unsequenced and _is_locked %}
 <div class="alert alert-warning py-2 small mb-2 d-print-none">
   <i class="fas fa-exclamation-triangle me-1"></i>
-  {{ unsequenced|length }} item(s) on this route are missing a delivery sequence — this shouldn't normally happen. Please check before confirming the route.
+  {{ unsequenced|length }} item(s) on this route are missing a delivery sequence — this shouldn't normally happen after confirmation. Please check with your manager.
 </div>
 {% endif %}
 <div class="row g-2 mb-4 d-print-none">
