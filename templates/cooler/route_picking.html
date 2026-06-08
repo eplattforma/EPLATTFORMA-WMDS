@@ -256,7 +256,7 @@
             <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;background:#fff;color:#212529;">
               <thead style="background:#e9ecef;color:#212529;">
                 <tr>
-                  <th>Stop</th><th>Invoice</th><th>Customer</th>
+                  <th>Stop</th><th>Invoice</th>{% if not _is_locked %}<th>Customer</th>{% endif %}
                   <th>Item Code</th><th>Description</th><th class="text-end">Qty</th>
                   <th>Picked?</th><th>Box</th><th>Box Status</th>
                 </tr>
@@ -266,7 +266,7 @@
                 <tr class="status-row" style="background:#fff;color:#212529;" data-filters="all awaiting">
                   <td>{{ q.stop_seq_no|int if q.stop_seq_no is not none else '—' }}</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
-                  <td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>
+                  {% if not _is_locked %}<td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>{% endif %}
                   <td class="fw-bold small">{{ q.item_code }}</td>
                   <td class="text-muted small">{{ q.item_name or '' }}</td>
                   <td class="text-end">{{ q.expected_qty|int }}</td>
@@ -305,7 +305,7 @@
             <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;background:#fff;color:#212529;">
               <thead style="background:#e9ecef;color:#212529;">
                 <tr>
-                  <th>Stop</th><th>Invoice</th><th>Customer</th>
+                  <th>Stop</th><th>Invoice</th>{% if not _is_locked %}<th>Customer</th>{% endif %}
                   <th>Item Code</th><th>Description</th><th class="text-end">Qty</th>
                   <th>Picked?</th><th>Box</th><th>Box Status</th>
                 </tr>
@@ -333,7 +333,7 @@
                     data-filters="{{ _rfilters }}">
                   <td class="fw-semibold">{{ stop_no|int if stop_no is not none else '—' }}</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
-                  <td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>
+                  {% if not _is_locked %}<td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>{% endif %}
                   <td class="fw-bold small">{{ q.item_code }}</td>
                   <td class="text-muted small">{{ q.item_name or '' }}</td>
                   <td class="text-end">{{ q.expected_qty|int }}</td>
@@ -375,7 +375,7 @@
           <div class="table-responsive">
             <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;background:#fff;color:#212529;">
               <thead style="background:#e9ecef;color:#212529;">
-                <tr><th>Stop</th><th>Invoice</th><th>Customer</th><th>Item Code</th><th>Description</th><th class="text-end">Qty</th><th>Picked?</th><th>Box</th><th>Box Status</th></tr>
+                <tr><th>Stop</th><th>Invoice</th>{% if not _is_locked %}<th>Customer</th>{% endif %}<th>Item Code</th><th>Description</th><th class="text-end">Qty</th><th>Picked?</th><th>Box</th><th>Box Status</th></tr>
               </thead>
               <tbody>
                 {% for q in sequenced if q.delivery_sequence is none %}
@@ -387,7 +387,7 @@
                     data-filters="all {% if q.status == 'picked' %}picked{% if _qbn2 is none %} unboxed{% endif %}{% else %}not-picked{% endif %}">
                   <td>—</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
-                  <td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>
+                  {% if not _is_locked %}<td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>{% endif %}
                   <td class="fw-bold small">{{ q.item_code }}</td>
                   <td class="text-muted small">{{ q.item_name or '' }}</td>
                   <td class="text-end">{{ q.expected_qty|int }}</td>
