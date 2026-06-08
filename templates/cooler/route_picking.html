@@ -74,7 +74,7 @@
          style="background:{{ '#fd7e14' if unsequenced else '#6c757d' }};color:#fff;">
       <div class="card-body py-3">
         <div class="fs-4 fw-bold">{{ unsequenced | length }}</div>
-        <div class="small opacity-75 mt-1">Awaiting Prep</div>
+        <div class="small opacity-75 mt-1">Pending Pick</div>
       </div>
     </div>
   </div>
@@ -83,7 +83,7 @@
          style="background:{{ '#fd7e14' if picked_unboxed_count > 0 else '#6c757d' }};color:#fff;">
       <div class="card-body py-3">
         <div class="fs-4 fw-bold">{{ picked_unboxed_count }}</div>
-        <div class="small opacity-75 mt-1">Unboxed</div>
+        <div class="small opacity-75 mt-1">Not Yet Boxed</div>
       </div>
     </div>
   </div>
@@ -207,7 +207,7 @@
       {% elif _s1 == 2 and has_permission('cooler.manage_boxes') and (not boxes or picked_unboxed_count > 0) %}
         <button type="button" class="btn btn-light btn-lg text-nowrap"
                 onclick="document.getElementById('collapsePlan').classList.add('show');document.getElementById('collapsePlan').scrollIntoView({behavior:'smooth',block:'start'});">
-          <i class="fas fa-layer-group me-2"></i>Plan Boxes ↓
+          <i class="fas fa-layer-group me-2"></i>Go to Box Planning
         </button>
       {% elif _s1 == 1 and has_permission('cooler.lock_sequencing') %}
         <form method="post" action="{{ url_for('cooler.lock_sequencing', route_id=route_id) }}">
@@ -469,12 +469,12 @@
 
       <div class="alert alert-secondary py-2 small mb-3">
         <i class="fas fa-exclamation-circle me-1"></i>
-        Box changes should be done before confirming the plan. After confirmation, use recovery tools only if a physical packing mistake happened.
+        Box changes should be done before confirming the plan. After confirmation, you can still reopen or cancel a box if a packing mistake happens.
       </div>
 
       <div class="row g-3 align-items-end mb-3" id="planSetupRow">
         <div class="col-12">
-          <p class="text-muted small mb-2">Set how many boxes of each type you have available today, choose a fill target, then get a recommendation.</p>
+          <p class="text-muted small mb-2">Set how many boxes of each type you have available today, choose a max fill %, then get a recommendation.</p>
           <div class="d-flex flex-wrap gap-4" id="availabilityInputs">
             {% for bt in box_types %}
             <div class="d-flex align-items-center gap-2">

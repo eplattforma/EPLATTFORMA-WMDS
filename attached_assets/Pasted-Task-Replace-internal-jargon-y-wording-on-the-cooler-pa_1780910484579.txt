@@ -1,0 +1,19 @@
+Task: Replace internal/jargon-y wording on the cooler packing screens with plain language1. blueprints/cooler_picking.py, line 1069 — flash message after locking sequencing:python# Before:
+flash(f"Sequencing locked — {stamped} item(s) stamped with delivery order.", "success")
+# After:
+flash(f"Route confirmed — {stamped} item(s) sorted into delivery order.", "success")2. templates/cooler/route_picking.html, line 467 — info banner above the box-planning form:html<!-- Before -->
+Box changes should be done before confirming the plan. After confirmation, use recovery tools only if a physical packing mistake happened.
+<!-- After -->
+Box changes should be done before confirming the plan. After confirmation, you can still reopen or cancel a box if a packing mistake happens.3. templates/cooler/route_picking.html, line 77 — stat card label:html<!-- Before -->
+<div class="small opacity-75 mt-1">Awaiting Prep</div>
+<!-- After -->
+<div class="small opacity-75 mt-1">Pending Pick</div>(Also update the matching column header in templates/cooler/route_status_print.html, line 349, from <th>Awaiting Prep</th> to <th>Pending Pick</th> so the print view stays consistent.)4. templates/cooler/route_picking.html, line 86 — stat card label:html<!-- Before -->
+<div class="small opacity-75 mt-1">Unboxed</div>
+<!-- After -->
+<div class="small opacity-75 mt-1">Not Yet Boxed</div>(For consistency, also update templates/cooler/route_status_print.html line 350 <th>Unboxed Picked</th> → <th>Picked, Not Yet Boxed</th>, and line 495 badge text Unboxed → Not Yet Boxed. Leave box_st_text = "Unboxed" in cooler_picking.py line 3115 as the internal value — just update the displayed label in the template, not the code's internal string, to avoid breaking any comparisons.)5. templates/cooler/route_picking.html, line 472 — box planning instructions paragraph, to align terminology with the "Max Fill %" label below it:html<!-- Before -->
+<p class="text-muted small mb-2">Set how many boxes of each type you have available today, choose a fill target, then get a recommendation.</p>
+<!-- After -->
+<p class="text-muted small mb-2">Set how many boxes of each type you have available today, choose a max fill %, then get a recommendation.</p>6. templates/cooler/route_picking.html, line 210 — button label, replace the ambiguous arrow with explicit wording:html<!-- Before -->
+<i class="fas fa-layer-group me-2"></i>Plan Boxes ↓
+<!-- After -->
+<i class="fas fa-layer-group me-2"></i>Go to Box Planning(Also update templates/cooler/route_status_print.html line 320 &#8594; Plan Boxes → Go to Box Planning for consistency.)To verify after deploying: reload the cooler packing screen and confirm the flash banner, stat cards, info text, and button label all read in plain operational language — no internal terms like "stamped," "recovery tools," or ambiguous arrows remain.

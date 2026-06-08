@@ -1131,7 +1131,7 @@ def lock_sequencing(route_id):
 
     # HTML form POST — flash and redirect back to the picking screen
     if stamped:
-        flash(f"Sequencing locked — {stamped} item(s) stamped with delivery order.", "success")
+        flash(f"Route confirmed — {stamped} item(s) sorted into delivery order.", "success")
     else:
         flash("Sequencing locked (all items already had a sequence).", "info")
 
