@@ -2075,13 +2075,9 @@ def box_close(box_id):
 
     # Phase-5 cooler integration: closing a cooler box is the trigger
     # event that may complete the cooler side of an order. For every
-    # invoice that had items in this box, if the order is sitting in
-    # 'awaiting_batch_items' OR 'awaiting_packing' and is_order_ready
-    # now returns True, promote it to ready_for_dispatch.
-    # Both pre-pack states are valid: awaiting_batch_items means regular
-    # items finished first; awaiting_packing means cooler items were all
-    # picked but the box wasn't closed yet. The transition map in
-    # order_status_constants.py explicitly allows both -> ready_for_dispatch.
+    # invoice that had items in this box, if the order packed regular
+    # items earlier and is sitting in 'awaiting_batch_items', and
+    # is_order_ready now returns True, promote it to ready_for_dispatch.
     invoice_rows = db.session.execute(
         text(
             "SELECT DISTINCT invoice_no FROM cooler_box_items "
@@ -2097,15 +2093,14 @@ def box_close(box_id):
             inv = Invoice.query.filter_by(invoice_no=inv_no).first()
             if inv is None:
                 continue
-            if inv.status in ('awaiting_batch_items', 'awaiting_packing') \
-                    and is_order_ready(inv_no):
-                prev_status = inv.status
+            if inv.status in ('awaiting_batch_items', 'awaiting_packing') and is_order_ready(inv_no):
+                _prev_status = inv.status
                 inv.status = 'ready_for_dispatch'
                 promoted.append(inv_no)
                 _audit(
                     "cooler.order_ready_for_dispatch",
                     f"Invoice {inv_no} promoted "
-                    f"{prev_status} -> ready_for_dispatch "
+                    f"{_prev_status} -> ready_for_dispatch "
                     f"after cooler box #{box_id} closed",
                     invoice_no=inv_no,
                 )
@@ -2362,15 +2357,13 @@ def queue_pick(queue_item_id):
             from services.order_readiness import is_order_ready
             from models import Invoice as _Invoice
             _inv = _Invoice.query.filter_by(invoice_no=_invoice_no).first()
-            if _inv is not None \
-                    and _inv.status in ("awaiting_batch_items", "awaiting_packing") \
+            if _inv is not None and _inv.status == "awaiting_batch_items" \
                     and is_order_ready(_invoice_no):
-                _prev_status = _inv.status
                 _inv.status = "ready_for_dispatch"
                 _audit(
                     "cooler.order_ready_for_dispatch",
                     f"Invoice {_invoice_no} promoted "
-                    f"{_prev_status} -> ready_for_dispatch "
+                    f"awaiting_batch_items -> ready_for_dispatch "
                     f"after cooler queue item #{queue_item_id} picked",
                     invoice_no=_invoice_no,
                 )
