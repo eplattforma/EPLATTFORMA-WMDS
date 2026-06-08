@@ -415,8 +415,13 @@
                     {% endif %}
                 </span>
                 <span class="exception-message">{{ blocker.message }}</span>
-                {% if blocker.type in ['not_picked', 'awaiting_packing'] %}
+                {% if blocker.type == 'not_picked' %}
                 <a href="{{ url_for('routes.detail', shipment_id=route.id, show='issues') }}" class="btn btn-sm btn-outline-warning ms-2">Show</a>
+                {% elif blocker.type == 'awaiting_packing' %}
+                <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date) }}"
+                   class="btn btn-sm btn-info ms-2 text-white">
+                  <i class="fas fa-snowflake me-1"></i>Go to Cooler Packing
+                </a>
                 {% endif %}
             </div>
             {% endfor %}
@@ -729,7 +734,11 @@
                                 {% elif rsi.invoice.status == 'picking' %}
                                 <span class="badge bg-info">Picking</span>
                                 {% elif rsi.invoice.status in ['awaiting_packing', 'awaiting_batch_items'] %}
-                                <span class="badge bg-warning text-dark">Awaiting</span>
+                                <a href="{{ url_for('cooler.route_picking', route_id=route.id, delivery_date=route.delivery_date) }}"
+                                   class="badge bg-warning text-dark text-decoration-none"
+                                   title="Click to go to Cooler Packing">
+                                  <i class="fas fa-snowflake me-1"></i>Awaiting Packing ↗
+                                </a>
                                 {% elif rsi.invoice.status in ['DELIVERED', 'delivered'] %}
                                 <span class="badge bg-success">Delivered</span>
                                 {% elif rsi.invoice.status in ['DELIVERY_FAILED', 'delivery_failed'] %}
