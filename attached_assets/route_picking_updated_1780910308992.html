@@ -368,9 +368,9 @@
                   <td>{% if _qbn is not none %}<span class="badge bg-primary">Box #{{ _qbn }}</span>{% else %}—{% endif %}</td>
                   <td>
                     {% if _qbox.obj %}
-                      {% if _qbox.obj.status == 'open' %}<span class="badge bg-primary">Open</span>
-                      {% elif _qbox.obj.status == 'closed' %}<span class="badge bg-success">Closed</span>
-                      {% elif _qbox.obj.status == 'cancelled' %}<span class="badge bg-danger">Cancelled</span>
+                      {% if _qbox.obj.status == 'open' %}<span class="badge bg-primary"><i class="fas fa-box-open me-1"></i>Open</span>
+                      {% elif _qbox.obj.status == 'closed' %}<span class="badge bg-success"><i class="fas fa-lock me-1"></i>Closed</span>
+                      {% elif _qbox.obj.status == 'cancelled' %}<span class="badge bg-danger"><i class="fas fa-ban me-1"></i>Cancelled</span>
                       {% else %}<span class="badge bg-secondary">{{ _qbox.obj.status }}</span>{% endif %}
                     {% else %}—{% endif %}
                   </td>
@@ -420,12 +420,7 @@
                     {% else %}<span class="badge bg-secondary">Pending</span>{% endif %}
                   </td>
                   <td>{% if _qbn2 is not none %}<span class="badge bg-primary">Box #{{ _qbn2 }}</span>{% else %}—{% endif %}</td>
-                  <td>{% if _qbox2.obj %}
-                    {% if _qbox2.obj.status == 'open' %}<span class="badge bg-primary"><i class="fas fa-box-open me-1"></i>Open</span>
-                    {% elif _qbox2.obj.status == 'closed' %}<span class="badge bg-success"><i class="fas fa-lock me-1"></i>Closed</span>
-                    {% elif _qbox2.obj.status == 'cancelled' %}<span class="badge bg-danger"><i class="fas fa-ban me-1"></i>Cancelled</span>
-                    {% else %}<span class="badge bg-secondary">{{ _qbox2.obj.status | title }}</span>{% endif %}
-                  {% else %}—{% endif %}</td>
+                  <td>{% if _qbox2.obj %}{{ _qbox2.obj.status | title }}{% else %}—{% endif %}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1019,12 +1014,7 @@
           <td class="text-end">{{ q.expected_qty|int }}</td>
           <td>{{ 'Picked' if q.status == 'picked' else 'Skipped' if q.status == 'exception' else 'Pending' }}</td>
           <td>{{ 'Box #' + (_pqbn|string) if _pqbn is not none else '—' }}</td>
-          <td>{% if _pqbox.obj %}
-            {% if _pqbox.obj.status == 'open' %}<span class="badge bg-primary"><i class="fas fa-box-open me-1"></i>Open</span>
-            {% elif _pqbox.obj.status == 'closed' %}<span class="badge bg-success"><i class="fas fa-lock me-1"></i>Closed</span>
-            {% elif _pqbox.obj.status == 'cancelled' %}<span class="badge bg-danger"><i class="fas fa-ban me-1"></i>Cancelled</span>
-            {% else %}<span class="badge bg-secondary">{{ _pqbox.obj.status | title }}</span>{% endif %}
-          {% else %}—{% endif %}</td>
+          <td>{{ _pqbox.obj.status | title if _pqbox.obj else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
