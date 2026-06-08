@@ -493,6 +493,39 @@
 </div>
 {% endif %}
 
+<div class="card shadow mb-4" id="maintenance-card">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0"><i class="fas fa-tools me-2"></i>Maintenance</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="card border-0 bg-light h-100">
+                    <div class="card-body">
+                        <h6 class="fw-semibold mb-1"><i class="fas fa-image me-2 text-secondary"></i>Product Image Cache</h6>
+                        <p class="text-muted small mb-2">
+                            Product images are downloaded from Azure and stored locally to speed up the picking screen.
+                            Clear the cache to force a fresh download — useful when images have been updated on Azure.
+                        </p>
+                        <p class="small mb-3">
+                            <strong>Cached images:</strong>
+                            <span class="badge bg-secondary">{{ image_cache_count }} file(s)</span>
+                            <span class="text-muted ms-1">{{ image_cache_size_mb }} MB</span>
+                        </p>
+                        <form method="POST" action="{{ url_for('admin_clear_image_cache') }}"
+                              onsubmit="return confirm('Delete all {{ image_cache_count }} cached image(s)? They will be re-fetched from Azure on next use.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-warning btn-sm">
+                                <i class="fas fa-trash me-1"></i>Clear Image Cache
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if current_user.role == 'admin' and feature_flag_metadata %}
 <div class="card shadow mb-4" id="feature-flags-card">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">

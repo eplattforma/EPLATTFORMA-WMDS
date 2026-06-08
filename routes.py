@@ -2671,6 +2671,12 @@ def admin_settings():
                 db.session, f['key'], PHASE1_DEFAULTS.get(f['key'], 'false')
             )
 
+    import glob as _glob
+    from image_handler import LOCAL_IMAGE_DIR as _img_dir
+    _image_files = _glob.glob(os.path.join(_img_dir, '*'))
+    image_cache_count = len(_image_files)
+    image_cache_size_mb = round(sum(os.path.getsize(f) for f in _image_files if os.path.isfile(f)) / (1024 * 1024), 1)
+
     return render_template('admin_settings.html',
                          confirm_picking=confirm_picking, 
                          show_image=show_image,
@@ -2695,7 +2701,30 @@ def admin_settings():
                          tier_thresholds=tier_thresholds,
                          feature_flag_metadata=FEATURE_FLAG_METADATA,
                          feature_flag_values=feature_flag_values,
-                         high_risk_flag_warnings=HIGH_RISK_FLAG_WARNINGS)
+                         high_risk_flag_warnings=HIGH_RISK_FLAG_WARNINGS,
+                         image_cache_count=image_cache_count,
+                         image_cache_size_mb=image_cache_size_mb)
+
+@app.route('/admin/clear-image-cache', methods=['POST'])
+@login_required
+@require_permission('settings.manage_users')
+def admin_clear_image_cache():
+    """Delete all locally cached product images so they are re-fetched from Azure."""
+    import glob as _glob
+    from image_handler import LOCAL_IMAGE_DIR
+    try:
+        files = _glob.glob(os.path.join(LOCAL_IMAGE_DIR, '*'))
+        count = len(files)
+        for f in files:
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+        flash(f"Image cache cleared — {count} file(s) deleted. Images will be re-fetched from Azure on next request.", "success")
+    except Exception as e:
+        flash(f"Error clearing image cache: {e}", "danger")
+    return redirect(url_for('admin_settings') + '#maintenance-card')
+
 
 @app.route('/admin/discrepancy-config', methods=['GET', 'POST'])
 @login_required
