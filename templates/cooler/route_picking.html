@@ -43,7 +43,7 @@
   <div>
     <h2 class="mb-1">
       <i class="fas fa-snowflake me-2 text-info"></i>
-      ❄️ Prepare Cooler Route {{ route_id }}{% if route_name %} / {{ route_name }}{% endif %}
+      Prepare Cooler Route {{ route_id }}{% if route_name %} / {{ route_name }}{% endif %}
     </h2>
     <p class="text-muted mb-1 small">
       Warehouse cooler packing based on delivery stop sequence.
@@ -80,7 +80,7 @@
   </div>
   <div class="col-6 col-sm-4 col-xl-2">
     <div class="card border-0 shadow-sm text-center h-100"
-         style="background:{{ '#fd7e14' if picked_unboxed_count > 0 else '#6c757d' }};color:#fff;">
+         style="background:{{ '#ffc107' if picked_unboxed_count > 0 else '#6c757d' }};color:{{ '#000' if picked_unboxed_count > 0 else '#fff' }};">
       <div class="card-body py-3">
         <div class="fs-4 fw-bold">{{ picked_unboxed_count }}</div>
         <div class="small opacity-75 mt-1">Needs Boxing</div>
@@ -234,7 +234,7 @@
             data-bs-toggle="collapse" data-bs-target="#collapseStatus" aria-expanded="false">
       <i class="fas fa-list-ul me-2 text-primary"></i>Route Item Status
       <span class="badge bg-secondary ms-2">{{ (sequenced|length) + (unsequenced|length) }}</span>
-      {% if unsequenced %}<span class="badge bg-warning text-dark ms-1">{{ unsequenced|length }} awaiting</span>{% endif %}
+      {% if unsequenced %}<span class="badge bg-warning text-dark ms-1">{{ unsequenced|length }} not sequenced</span>{% endif %}
       {% if picking_phase %}
         {% if picking_phase.complete %}<span class="badge bg-success ms-1">All picked</span>
         {% else %}<span class="badge bg-info ms-1">{{ picking_phase.picked_count }}/{{ picking_phase.total_count }}</span>{% endif %}
@@ -714,7 +714,7 @@
 {# D. Picker / Picking Control                                                #}
 {# ══════════════════════════════════════════════════════════════════════════ #}
 {% if cooler_session and has_permission('cooler.lock_sequencing') %}
-{% set _picker_open = (not cooler_session.assigned_to) or (picking_phase and not picking_phase.complete) or (batch_in_progress and not _picking_done) %}
+{% set _picker_open = _is_locked and ((not cooler_session.assigned_to) or (picking_phase and not picking_phase.complete) or (batch_in_progress and not _picking_done)) %}
 <div class="accordion-item mb-3 shadow-sm border-0 rounded">
   <h2 class="accordion-header" id="headingPicker">
     <button class="accordion-button {% if not _picker_open %}collapsed{% endif %} fw-bold rounded" type="button"
@@ -784,8 +784,8 @@
         {% endif %}
       </div>
       {% else %}
-      <div class="alert alert-warning py-2 small mb-0">
-        <i class="fas fa-lock-open me-1"></i>Prepare the cooler route (step 1) before starting picking.
+      <div class="text-muted small">
+        <i class="fas fa-lock-open me-1"></i>Picking will be available once the cooler route is confirmed (see banner above).
       </div>
       {% endif %}
     </div>

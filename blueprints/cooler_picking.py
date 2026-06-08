@@ -751,15 +751,16 @@ def route_picking(route_id, delivery_date):
     except Exception:
         box_types = []
 
-    # Count items (pending or picked) not yet assigned to any box — drives
-    # the "Plan Cooler Boxes" card visibility so it only appears when useful.
+    # Count *picked* items not yet assigned to any box — drives the "Needs Boxing"
+    # KPI card and box-planning prompts. Intentionally excludes 'pending' so the
+    # card reads 0 until items are actually picked.
     picked_unboxed_count = db.session.execute(
         text(
             "SELECT COUNT(*) FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
             "JOIN shipments s ON s.id = i.route_id "
             "WHERE bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status IN ('picked', 'pending') "
+            "  AND bpq.status = 'picked' "
             "  AND i.route_id = :rid "
             "  AND s.delivery_date = :dd "
             "  AND NOT EXISTS ("
