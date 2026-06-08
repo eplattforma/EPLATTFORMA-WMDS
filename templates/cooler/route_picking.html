@@ -86,8 +86,8 @@
     <div class="card border-0 shadow-sm text-center h-100" style="background:#0dcaf0;color:#000;">
       <div class="card-body py-3">
         {% if _vol_l > 0 or _vol_kg > 0 %}
-          <div class="fs-4 fw-bold">{{ _vol_l }}L</div>
-          <div class="small mt-1">{{ _vol_kg }} kg{% if _vol_est %} <span class="opacity-75">(est.)</span>{% endif %}</div>
+          <div class="fs-4 fw-bold">{{ "%.1f"|format(_vol_l) }}L</div>
+          <div class="small mt-1">{{ "%.1f"|format(_vol_kg) }} kg{% if _vol_est %} <span class="opacity-75">(est.)</span>{% endif %}</div>
         {% else %}
           <div class="fs-4 fw-bold text-muted">—</div>
           <div class="small mt-1 text-muted">No data</div>
