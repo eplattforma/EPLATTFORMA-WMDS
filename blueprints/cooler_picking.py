@@ -827,6 +827,71 @@ def route_picking(route_id, delivery_date):
                 cooler_session.get("id"), _heal_err,
             )
 
+    # ── Invoice-status promotion heal ─────────────────────────────────────
+    # Invoices that were in 'awaiting_packing' when their box was closed
+    # before the widened promotion fix was deployed can get stuck permanently.
+    # Whenever this page loads for a route whose boxes are all closed, scan
+    # for any invoices still in a pre-dispatch state and promote them if
+    # is_order_ready() confirms they are complete.
+    # This is safe to run on every page load: is_order_ready() is idempotent
+    # and the UPDATE only fires when status is not already ready_for_dispatch.
+    try:
+        _stuck_inv_rows = db.session.execute(
+            text(
+                "SELECT DISTINCT i.invoice_no "
+                "FROM invoices i "
+                "JOIN shipments s ON s.id = i.route_id "
+                "WHERE i.route_id = :rid "
+                "  AND s.delivery_date = :dd "
+                "  AND i.status IN ('awaiting_batch_items', 'awaiting_packing') "
+                "  AND EXISTS ("
+                "        SELECT 1 FROM batch_pick_queue bpq2 "
+                "        WHERE bpq2.invoice_no = i.invoice_no "
+                "          AND bpq2.pick_zone_type = 'cooler'"
+                "  )"
+            ),
+            {"rid": _route_id_int, "dd": str(delivery_date)},
+        ).fetchall()
+        if _stuck_inv_rows:
+            from services.order_readiness import is_order_ready
+            from models import Invoice as _InvModel
+            _healed = []
+            for (_stuck_no,) in _stuck_inv_rows:
+                _si = _InvModel.query.filter_by(invoice_no=_stuck_no).first()
+                if _si and is_order_ready(_stuck_no):
+                    _prev = _si.status
+                    _si.status = "ready_for_dispatch"
+                    _healed.append(_stuck_no)
+                    _audit(
+                        "cooler.order_ready_for_dispatch",
+                        f"Invoice {_stuck_no} healed on page load: "
+                        f"{_prev} -> ready_for_dispatch (all cooler boxes closed)",
+                        invoice_no=_stuck_no,
+                    )
+            if _healed:
+                db.session.commit()
+                try:
+                    from services.route_warehouse_readiness import (
+                        recalculate_route_warehouse_status,
+                    )
+                    recalculate_route_warehouse_status(_route_id_int)
+                except Exception:
+                    pass
+                current_app.logger.info(
+                    "route_picking promotion-heal: promoted %d stuck invoice(s) "
+                    "on route %s: %s",
+                    len(_healed), _route_id_int, _healed,
+                )
+    except Exception as _pheal_err:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        current_app.logger.warning(
+            "route_picking promotion-heal failed for route %s: %s",
+            _route_id_int, _pheal_err,
+        )
+
     _TERMINAL_COOLER = ("Completed", "Cancelled", "Archived")
     # batch_in_progress is True only when sequencing has been locked AND the
     # batch is not yet finished. Before locking, pickers can use direct Pick
