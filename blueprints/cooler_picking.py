@@ -917,6 +917,8 @@ def route_picking(route_id, delivery_date):
         User.role.in_(["picker", "warehouse_manager", "admin"]),
     ).order_by(User.username).all()
 
+    back_url = request.referrer or url_for("cooler.route_list")
+
     return render_template(
         "cooler/route_picking.html",
         route_id=route_id, delivery_date=delivery_date,
@@ -933,6 +935,7 @@ def route_picking(route_id, delivery_date):
         route_driver=route_driver,
         route_name=route_name_val,
         picker_users=picker_users,
+        back_url=back_url,
     )
 
 

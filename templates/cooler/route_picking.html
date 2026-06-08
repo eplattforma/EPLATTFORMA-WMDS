@@ -51,8 +51,8 @@
       {% if delivery_date %}<i class="fas fa-calendar me-1"></i><strong>Delivery date:</strong> {{ delivery_date }}{% endif %}
     </p>
   </div>
-  <a href="{{ url_for('cooler.route_list') }}" class="btn btn-outline-secondary btn-sm align-self-start">
-    <i class="fas fa-arrow-left me-1"></i>Cooler Packing
+  <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm align-self-start">
+    <i class="fas fa-arrow-left me-1"></i>Back
   </a>
 </div>
 
@@ -175,8 +175,8 @@
              target="_blank" class="btn btn-outline-light btn-sm text-nowrap">
             <i class="fas fa-print me-1"></i>Route Status
           </a>
-          <a href="{{ url_for('cooler.route_list') }}" class="btn btn-outline-light btn-sm text-nowrap">
-            <i class="fas fa-arrow-left me-1"></i>Cooler Packing
+          <a href="{{ back_url }}" class="btn btn-outline-light btn-sm text-nowrap">
+            <i class="fas fa-arrow-left me-1"></i>Back
           </a>
         </div>
         {% endif %}
