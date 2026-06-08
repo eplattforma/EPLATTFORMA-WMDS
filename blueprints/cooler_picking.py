@@ -917,7 +917,13 @@ def route_picking(route_id, delivery_date):
         User.role.in_(["picker", "warehouse_manager", "admin"]),
     ).order_by(User.username).all()
 
-    back_url = request.referrer or url_for("cooler.route_list")
+    _referrer = request.referrer or ""
+    # Avoid a loop: if the referrer is this same cooler route page (e.g. after
+    # a form POST-redirect-GET on the page), fall back to the route list.
+    if _referrer and f"/cooler/route/{route_id}" not in _referrer:
+        back_url = _referrer
+    else:
+        back_url = url_for("cooler.route_list")
 
     return render_template(
         "cooler/route_picking.html",
