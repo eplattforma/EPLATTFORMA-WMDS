@@ -283,6 +283,7 @@ from routes_help import help_bp
 from routes_delivery_issues import delivery_issues_bp
 from routes_routes import bp as routes_bp
 from routes_invoices import bp as route_invoices_bp
+from blueprints.route_planner import route_planner_bp
 from routes_powersoft import bp_powersoft
 from routes_delivery_dashboard import bp as delivery_dashboard_bp
 from routes_driver_api import driver_api_bp
@@ -293,6 +294,7 @@ app.register_blueprint(batch_bp, url_prefix='')
 app.register_blueprint(delivery_issues_bp, url_prefix='')
 app.register_blueprint(routes_bp, url_prefix='/routes')
 app.register_blueprint(route_invoices_bp, url_prefix='/route-invoices')
+app.register_blueprint(route_planner_bp)
 app.register_blueprint(delivery_dashboard_bp, url_prefix='')
 app.register_blueprint(bp_powersoft)
 app.register_blueprint(help_bp, url_prefix='')
