@@ -464,6 +464,12 @@ def route_list():
     for key in sorted(all_keys, key=lambda x: (str(x[1]), str(x[0])), reverse=True):
         v  = item_stats.get(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
         bs = box_stats.get(key,  {"total": 0, "closed": 0, "open": 0})
+
+        # Ghost route: all invoices were unassigned (0 queue items) and no
+        # open boxes remain — nothing for the team to act on, skip it.
+        if v["total"] == 0 and bs.get("open", 0) == 0:
+            continue
+
         try:
             rid_int = int(key[0])
         except (TypeError, ValueError):
