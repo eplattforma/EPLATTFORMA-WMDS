@@ -617,15 +617,61 @@
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
               <td class="d-print-none">
-                <div class="d-flex gap-1 flex-wrap">
+                <div class="d-flex gap-1 flex-wrap align-items-center">
                   {% if has_permission('cooler.manage_boxes') and b.status == 'open' %}
+
+                  {# Low-fill consolidation prompt #}
+                  {% if _picking_done and b.fill_pct is not none and b.fill_pct < 50 %}
+                  <span class="badge bg-warning text-dark text-wrap text-start" style="max-width:160px;white-space:normal;">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    Only {{ b.fill_pct }}% full — consider moving items to another box before sealing.
+                  </span>
+                  {% endif %}
+
                   <form method="post" action="{{ url_for('cooler.box_close', box_id=b.id) }}" class="d-inline">
                     <input type="hidden" name="_html_form" value="1">
                     <button type="submit" class="btn btn-sm btn-success text-nowrap">
                       <i class="fas fa-lock me-1"></i>Close
                     </button>
                   </form>
+
+                  {# Cancel this box #}
+                  {% if _picking_done %}
+                  <form method="post" action="{{ url_for('cooler.box_cancel', box_id=b.id) }}" class="d-inline"
+                        onsubmit="return confirm('Cancel Box {{ b.box_no }}? All assigned items will be returned to unboxed.')">
+                    <input type="hidden" name="_html_form" value="1">
+                    <button type="submit" class="btn btn-sm btn-outline-danger text-nowrap">
+                      <i class="fas fa-times me-1"></i>Cancel
+                    </button>
+                  </form>
+
+                  {# Move ALL items to another open box #}
+                  {% set _other_open = _open_boxes | selectattr('id', 'ne', b.id) | list %}
+                  {% if _other_open and box_items_by_box.get(b.id) %}
+                  <div class="dropdown d-inline">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle text-nowrap"
+                            type="button" data-bs-toggle="dropdown">
+                      <i class="fas fa-arrows-alt me-1"></i>Move Items
+                    </button>
+                    <ul class="dropdown-menu">
+                      <li><h6 class="dropdown-header">Move ALL from Box {{ b.box_no }} to:</h6></li>
+                      {% for ob in _other_open %}
+                      <li>
+                        <button class="dropdown-item btn-move-all-items"
+                                data-source-box-id="{{ b.id }}"
+                                data-source-box-no="{{ b.box_no }}"
+                                data-dest-box-id="{{ ob.id }}"
+                                data-dest-box-no="{{ ob.box_no }}">
+                          → Box {{ ob.box_no }}{% if ob.box_type_name %} ({{ ob.box_type_name }}){% endif %}{% if ob.fill_pct is not none %} — {{ ob.fill_pct }}% full{% endif %}
+                        </button>
+                      </li>
+                      {% endfor %}
+                    </ul>
+                  </div>
                   {% endif %}
+                  {% endif %}{# _picking_done #}
+
+                  {% endif %}{# manage_boxes + open #}
                   {% if has_permission('cooler.print_labels') %}
                   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooler.box_label', box_id=b.id) }}" target="_blank">
                     <i class="fas fa-tag me-1"></i>Label
@@ -787,8 +833,10 @@
 
       <div class="alert alert-warning py-2 small mb-4">
         <i class="fas fa-exclamation-triangle me-1"></i>
-        <strong>Use only if a physical packing mistake happened after the plan was confirmed.</strong>
-        Box changes should be done in Box Planning before confirming the plan.
+        <strong>Use these tools to adjust boxes during or after packing.</strong>
+        For routine consolidation (moving items between boxes, cancelling an empty box),
+        use the controls directly on each box card above. The tools here cover additional
+        scenarios such as force-closing a box with unpicked items or reopening a sealed box.
       </div>
 
       {# Reopen a closed box #}
@@ -1303,6 +1351,28 @@ document.addEventListener('click', function(e) {
   .then(function(r){ return r.json(); })
   .then(function(data){ if (data.error) { alert('Could not move: ' + data.error); } else { window.location.reload(); } })
   .catch(function(){ alert('Network error — please try again.'); });
+});
+</script>
+
+{# ── Move ALL items (box consolidation) ───────────────────────────────────── #}
+<script>
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.btn-move-all-items');
+  if (!btn) return;
+  var srcId = btn.dataset.sourceBoxId, srcNo = btn.dataset.sourceBoxNo;
+  var dstId = btn.dataset.destBoxId,   dstNo = btn.dataset.destBoxNo;
+  if (!confirm('Move ALL items from Box ' + srcNo + ' to Box ' + dstNo + '?')) return;
+  var form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/cooler/box/' + srcId + '/move_all_to/' + dstId;
+  var csrf = document.createElement('input');
+  csrf.type = 'hidden'; csrf.name = 'csrf_token';
+  csrf.value = document.querySelector('meta[name="csrf-token"]') ?
+               document.querySelector('meta[name="csrf-token"]').content :
+               (document.querySelector('input[name="csrf_token"]') || {value:''}).value;
+  form.appendChild(csrf);
+  document.body.appendChild(form);
+  form.submit();
 });
 </script>
 

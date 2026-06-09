@@ -2752,6 +2752,94 @@ def box_move_item(from_box_id):
     }), 200
 
 
+@cooler_bp.route("/box/<int:source_box_id>/move_all_to/<int:dest_box_id>", methods=["POST"])
+@login_required
+@require_permission("cooler.manage_boxes")
+@_require_cooler_manage
+@_require_picking_flag
+def box_move_all_to(source_box_id, dest_box_id):
+    """Move ALL items from source box to dest box (box consolidation)."""
+    src = _fetch_box(source_box_id)
+    dst = _fetch_box(dest_box_id)
+    if src is None or dst is None:
+        abort(404)
+    if src["status"] != "open":
+        flash(f"Box #{source_box_id} is {src['status']}; only open boxes can be consolidated.", "danger")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=src["route_id"],
+                                delivery_date=str(src["delivery_date"])))
+    if dst["status"] != "open":
+        flash(f"Destination box #{dest_box_id} is {dst['status']}; only open boxes accept items.", "danger")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=src["route_id"],
+                                delivery_date=str(src["delivery_date"])))
+    if int(src["route_id"]) != int(dst["route_id"]) or \
+            str(src["delivery_date"]) != str(dst["delivery_date"]):
+        flash("Cannot move items between boxes on different routes or dates.", "danger")
+        return redirect(url_for("cooler.route_picking",
+                                route_id=src["route_id"],
+                                delivery_date=str(src["delivery_date"])))
+
+    now = get_utc_now()
+    items = db.session.execute(
+        text(
+            "SELECT id, queue_item_id, invoice_no, customer_code, customer_name, "
+            "       route_stop_id, delivery_sequence, item_code, item_name, "
+            "       expected_qty, picked_qty, picked_by, picked_at, status "
+            "FROM cooler_box_items "
+            "WHERE cooler_box_id = :bid AND queue_item_id IS NOT NULL"
+        ),
+        {"bid": source_box_id},
+    ).fetchall()
+
+    moved = 0
+    for row in items:
+        # Skip if already in destination (shouldn't happen, but be safe)
+        dup = db.session.execute(
+            text("SELECT 1 FROM cooler_box_items WHERE cooler_box_id=:bid AND queue_item_id=:qid LIMIT 1"),
+            {"bid": dest_box_id, "qid": row[1]},
+        ).fetchone()
+        if dup:
+            continue
+        db.session.execute(
+            text("DELETE FROM cooler_box_items WHERE id = :id"),
+            {"id": row[0]},
+        )
+        db.session.execute(
+            text(
+                "INSERT INTO cooler_box_items "
+                "(cooler_box_id, invoice_no, customer_code, customer_name, "
+                " route_stop_id, delivery_sequence, item_code, item_name, "
+                " expected_qty, picked_qty, picked_by, picked_at, "
+                " queue_item_id, status, created_at, updated_at) "
+                "VALUES (:bid, :inv, :cc, :cn, :rsid, :seq, :ic, :iname, "
+                "        :exp, :pq, :who, :pat, :qid, :st, :now, :now)"
+            ),
+            {
+                "bid": dest_box_id,
+                "inv": row[2], "cc": row[3], "cn": row[4],
+                "rsid": row[5], "seq": row[6],
+                "ic": row[7], "iname": row[8],
+                "exp": row[9], "pq": row[10],
+                "who": row[11], "pat": row[12],
+                "qid": row[1], "st": row[13],
+                "now": now,
+            },
+        )
+        moved += 1
+
+    _audit(
+        "cooler.box_consolidation",
+        f"Consolidated {moved} item(s) from box #{source_box_id} → box #{dest_box_id} by {_username()}",
+    )
+    db.session.commit()
+
+    flash(f"{moved} item(s) moved from Box #{src['box_no']} to Box #{dst['box_no']}.", "success")
+    return redirect(url_for("cooler.route_picking",
+                            route_id=src["route_id"],
+                            delivery_date=str(src["delivery_date"])))
+
+
 @cooler_bp.route("/queue/<int:queue_item_id>/skip", methods=["POST"])
 @login_required
 @require_permission("cooler.pick")
