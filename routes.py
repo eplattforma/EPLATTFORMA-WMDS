@@ -4383,7 +4383,11 @@ def picking_timeline_report(invoice_no):
     # Get batch picked items
     from models import BatchPickedItem, BatchPickingSession
     batch_picked_records = BatchPickedItem.query.filter_by(invoice_no=invoice_no).all()
-    
+    # Strip stale cooler batch records when invoice is no longer on a route
+    if not invoice.route_id and batch_picked_records:
+        _cooler_sids = {s.id for s in BatchPickingSession.query.filter_by(session_type='cooler_route').all()}
+        batch_picked_records = [r for r in batch_picked_records if r.batch_session_id not in _cooler_sids]
+
     # Convert to the format expected by the code
     batch_picked_items = []
     batch_item_codes = set()
@@ -4504,7 +4508,11 @@ def print_invoice(invoice_no):
     
     # Query for batch-picked items
     batch_picked_records = BatchPickedItem.query.filter_by(invoice_no=invoice_no).all()
-    
+    # Strip stale cooler batch records when invoice is no longer on a route
+    if not invoice.route_id and batch_picked_records:
+        _cooler_sids = {s.id for s in BatchPickingSession.query.filter_by(session_type='cooler_route').all()}
+        batch_picked_records = [r for r in batch_picked_records if r.batch_session_id not in _cooler_sids]
+
     if batch_picked_records:
         for record in batch_picked_records:
             # Get the original invoice item for details
@@ -5174,7 +5182,11 @@ def print_selected_orders():
         
         # Query for batch-picked items
         batch_picked_records = BatchPickedItem.query.filter_by(invoice_no=invoice_no).all()
-        
+        # Strip stale cooler batch records when invoice is no longer on a route
+        if not invoice.route_id and batch_picked_records:
+            _cooler_sids = {s.id for s in BatchPickingSession.query.filter_by(session_type='cooler_route').all()}
+            batch_picked_records = [r for r in batch_picked_records if r.batch_session_id not in _cooler_sids]
+
         if batch_picked_records:
             for record in batch_picked_records:
                 # Get the original invoice item for details

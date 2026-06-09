@@ -339,6 +339,19 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
         )
         picked_queue_deleted = res4.rowcount or 0
 
+        # 5b) Remove BatchPickedItem records for cooler_route sessions
+        db.session.execute(
+            text(
+                "DELETE FROM batch_picked_items "
+                "WHERE invoice_no = :inv "
+                "  AND batch_session_id IN ( "
+                "    SELECT id FROM batch_picking_sessions "
+                "    WHERE session_type = 'cooler_route' "
+                "  )"
+            ),
+            {"inv": invoice_no},
+        )
+
         # 6) Reset is_picked on invoice_items that were picked in cooler context
         res5 = db.session.execute(
             text(
