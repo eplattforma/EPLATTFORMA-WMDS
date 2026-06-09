@@ -364,14 +364,29 @@ def route_list():
 
     Route identity: ``Invoice.route_id`` → ``shipments.id``.
     """
+    import datetime as _dt
+    # Default window: last 14 days. Extend via ?days=30 or search via ?q=term
+    _days_back  = int(request.args.get("days", 14))
+    _search_q   = (request.args.get("q", "") or "").strip().lower()
+    _show_all   = request.args.get("all") == "1"
+
+    if _search_q or _show_all:
+        _date_filter_sql = ""
+        _date_params     = {}
+    else:
+        _cutoff = (_dt.date.today() - _dt.timedelta(days=_days_back)).strftime("%Y-%m-%d")
+        _date_filter_sql = "AND s.delivery_date >= :cutoff"
+        _date_params     = {"cutoff": _cutoff}
+
     # ── Step 1: item stats per (route_id, delivery_date_str) ─────────────
     queue_rows = db.session.execute(text(
         "SELECT bpq.status, i.route_id, s.delivery_date::text "
         "FROM batch_pick_queue bpq "
         "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
         "LEFT JOIN shipments s ON s.id = i.route_id "
-        "WHERE bpq.pick_zone_type = 'cooler'"
-    )).fetchall()
+        "WHERE bpq.pick_zone_type = 'cooler' "
+        + _date_filter_sql
+    ), _date_params).fetchall()
 
     item_stats: dict = {}
     for r in queue_rows:
@@ -386,14 +401,17 @@ def route_list():
     # ── Step 2: box stats per (route_id, delivery_date_str) ──────────────
     try:
         box_route_rows = db.session.execute(text(
-            "SELECT route_id, delivery_date::text, "
-            "       COUNT(*) FILTER (WHERE status != 'cancelled') AS total, "
-            "       COUNT(*) FILTER (WHERE status = 'closed')     AS closed, "
-            "       COUNT(*) FILTER (WHERE status = 'open')       AS open_count, "
-            "       COUNT(*) FILTER (WHERE label_printed_at IS NOT NULL AND status != 'cancelled') AS labels_printed "
-            "FROM cooler_boxes "
-            "GROUP BY route_id, delivery_date"
-        )).fetchall()
+            "SELECT cb.route_id, cb.delivery_date::text, "
+            "       COUNT(*) FILTER (WHERE cb.status != 'cancelled') AS total, "
+            "       COUNT(*) FILTER (WHERE cb.status = 'closed')     AS closed, "
+            "       COUNT(*) FILTER (WHERE cb.status = 'open')       AS open_count, "
+            "       COUNT(*) FILTER (WHERE cb.label_printed_at IS NOT NULL AND cb.status != 'cancelled') AS labels_printed "
+            "FROM cooler_boxes cb "
+            "JOIN shipments s ON s.id = cb.route_id "
+            "WHERE 1=1 "
+            + _date_filter_sql.replace("s.delivery_date", "cb.delivery_date")
+            + " GROUP BY cb.route_id, cb.delivery_date"
+        ), _date_params).fetchall()
     except Exception:
         box_route_rows = []
 
@@ -417,7 +435,8 @@ def route_list():
             "attached to a route with summer_cooler_mode_enabled ON.",
             "info",
         )
-        return render_template("cooler/route_list.html", routes=[], estimates={}, box_types=[])
+        return render_template("cooler/route_list.html", routes=[], estimates={}, box_types=[],
+                               days_back=_days_back, search_q=_search_q, show_all=_show_all)
 
     # ── Step 4: driver / route name from shipments ────────────────────────
     _rid_ints = []
@@ -479,6 +498,15 @@ def route_list():
             "route_status":    route_status,
         })
 
+    # Apply text search across route id, driver name, route name
+    if _search_q:
+        routes = [
+            r for r in routes
+            if _search_q in str(r["route_id"]).lower()
+            or _search_q in (r["driver"] or "").lower()
+            or _search_q in (r["route_name"] or "").lower()
+        ]
+
     # ── Step 6: pre-pick estimates (only for routes with queue items) ─────
     from services.cooler_box_planner import pre_pick_estimate
     estimates: dict = {}
@@ -505,7 +533,6 @@ def route_list():
     except Exception:
         box_types_list = []
 
-    import datetime as _dt
     _today_str = _dt.date.today().strftime("%Y-%m-%d")
 
     return render_template(
@@ -514,6 +541,9 @@ def route_list():
         estimates=estimates,
         box_types=box_types_list,
         today_str=_today_str,
+        days_back=_days_back,
+        search_q=_search_q,
+        show_all=_show_all,
     )
 
 

@@ -6,7 +6,34 @@
   <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-snowflake me-2 text-info"></i>Cooler Packing &amp; Handover</h2>
   </div>
-  <p class="text-muted mb-3 small">All cooler packing work — active, in-progress and completed today.</p>
+  <p class="text-muted mb-2 small">
+    {% if show_all %}Showing all records.
+    {% elif search_q %}Search results for "{{ search_q }}".
+    {% else %}Showing routes from the last {{ days_back }} days.{% endif %}
+  </p>
+
+  {# ── Search / filter bar ──────────────────────────────────────────────── #}
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <input type="text" name="q" value="{{ search_q }}"
+           class="form-control form-control-sm" style="max-width:260px;"
+           placeholder="Search route, driver, name…">
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="fas fa-search me-1"></i>Search
+    </button>
+    {% if search_q or show_all or days_back != 14 %}
+    <a href="{{ url_for('cooler.route_list') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="fas fa-times me-1"></i>Clear
+    </a>
+    {% endif %}
+    {% if not show_all and not search_q %}
+    <span class="text-muted small ms-2">
+      Not finding a route?
+      <a href="{{ url_for('cooler.route_list') }}?all=1" class="ms-1">Load all records</a>
+      &nbsp;|&nbsp;
+      <a href="{{ url_for('cooler.route_list') }}?days=30">Last 30 days</a>
+    </span>
+    {% endif %}
+  </form>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in messages %}
