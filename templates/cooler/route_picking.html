@@ -620,11 +620,20 @@
                 <div class="d-flex gap-1 flex-wrap align-items-center">
                   {% if has_permission('cooler.manage_boxes') and b.status == 'open' %}
 
-                  {# Low-fill consolidation prompt #}
-                  {% if _picking_done and b.fill_pct is not none and b.fill_pct < 50 %}
-                  <span class="badge bg-warning text-dark text-wrap text-start" style="max-width:160px;white-space:normal;">
-                    <i class="fas fa-exclamation-triangle me-1"></i>
-                    Only {{ b.fill_pct }}% full — consider moving items to another box before sealing.
+                  {# Low-fill consolidation prompt (< 70 %) #}
+                  {% if _picking_done and b.fill_pct is not none and b.fill_pct < 70 %}
+                    {% if b.fill_pct < 50 %}
+                      {% set _fill_cls = 'bg-danger' %}
+                      {% set _fill_tip = 'Very low fill (' ~ b.fill_pct ~ '%) — strongly consider consolidating before sealing.' %}
+                    {% elif b.fill_pct < 60 %}
+                      {% set _fill_cls = 'bg-warning text-dark' %}
+                      {% set _fill_tip = 'Low fill (' ~ b.fill_pct ~ '%) — consider moving items to another box.' %}
+                    {% else %}
+                      {% set _fill_cls = 'bg-info text-dark' %}
+                      {% set _fill_tip = 'Under-utilised (' ~ b.fill_pct ~ '%) — check if items can fit in another box.' %}
+                    {% endif %}
+                  <span class="badge {{ _fill_cls }} text-wrap text-start" style="max-width:170px;white-space:normal;">
+                    <i class="fas fa-exclamation-triangle me-1"></i>{{ _fill_tip }}
                   </span>
                   {% endif %}
 
