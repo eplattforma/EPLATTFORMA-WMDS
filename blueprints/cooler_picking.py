@@ -459,7 +459,7 @@ def route_list():
 
     # ── Step 5: build route list with computed status ─────────────────────
     routes = []
-    for key in sorted(all_keys, key=lambda x: (str(x[0]), str(x[1]))):
+    for key in sorted(all_keys, key=lambda x: (str(x[1]), str(x[0])), reverse=True):
         v  = item_stats.get(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
         bs = box_stats.get(key,  {"total": 0, "closed": 0, "open": 0})
         try:
