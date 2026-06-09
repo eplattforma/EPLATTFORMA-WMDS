@@ -255,18 +255,25 @@ def _existing_queue_keys(session_id):
     return {(r[0], r[1]) for r in rows}
 
 
-def release_cooler_locks_for_invoice(invoice_no):
-    """Release all cooler batch holds for an invoice that is going back
-    to the warehouse (no longer assigned to any route).
+def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
+    """Release all cooler batch holds for an invoice being removed from a route.
 
-    Deletes pending cooler ``batch_pick_queue`` rows for the invoice and
-    clears ``invoice_items.locked_by_batch_id`` for items still locked to
-    any ``cooler_route`` session and not yet picked. Picked rows and
-    picked items are preserved for audit. Safe to call multiple times.
+    When full_reset=False (default / existing behaviour):
+        - Deletes pending cooler queue rows
+        - Clears batch locks on unpicked invoice items
+        - Preserves picked rows and box assignments (audit trail)
 
-    Returns dict with counters: ``queue_deleted``, ``items_unlocked``.
+    When full_reset=True (user confirmed unassign with warning):
+        - Everything above PLUS:
+        - Removes cooler_box_items for this invoice
+        - Deletes picked batch_pick_queue rows for this invoice
+        - Resets invoice_items.is_picked = FALSE for affected items
+        - Recalculates fill on any boxes that lost items
+        - Cancels any boxes that are now completely empty
+
+    Returns dict with counters.
     """
-    # 1) Drop pending cooler queue rows for this invoice
+    # 1) Drop pending cooler queue rows (always)
     res = db.session.execute(
         text(
             "DELETE FROM batch_pick_queue "
@@ -278,9 +285,7 @@ def release_cooler_locks_for_invoice(invoice_no):
     )
     queue_deleted = res.rowcount or 0
 
-    # 2) Clear locks on unpicked InvoiceItems that point at cooler_route
-    #    sessions. Use a correlated subquery so we don't touch locks held
-    #    by standard (non-cooler) batches.
+    # 2) Clear locks on unpicked InvoiceItems (always)
     res2 = db.session.execute(
         text(
             "UPDATE invoice_items "
@@ -296,7 +301,107 @@ def release_cooler_locks_for_invoice(invoice_no):
     )
     items_unlocked = res2.rowcount or 0
 
-    return {"queue_deleted": queue_deleted, "items_unlocked": items_unlocked}
+    box_items_removed = 0
+    picked_queue_deleted = 0
+    items_unpicked = 0
+    boxes_cancelled = 0
+
+    if full_reset:
+        # 3) Find which boxes contain items for this invoice (before deleting)
+        affected_box_ids = db.session.execute(
+            text(
+                "SELECT DISTINCT cooler_box_id "
+                "FROM cooler_box_items "
+                "WHERE invoice_no = :inv"
+            ),
+            {"inv": invoice_no},
+        ).scalars().all()
+
+        # 4) Remove cooler_box_items rows for this invoice
+        res3 = db.session.execute(
+            text(
+                "DELETE FROM cooler_box_items "
+                "WHERE invoice_no = :inv"
+            ),
+            {"inv": invoice_no},
+        )
+        box_items_removed = res3.rowcount or 0
+
+        # 5) Delete picked cooler queue rows for this invoice
+        res4 = db.session.execute(
+            text(
+                "DELETE FROM batch_pick_queue "
+                "WHERE invoice_no = :inv "
+                "  AND pick_zone_type = 'cooler' "
+                "  AND status = 'picked'"
+            ),
+            {"inv": invoice_no},
+        )
+        picked_queue_deleted = res4.rowcount or 0
+
+        # 6) Reset is_picked on invoice_items that were picked in cooler context
+        res5 = db.session.execute(
+            text(
+                "UPDATE invoice_items "
+                "SET is_picked = FALSE, "
+                "    locked_by_batch_id = NULL "
+                "WHERE invoice_no = :inv "
+                "  AND is_picked = TRUE "
+                "  AND locked_by_batch_id IN ( "
+                "        SELECT id FROM batch_picking_sessions "
+                "        WHERE session_type = 'cooler_route' "
+                "  )"
+            ),
+            {"inv": invoice_no},
+        )
+        items_unpicked = res5.rowcount or 0
+
+        # 7) Recalculate fill on affected boxes; cancel any that are now empty
+        for box_id in affected_box_ids:
+            remaining = db.session.execute(
+                text(
+                    "SELECT COUNT(*), "
+                    "       MIN(delivery_sequence), "
+                    "       MAX(delivery_sequence) "
+                    "FROM cooler_box_items "
+                    "WHERE cooler_box_id = :bid"
+                ),
+                {"bid": box_id},
+            ).fetchone()
+
+            if not remaining or remaining[0] == 0:
+                db.session.execute(
+                    text(
+                        "UPDATE cooler_boxes "
+                        "SET status = 'cancelled' "
+                        "WHERE id = :bid AND status = 'open'"
+                    ),
+                    {"bid": box_id},
+                )
+                boxes_cancelled += 1
+            else:
+                db.session.execute(
+                    text(
+                        "UPDATE cooler_boxes "
+                        "SET first_stop_sequence = :fs, "
+                        "    last_stop_sequence  = :ls "
+                        "WHERE id = :bid"
+                    ),
+                    {
+                        "fs": remaining[1],
+                        "ls": remaining[2],
+                        "bid": box_id,
+                    },
+                )
+
+    return {
+        "queue_deleted": queue_deleted,
+        "items_unlocked": items_unlocked,
+        "box_items_removed": box_items_removed,
+        "picked_queue_deleted": picked_queue_deleted,
+        "items_unpicked": items_unpicked,
+        "boxes_cancelled": boxes_cancelled,
+    }
 
 
 def _detach_queue_rows_from_other_sessions(invoice_no, keep_session_id):

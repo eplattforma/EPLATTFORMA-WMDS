@@ -1077,6 +1077,46 @@ def auto_assign():
         return jsonify(result), 400
 
 
+@bp.route("/check-cooler-picks", methods=["POST"])
+@login_required
+def check_cooler_picks():
+    """Check whether any of the given invoices have picked cooler items
+    or cooler box assignments. Used by the frontend to decide whether
+    to show a warning before unassigning from route.
+
+    Expected JSON: {"invoice_nos": ["INV001", "INV002"]}
+    Returns: {"ok": true, "affected": [{"invoice_no": "INV001", "picked_count": 3, "boxed_count": 2}]}
+    """
+    from app import db
+    from sqlalchemy import text
+
+    data = request.get_json(force=True)
+    invoice_nos = data.get("invoice_nos", [])
+    if not invoice_nos:
+        return jsonify({"ok": True, "affected": []})
+
+    rows = db.session.execute(
+        text(
+            "SELECT bpq.invoice_no, "
+            "       COUNT(*) AS picked_count, "
+            "       COUNT(cbi.id) AS boxed_count "
+            "FROM batch_pick_queue bpq "
+            "LEFT JOIN cooler_box_items cbi ON cbi.queue_item_id = bpq.id "
+            "WHERE bpq.invoice_no = ANY(:inv) "
+            "  AND bpq.pick_zone_type = 'cooler' "
+            "  AND bpq.status = 'picked' "
+            "GROUP BY bpq.invoice_no"
+        ),
+        {"inv": invoice_nos},
+    ).fetchall()
+
+    affected = [
+        {"invoice_no": r[0], "picked_count": int(r[1]), "boxed_count": int(r[2])}
+        for r in rows if r[1] > 0
+    ]
+    return jsonify({"ok": True, "affected": affected})
+
+
 @bp.route("/unassign-from-route", methods=["POST"])
 @login_required
 @admin_required
@@ -1123,7 +1163,8 @@ def unassign_from_route():
         invoice.route_id = None
         invoice.stop_id = None
         # Release cooler batch locks/queue rows for return-to-warehouse
-        release_cooler_locks_for_invoice(invoice.invoice_no)
+        force_reset = bool(data.get("force_cooler_reset", False))
+        release_cooler_locks_for_invoice(invoice.invoice_no, full_reset=force_reset)
 
     db.session.commit()
     

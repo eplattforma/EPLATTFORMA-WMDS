@@ -838,25 +838,70 @@
     window.bulkUnassignFromRoute = function() {
         var nos = window.getSelectedInvoiceNos ? window.getSelectedInvoiceNos() : [];
         if (!nos.length) { alert('No invoices selected.'); return; }
-        if (!confirm('Unassign ' + nos.length + ' invoice(s) from their route(s)?')) return;
+
         var btn = document.getElementById('bulkUnassignRouteBtn');
+
+        // Step 1: check for picked cooler items on any selected invoice
+        fetch('{{ url_for("routes.check_cooler_picks") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({invoice_nos: nos})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.ok) {
+                alert('Could not check cooler picks: ' + (d.message || 'Unknown error'));
+                return;
+            }
+
+            if (d.affected && d.affected.length > 0) {
+                var lines = d.affected.map(function(a) {
+                    return '• Invoice ' + a.invoice_no
+                        + ': ' + a.picked_count + ' item(s) picked'
+                        + (a.boxed_count > 0 ? ', ' + a.boxed_count + ' in a box' : '');
+                });
+                var msg = 'WARNING — Cooler items already picked\n\n'
+                    + 'The following invoices have cooler items that have been '
+                    + 'physically picked and/or placed in cooler boxes:\n\n'
+                    + lines.join('\n')
+                    + '\n\nConfirming will:\n'
+                    + '  • Remove these items from their cooler boxes\n'
+                    + '  • Reverse their picked status\n'
+                    + '  • Cancel any boxes that become empty\n\n'
+                    + 'This cannot be undone. Proceed?';
+
+                if (!confirm(msg)) return;
+                _doUnassign(nos, btn, true);
+            } else {
+                if (!confirm('Unassign ' + nos.length + ' invoice(s) from their route(s)?')) return;
+                _doUnassign(nos, btn, false);
+            }
+        })
+        .catch(function(err) {
+            alert('Network error checking cooler picks: ' + err);
+        });
+    };
+
+    function _doUnassign(nos, btn, forceCoolerReset) {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Unassigning...'; }
         fetch('{{ url_for("routes.unassign_from_route") }}', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({invoice_nos: nos})
-        }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, data: d}; }); })
-          .then(function(res) {
-              if (res.ok && res.data && res.data.ok) { window.location.reload(); }
-              else {
-                  alert('Unassign failed: ' + (res.data && res.data.message ? res.data.message : 'Unknown error'));
-                  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-unlink me-1"></i>Unassign from route'; }
-              }
-          }).catch(function(err) {
-              alert('Network error: ' + err);
-              if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-unlink me-1"></i>Unassign from route'; }
-          });
-    };
+            body: JSON.stringify({invoice_nos: nos, force_cooler_reset: forceCoolerReset})
+        })
+        .then(function(r) { return r.json().then(function(data) { return {ok: r.ok, data: data}; }); })
+        .then(function(res) {
+            if (res.ok && res.data && res.data.ok) { window.location.reload(); }
+            else {
+                alert('Unassign failed: ' + (res.data && res.data.message ? res.data.message : 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-unlink me-1"></i>Unassign from route'; }
+            }
+        })
+        .catch(function(err) {
+            alert('Network error: ' + err);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-unlink me-1"></i>Unassign from route'; }
+        });
+    }
 
     window.editRouting = function(invoiceNo, currentRouting) {
         var newRouting = prompt('Edit routing number for ' + invoiceNo + ':', currentRouting || '');
