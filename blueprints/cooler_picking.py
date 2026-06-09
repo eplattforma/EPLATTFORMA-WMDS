@@ -390,6 +390,8 @@ def route_list():
 
     item_stats: dict = {}
     for r in queue_rows:
+        if r[1] is None:
+            continue  # invoice unassigned — skip orphaned picked rows
         key = (r[1] or "-", r[2] or "-")
         b = item_stats.setdefault(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
         b["total"] += 1
@@ -571,6 +573,67 @@ def route_picking(route_id, delivery_date):
     if _route_id_int is None or not delivery_date or delivery_date == '-':
         flash("Invalid route or date.", "warning")
         return redirect(url_for("cooler.route_list"))
+
+    # Auto-cleanup: remove cooler_box_items that belong to invoices no longer
+    # assigned to this route (left behind by a pre-full_reset unassign).
+    try:
+        _orphan_boxes = db.session.execute(
+            text(
+                "SELECT DISTINCT cbi.cooler_box_id "
+                "FROM cooler_box_items cbi "
+                "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+                "JOIN invoices i ON i.invoice_no = cbi.invoice_no "
+                "WHERE cb.route_id = :rid "
+                "  AND (i.route_id IS NULL OR i.route_id != :rid)"
+            ),
+            {"rid": _route_id_int},
+        ).scalars().all()
+
+        _deleted = db.session.execute(
+            text(
+                "DELETE FROM cooler_box_items cbi "
+                "USING cooler_boxes cb, invoices i "
+                "WHERE cbi.cooler_box_id = cb.id "
+                "  AND i.invoice_no = cbi.invoice_no "
+                "  AND cb.route_id = :rid "
+                "  AND (i.route_id IS NULL OR i.route_id != :rid)"
+            ),
+            {"rid": _route_id_int},
+        ).rowcount
+
+        if _deleted:
+            # Cancel any boxes that are now empty; update sequences on the rest
+            for _bid in _orphan_boxes:
+                _rem = db.session.execute(
+                    text(
+                        "SELECT COUNT(*), MIN(delivery_sequence), MAX(delivery_sequence) "
+                        "FROM cooler_box_items WHERE cooler_box_id = :bid"
+                    ),
+                    {"bid": _bid},
+                ).fetchone()
+                if not _rem or _rem[0] == 0:
+                    db.session.execute(
+                        text("UPDATE cooler_boxes SET status='cancelled' WHERE id=:bid AND status='open'"),
+                        {"bid": _bid},
+                    )
+                else:
+                    db.session.execute(
+                        text(
+                            "UPDATE cooler_boxes "
+                            "SET first_stop_sequence=:fs, last_stop_sequence=:ls "
+                            "WHERE id=:bid"
+                        ),
+                        {"fs": _rem[1], "ls": _rem[2], "bid": _bid},
+                    )
+            db.session.commit()
+            current_app.logger.info(
+                "cooler auto-cleanup: removed %d orphaned box items from route %s",
+                _deleted, _route_id_int,
+            )
+    except Exception as _ce:
+        db.session.rollback()
+        current_app.logger.warning("cooler orphan cleanup failed: %s", _ce)
+
     rows = db.session.execute(
         text(
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
@@ -742,10 +805,12 @@ def route_picking(route_id, delivery_date):
                 "       cbi.expected_qty, cbi.customer_name, cbi.delivery_sequence, "
                 "       cbi.id, cbi.status, cbi.picked_qty "
                 "FROM cooler_box_items cbi "
+                "JOIN invoices i ON i.invoice_no = cbi.invoice_no "
                 "WHERE cbi.cooler_box_id = ANY(:bids) "
+                "  AND i.route_id = :route_id_filter "
                 "ORDER BY cbi.cooler_box_id, cbi.delivery_sequence DESC NULLS LAST, cbi.invoice_no"
             ),
-            {"bids": _box_ids},
+            {"bids": _box_ids, "route_id_filter": _route_id_int},
         ).fetchall()
         for _r in _item_rows:
             box_items_by_box.setdefault(int(_r[0]), []).append({
