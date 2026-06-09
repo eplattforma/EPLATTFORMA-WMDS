@@ -140,6 +140,12 @@
                                     <i class="fas fa-check-double me-2"></i>Route Reconciliation
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'route_planner.index' %}active{% endif %}"
+                                   href="{{ url_for('route_planner.index') }}">
+                                    <i class="fas fa-route me-2"></i>Route Planner
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     {% endif %}
