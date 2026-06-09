@@ -538,6 +538,9 @@ def route_picking(route_id, delivery_date):
         _route_id_int = int(route_id)
     except (TypeError, ValueError):
         _route_id_int = None
+    if _route_id_int is None or not delivery_date or delivery_date == '-':
+        flash("Invalid route or date.", "warning")
+        return redirect(url_for("cooler.route_list"))
     rows = db.session.execute(
         text(
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
