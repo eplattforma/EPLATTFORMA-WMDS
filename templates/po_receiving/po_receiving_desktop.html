@@ -379,7 +379,7 @@ input[type=number] { -moz-appearance: textfield; }
                     <tr>
                         <th style="width:48px"></th>
                         <th>Item Code</th>
-                        <th id="thProductName" onclick="toggleNameSort()" style="cursor:pointer;user-select:none;white-space:nowrap">Product Name <span id="sortIcon" style="font-size:0.75em;opacity:0.6"></span></th>
+                        <th>Product Name</th>
                         <th>Supplier Code</th>
                         <th>Barcode</th>
                         <th class="text-end">Ordered</th>
@@ -429,7 +429,6 @@ input[type=number] { -moz-appearance: textfield; }
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
     let poLines = {{ po_lines_data|tojson }};
     let currentFilter = 'all';
-    let currentSort = null;
     let searchTimeout = null;
     let lineStatuses = {};
 
@@ -548,14 +547,6 @@ input[type=number] { -moz-appearance: textfield; }
                 if (aTs) return -1;
                 if (bTs) return 1;
                 return 0;
-            });
-        }
-        // Apply name sort when active (overrides the ready-tab FIFO sort).
-        if (currentSort) {
-            iterLines = iterLines.slice().sort(function(a, b) {
-                const an = (a.item_name || '').toLowerCase();
-                const bn = (b.item_name || '').toLowerCase();
-                return currentSort === 'asc' ? an.localeCompare(bn) : bn.localeCompare(an);
             });
         }
 
@@ -745,13 +736,6 @@ input[type=number] { -moz-appearance: textfield; }
         currentFilter = filter;
         document.querySelectorAll('.filter-bar .btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        renderTable();
-    };
-
-    window.toggleNameSort = function() {
-        currentSort = (currentSort === 'asc') ? 'desc' : 'asc';
-        const icon = document.getElementById('sortIcon');
-        if (icon) icon.textContent = currentSort === 'asc' ? '▲' : '▼';
         renderTable();
     };
 
