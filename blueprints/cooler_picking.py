@@ -646,7 +646,7 @@ def route_picking(route_id, delivery_date):
             "       bpq.qty_picked, bpq.status, bpq.wms_zone, "
             "       i.customer_name, i.customer_code, "
             "       rs.seq_no, rs.route_stop_id, bpq.delivery_sequence, "
-            "       ii.item_name "
+            "       ii.item_name, ii.location "
             "FROM batch_pick_queue bpq "
             "JOIN invoices i ON i.invoice_no = bpq.invoice_no "
             "JOIN shipments s ON s.id = i.route_id "
@@ -683,6 +683,7 @@ def route_picking(route_id, delivery_date):
             "route_stop_id": r[10],
             "delivery_sequence": float(r[11]) if r[11] is not None else None,
             "item_name": r[12] or "",
+            "location": r[13] or "",
         }
         for r in rows
     ]
