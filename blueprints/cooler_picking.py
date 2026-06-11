@@ -1462,7 +1462,7 @@ def box_create():
 def box_plan_preview(route_id, delivery_date):
     """Return the recommended box plan plus all active box types for the UI."""
     box_type_id = request.args.get("box_type_id") or None
-    target_fill = float(request.args.get("target_fill", "0.90"))
+    target_fill = float(request.args.get("target_fill", "0.80"))
 
     # Parse availability: ?avail=typeId:count,typeId:count
     avail_raw = request.args.get("avail") or ""

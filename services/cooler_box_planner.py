@@ -1,14 +1,14 @@
 """Cooler box plan generator — two-phase smart recommender.
 
-Phase 1: Group stops LIFO (consecutive only) using the *largest* available
-         box type as the capacity ceiling.  This establishes which stops
-         travel together.  When a single stop exceeds the largest box, it is
-         split at the fill-target ceiling (target_fill_pct × largest_cap) so
-         the second sub-slot stays lean enough for subsequent stops to backfill
-         it — avoiding unnecessary empty boxes.
+Phase 1: Walk every item in LIFO stop order (last delivery stop first) and
+         greedily fill the current box up to the fill ceiling
+         (target_fill_pct × largest_cap) before opening the next one.  A
+         single stop's items may be split across consecutive boxes so each
+         box is packed as full as the selected max-fill % allows — no box is
+         sealed half-empty just to keep a stop together.
 
 Phase 2: Right-size each group — pick the *smallest* box type whose usable
-         volume satisfies  fill % >= target_fill_pct.  Falls back to the
+         volume keeps fill % at or below target_fill_pct.  Falls back to the
          smallest type that physically fits when no type hits the target.
 
 Stop order is LIFO (last delivery stop first) so Box 1 carries the last-stop
@@ -129,7 +129,7 @@ def generate_box_plan(
     box_type_id=None,
     include_pending=True,
     available_type_counts=None,
-    target_fill_pct=0.90,
+    target_fill_pct=0.80,
 ):
     """Generate a two-phase cooler box plan.
 
@@ -305,75 +305,48 @@ def generate_box_plan(
 
     slots = []   # each slot: {seqs, vol, wt, missing, items}
 
-    def _new_slot(seq):
-        sd = stop_data[seq]
-        return {
-            "seqs":    [seq],
-            "vol":     sd["vol"],
-            "wt":      sd["wt"],
-            "missing": sd["missing"],
-            "items":   list(sd["items"]),
-        }
+    def _new_slot():
+        return {"seqs": [], "vol": 0.0, "wt": 0.0, "missing": 0, "items": []}
 
-    def _flush(slot):
-        if slot:
-            slots.append(slot)
-
-    cur = None
+    # Flatten every item in LIFO stop order so a single stop's items can be
+    # split across boxes.  Box N is filled up to the fill ceiling before box
+    # N+1 is opened, regardless of stop boundaries — this packs each box as
+    # full as the selected max-fill % allows instead of sealing it early just
+    # to keep a whole stop together.  Stop order is preserved, so consecutive
+    # stops still travel together wherever they fit.
+    ordered_items = []
     for seq in stops:
-        sd  = stop_data[seq]
-        svol = sd["vol"]
-        swt  = sd["wt"]
+        ordered_items.extend(stop_data[seq]["items"])
 
-        # Oversized stop: split across 2 sub-boxes immediately
-        if largest_cap > 0 and svol > largest_cap:
-            _flush(cur)
-            cur = None
-            # sub1 fills up to the fill-target ceiling so sub2 starts lean
-            # enough that subsequent stops can top it up to the target.
-            half = fill_ceil if fill_ceil > 0 else largest_cap * 0.95
-            sub1_items, sub2_items = [], []
-            sub1_vol = sub1_wt = sub2_vol = sub2_wt = 0.0
-            sub1_miss = sub2_miss = 0
-            for it in sd["items"]:
-                if sub1_vol + it["estimated_volume_cm3"] <= half:
-                    sub1_items.append(it)
-                    sub1_vol  += it["estimated_volume_cm3"]
-                    sub1_wt   += it["estimated_weight_kg"]
-                    sub1_miss += 0 if it["has_dimensions"] else 1
-                else:
-                    sub2_items.append(it)
-                    sub2_vol  += it["estimated_volume_cm3"]
-                    sub2_wt   += it["estimated_weight_kg"]
-                    sub2_miss += 0 if it["has_dimensions"] else 1
-            if sub1_items:
-                slots.append({"seqs": [seq], "vol": sub1_vol, "wt": sub1_wt,
-                              "missing": sub1_miss, "items": sub1_items})
-            if sub2_items:
-                # Leave sub2 as the open slot so subsequent stops can
-                # backfill its remaining capacity before a new box is opened.
-                cur = {"seqs": [seq], "vol": sub2_vol, "wt": sub2_wt,
-                       "missing": sub2_miss, "items": sub2_items}
-            continue
+    cur = _new_slot()
+    for it in ordered_items:
+        iv = it["estimated_volume_cm3"] or 0.0
+        iw = it["estimated_weight_kg"]  or 0.0
+        new_vol = cur["vol"] + iv
+        new_wt  = cur["wt"]  + iw
+        vol_ok  = fill_ceil  <= 0 or new_vol <= fill_ceil
+        wt_ok   = largest_wt <= 0 or new_wt  <= largest_wt
 
-        # Try to add stop to current slot — seal when fill ceiling is reached
-        if cur is not None:
-            new_vol = cur["vol"] + svol
-            new_wt  = cur["wt"]  + swt
-            vol_ok  = fill_ceil <= 0 or new_vol <= fill_ceil
-            wt_ok   = largest_wt <= 0 or new_wt  <= largest_wt
-            if vol_ok and wt_ok:
-                cur["seqs"].append(seq)
-                cur["vol"]    = new_vol
-                cur["wt"]     = new_wt
-                cur["missing"] += sd["missing"]
-                cur["items"].extend(sd["items"])
-                continue
+        # Seal the current box and open a new one when adding this item would
+        # breach the fill ceiling — but only if the box already holds at least
+        # one item.  A single item larger than the ceiling gets its own box
+        # (with a downstream capacity warning) rather than an empty box.
+        if cur["items"] and not (vol_ok and wt_ok):
+            slots.append(cur)
+            cur = _new_slot()
+            new_vol = iv
+            new_wt  = iw
 
-        _flush(cur)
-        cur = _new_slot(seq)
+        cur["vol"] = new_vol
+        cur["wt"]  = new_wt
+        seq = it["delivery_sequence"]
+        if seq not in cur["seqs"]:
+            cur["seqs"].append(seq)
+        cur["missing"] += 0 if it["has_dimensions"] else 1
+        cur["items"].append(it)
 
-    _flush(cur)
+    if cur["items"]:
+        slots.append(cur)
 
     # ── Phase 2: right-size each slot ────────────────────────────────────────
     used_counts: dict = defaultdict(int)

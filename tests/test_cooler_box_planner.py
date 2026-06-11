@@ -12,14 +12,14 @@ from unittest.mock import MagicMock, patch, call
 # ---------------------------------------------------------------------------
 
 def _make_row(queue_id, invoice_no, item_code, qty, customer_code, customer_name,
-              route_stop_id, seq_no, item_name):
+              route_stop_id, seq_no, item_name, status="picked"):
     """Build a Row-like namedtuple matching the cooler_box_planner query order."""
     return types.SimpleNamespace(
         **dict(zip(
             ["id", "invoice_no", "item_code", "qty", "customer_code", "customer_name",
-             "route_stop_id", "seq_no", "item_name"],
+             "route_stop_id", "seq_no", "item_name", "status"],
             [queue_id, invoice_no, item_code, qty, customer_code, customer_name,
-             route_stop_id, seq_no, item_name],
+             route_stop_id, seq_no, item_name, status],
         ))
     )
 
@@ -28,7 +28,7 @@ def _flat(ns):
     """Return a simple tuple in column order expected by the planner."""
     return (ns.id, ns.invoice_no, ns.item_code, ns.qty,
             ns.customer_code, ns.customer_name,
-            ns.route_stop_id, ns.seq_no, ns.item_name)
+            ns.route_stop_id, ns.seq_no, ns.item_name, ns.status)
 
 
 # ---------------------------------------------------------------------------
