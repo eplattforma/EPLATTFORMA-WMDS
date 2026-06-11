@@ -379,7 +379,7 @@ input[type=number] { -moz-appearance: textfield; }
                     <tr>
                         <th style="width:48px"></th>
                         <th>Item Code</th>
-                        <th>Product Name</th>
+                        <th id="thProductName" style="cursor:pointer;user-select:none;" onclick="toggleNameSort()" title="Click to sort by product name">Product Name <span id="nameSortIcon" style="font-size:0.75em;opacity:0.6;"></span></th>
                         <th>Supplier Code</th>
                         <th>Barcode</th>
                         <th class="text-end">Ordered</th>
@@ -431,6 +431,7 @@ input[type=number] { -moz-appearance: textfield; }
     let currentFilter = 'all';
     let searchTimeout = null;
     let lineStatuses = {};
+    let nameSortDir = null; // null | 'asc' | 'desc'
 
     function getHeaders() {
         return {'Content-Type': 'application/json', 'X-CSRFToken': CSRF};
@@ -528,6 +529,12 @@ input[type=number] { -moz-appearance: textfield; }
         try { input.setSelectionRange(newCaret, newCaret); } catch (e) { /* ignore on inputs that don't support it */ }
     };
 
+    function toggleNameSort() {
+        nameSortDir = (nameSortDir === 'asc') ? 'desc' : 'asc';
+        document.getElementById('nameSortIcon').textContent = nameSortDir === 'asc' ? '▲' : '▼';
+        renderTable();
+    }
+
     function renderTable() {
         const tbody = document.getElementById('rcvTableBody');
         tbody.innerHTML = '';
@@ -539,7 +546,7 @@ input[type=number] { -moz-appearance: textfield; }
         // On the "Ready" tab, sort by entry order (FIFO — first in on top).
         // Lines without any received lot fall to the bottom.
         let iterLines = poLines;
-        if (currentFilter === 'ready') {
+        if (currentFilter === 'ready' && !nameSortDir) {
             iterLines = poLines.slice().sort(function(a, b) {
                 const aTs = a.first_received_at || '';
                 const bTs = b.first_received_at || '';
@@ -547,6 +554,15 @@ input[type=number] { -moz-appearance: textfield; }
                 if (aTs) return -1;
                 if (bTs) return 1;
                 return 0;
+            });
+        }
+
+        // Product Name sort (overrides FIFO when explicitly chosen).
+        if (nameSortDir) {
+            iterLines = iterLines.slice().sort(function(a, b) {
+                const an = (a.item_name || '').toLowerCase();
+                const bn = (b.item_name || '').toLowerCase();
+                return nameSortDir === 'asc' ? an.localeCompare(bn) : bn.localeCompare(an);
             });
         }
 
