@@ -3195,36 +3195,37 @@ def complete_batch_confirm(batch_id):
                         if remaining_qty <= 0:
                             break  # No more quantity to allocate
         
-        # Phase 4: when DB-backed queue flag is ON, mirror the pick into
-        # ``batch_pick_queue`` and touch ``last_activity_at`` so refresh /
-        # restart resumes from the correct state.
-        from services.batch_picking import record_pick_to_queue as _record_pick_to_queue
-        for _src in source_items:
-            _record_pick_to_queue(
-                batch_id=batch_id,
-                invoice_no=_src['invoice_no'],
-                item_code=_src['item_code'],
-                picker=current_user.username,
-                qty_picked=_src.get('qty', picked_qty),
-            )
-
-        # ── Mirror into cooler_box_items ──────────────────────────────────
-        # For cooler-route batches the close-box guard checks
-        # cooler_box_items.status = 'planned' OR picked_qty = 0.
-        # Without this mirror, items stay 'planned' forever even after
-        # being physically picked, blocking box closure.
-        if getattr(batch_session, 'session_type', None) == 'cooler_route':
-            from timezone_utils import get_utc_now as _utcnow_cbi
-            _cbi_now = _utcnow_cbi()
+        # Phase 4: mirror this line's outcome into ``batch_pick_queue`` (and,
+        # for cooler routes, ``cooler_box_items``) so refresh / restart resumes
+        # from the correct state.
+        _is_cooler_route = getattr(batch_session, 'session_type', None) == 'cooler_route'
+        if _is_cooler_route and is_exception:
+            # Reported unavailable / zero-pick on a cooler route: this line was
+            # NOT picked, so it must NOT be treated as a picked-but-unboxed item.
+            # Mark the queue row + any pre-planned box item 'exception' (mirroring
+            # the canonical cooler queue_exception path) so it is excluded from the
+            # "picked but unboxed" count, the Generate Box Plan list, and the box
+            # manifest. Without this it would still get boxed and shipped despite
+            # picked_qty = 0.
+            from timezone_utils import get_utc_now as _utcnow_exc
+            _exc_now = _utcnow_exc()
             for _src in source_items:
                 db.session.execute(
                     text(
+                        "UPDATE batch_pick_queue "
+                        "SET status = 'exception', updated_at = :now "
+                        "WHERE batch_session_id = :bid "
+                        "  AND invoice_no = :inv "
+                        "  AND item_code = :ic "
+                        "  AND status IN ('pending', 'skipped_pending')"
+                    ),
+                    {"now": _exc_now, "bid": batch_id,
+                     "inv": _src['invoice_no'], "ic": _src['item_code']},
+                )
+                db.session.execute(
+                    text(
                         "UPDATE cooler_box_items cbi "
-                        "SET status     = 'picked', "
-                        "    picked_qty = cbi.expected_qty, "
-                        "    picked_by  = :picker, "
-                        "    picked_at  = :now, "
-                        "    updated_at = :now "
+                        "SET status = 'exception', updated_at = :now "
                         "WHERE cbi.status = 'planned' "
                         "  AND cbi.queue_item_id = ("
                         "    SELECT bpq.id FROM batch_pick_queue bpq "
@@ -3234,14 +3235,54 @@ def complete_batch_confirm(batch_id):
                         "    LIMIT 1"
                         "  )"
                     ),
-                    {
-                        "picker": current_user.username,
-                        "now":    _cbi_now,
-                        "inv":    _src["invoice_no"],
-                        "ic":     _src["item_code"],
-                        "bid":    batch_id,
-                    },
+                    {"now": _exc_now, "inv": _src['invoice_no'],
+                     "ic": _src['item_code'], "bid": batch_id},
                 )
+        else:
+            from services.batch_picking import record_pick_to_queue as _record_pick_to_queue
+            for _src in source_items:
+                _record_pick_to_queue(
+                    batch_id=batch_id,
+                    invoice_no=_src['invoice_no'],
+                    item_code=_src['item_code'],
+                    picker=current_user.username,
+                    qty_picked=_src.get('qty', picked_qty),
+                )
+
+            # ── Mirror into cooler_box_items ──────────────────────────────────
+            # For cooler-route batches the close-box guard checks
+            # cooler_box_items.status = 'planned' OR picked_qty = 0.
+            # Without this mirror, items stay 'planned' forever even after
+            # being physically picked, blocking box closure.
+            if _is_cooler_route:
+                from timezone_utils import get_utc_now as _utcnow_cbi
+                _cbi_now = _utcnow_cbi()
+                for _src in source_items:
+                    db.session.execute(
+                        text(
+                            "UPDATE cooler_box_items cbi "
+                            "SET status     = 'picked', "
+                            "    picked_qty = cbi.expected_qty, "
+                            "    picked_by  = :picker, "
+                            "    picked_at  = :now, "
+                            "    updated_at = :now "
+                            "WHERE cbi.status = 'planned' "
+                            "  AND cbi.queue_item_id = ("
+                            "    SELECT bpq.id FROM batch_pick_queue bpq "
+                            "    WHERE bpq.invoice_no       = :inv "
+                            "      AND bpq.item_code        = :ic "
+                            "      AND bpq.batch_session_id = :bid "
+                            "    LIMIT 1"
+                            "  )"
+                        ),
+                        {
+                            "picker": current_user.username,
+                            "now":    _cbi_now,
+                            "inv":    _src["invoice_no"],
+                            "ic":     _src["item_code"],
+                            "bid":    batch_id,
+                        },
+                    )
 
         # ── Cooler box-first: close box when its last item is confirmed ──────────
         if _cooler_is_last_in_box and _cooler_box_id:

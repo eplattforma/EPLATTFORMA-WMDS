@@ -796,3 +796,23 @@ class TestSkipVsExceptionSemantics:
         # planned check must LEFT JOIN the queue so exceptioned planned rows
         # do not permanently block route completion.
         assert "LEFT JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id" in source
+
+    def test_complete_batch_confirm_cooler_exception_not_marked_picked(self):
+        """An item reported unavailable/zero-pick on a cooler route must NOT be
+        mirrored as a picked-but-unboxed queue row (which would get boxed and
+        shipped despite picked_qty=0). complete_batch_confirm must, for a cooler
+        exception, set batch_pick_queue.status='exception' and reconcile the
+        pre-planned cooler_box_items row to 'exception' instead of calling the
+        pick mirror — matching the canonical queue_exception path."""
+        import inspect
+        import routes_batch
+        source = inspect.getsource(routes_batch.complete_batch_confirm)
+        # The cooler-exception branch must be gated on both conditions.
+        assert "_is_cooler_route and is_exception" in source, (
+            "complete_batch_confirm must special-case cooler-route exceptions."
+        )
+        # Queue row -> exception (not 'picked' via record_pick_to_queue).
+        assert "SET status = 'exception'" in source
+        # The pre-planned box item must also be reconciled to 'exception'.
+        assert "UPDATE cooler_box_items" in source
+        assert "SET status = 'exception'" in source
