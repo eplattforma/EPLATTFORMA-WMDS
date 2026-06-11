@@ -734,6 +734,57 @@ def route_picking(route_id, delivery_date):
         db.session.rollback()
         current_app.logger.warning("cooler orphan cleanup failed: %s", _ce)
 
+    # ── Route-level lock + auto-stamp of late-addition delivery_sequence ──
+    # When an invoice is added to a route AFTER its cooler sequence was locked,
+    # the extraction creates a NEW sibling session (COOLER-ROUTE-<id>-2) that is
+    # itself UNLOCKED and whose bpq rows carry delivery_sequence = NULL. Treat
+    # the route as locked if ANY sibling session was sequence-locked, and stamp
+    # the missing delivery_sequence from the live route-stop join so the new
+    # items sort into their real stop group instead of "Awaiting". Runs before
+    # the queue query so this very render is already consistent. Idempotent —
+    # only NULL rows with a live, sequenced route stop are touched.
+    _route_locked_at = db.session.execute(text(
+        "SELECT MAX(sequence_locked_at) FROM batch_picking_sessions "
+        "WHERE session_type = 'cooler_route' "
+        "  AND (route_id = :rid OR name = :legacy OR name LIKE :legacy_prefix) "
+        "  AND sequence_locked_at IS NOT NULL "
+        "  AND (status IS NULL OR status NOT IN ('Cancelled', 'Archived'))"
+    ), {
+        "rid": _route_id_int,
+        "legacy": f"COOLER-ROUTE-{_route_id_int}",
+        "legacy_prefix": f"COOLER-ROUTE-{_route_id_int}-%",
+    }).scalar()
+    if _route_locked_at is not None:
+        try:
+            _late_stamped = db.session.execute(text(
+                "UPDATE batch_pick_queue bpq "
+                "SET delivery_sequence = rs.seq_no, "
+                "    updated_at = NOW() "
+                "FROM route_stop_invoice rsi "
+                "JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
+                "JOIN invoices i ON i.invoice_no = rsi.invoice_no "
+                "WHERE bpq.pick_zone_type = 'cooler' "
+                "  AND bpq.delivery_sequence IS NULL "
+                "  AND i.route_id = :rid "
+                "  AND rs.shipment_id = :rid "
+                "  AND rsi.invoice_no = bpq.invoice_no "
+                "  AND rsi.is_active = TRUE "
+                "  AND rs.seq_no IS NOT NULL"
+            ), {"rid": _route_id_int}).rowcount
+            if _late_stamped:
+                db.session.commit()
+                logging.getLogger(__name__).info(
+                    "route_picking auto-stamp: stamped %d late-addition cooler "
+                    "bpq row(s) for route %s",
+                    _late_stamped, _route_id_int,
+                )
+        except Exception as _late_stamp_err:
+            db.session.rollback()
+            logging.getLogger(__name__).warning(
+                "route_picking auto-stamp failed for route %s: %s",
+                _route_id_int, _late_stamp_err,
+            )
+
     rows = db.session.execute(
         text(
             "SELECT bpq.id, bpq.invoice_no, bpq.item_code, bpq.qty_required, "
@@ -824,11 +875,13 @@ def route_picking(route_id, delivery_date):
     if lock_row is not None:
         cooler_session = {
             "id": lock_row[0],
-            "sequence_locked_at": lock_row[1],
+            # Fall back to the route-level lock so a late-addition sibling
+            # session (created UNLOCKED) still reports the route as locked.
+            "sequence_locked_at": lock_row[1] or _route_locked_at,
             "sequence_locked_by": lock_row[2],
             "name": lock_row[3],
             "status": lock_row[4],
-            "is_locked": lock_row[1] is not None,
+            "is_locked": (lock_row[1] is not None) or (_route_locked_at is not None),
             "assigned_to": lock_row[5],
         }
 
@@ -973,40 +1026,6 @@ def route_picking(route_id, delivery_date):
         ),
         {"rid": _route_id_int, "dd": str(delivery_date)},
     ).scalar() or 0
-
-    # ── Auto-stamp late-addition delivery_sequence ───────────────────────
-    # When an invoice is added to a route AFTER lock_sequencing ran, its
-    # bpq rows arrive with delivery_sequence = NULL.  Stamp them here using
-    # the live route_stop join so the status report and box plan show them
-    # in the correct stop group on the very next page load.
-    # Idempotent — rows already stamped are skipped (WHERE IS NULL).
-    if cooler_session and cooler_session.get("sequence_locked_at"):
-        try:
-            _late_stamped = db.session.execute(text(
-                "UPDATE batch_pick_queue bpq "
-                "SET delivery_sequence = rs.seq_no, "
-                "    updated_at = NOW() "
-                "FROM route_stop_invoice rsi "
-                "JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
-                "WHERE bpq.batch_session_id = :sid "
-                "  AND bpq.delivery_sequence IS NULL "
-                "  AND rsi.invoice_no = bpq.invoice_no "
-                "  AND rsi.is_active = TRUE "
-                "  AND rs.seq_no IS NOT NULL"
-            ), {"sid": cooler_session["id"]}).rowcount
-            if _late_stamped:
-                db.session.commit()
-                logging.getLogger(__name__).info(
-                    "route_picking auto-stamp: stamped %d late-addition bpq "
-                    "row(s) for session %s (route %s)",
-                    _late_stamped, cooler_session["id"], _route_id_int,
-                )
-        except Exception as _late_stamp_err:
-            db.session.rollback()
-            logging.getLogger(__name__).warning(
-                "route_picking auto-stamp failed for session %s: %s",
-                cooler_session.get("id"), _late_stamp_err,
-            )
 
     # ── Self-healing sync ─────────────────────────────────────────────────
     # When items were picked via the cooler route page (queue_pick), only

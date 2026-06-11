@@ -16,7 +16,7 @@
 
 {% set _s1 = 2 if _is_locked else 1 %}
 {% set _s2 = 2 if (_boxes_exist and not _any_overfull) else (1 if _is_locked else 0) %}
-{% set _s3 = 2 if (_picking_done and _all_closed) else (1 if (_s2 == 2) else 0) %}
+{% set _s3 = 2 if (_picking_done and _all_closed and picked_unboxed_count == 0) else (1 if (_s2 == 2) else 0) %}
 
 {# Volume totals #}
 {% set _vt = namespace(l=0.0, kg=0.0, has_data=false) %}
