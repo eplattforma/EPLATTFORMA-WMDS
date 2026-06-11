@@ -2515,8 +2515,14 @@ def batch_picking_item(batch_id):
                     {"bid": batch_id},
                 )
                 db.session.commit()
-                from services.batch_picking import rebuild_items_from_queue as _rebuild_q
-                recycled = _rebuild_q(batch_id)
+                # Box-first rebuild so re-presented skipped items keep their box
+                # metadata (box_id / box_no / is_last_item_in_box). The flat
+                # rebuild_items_from_queue path strips box context, which breaks
+                # the box-first picking UI and prevents the box-close transition
+                # from firing when the recovered item is the box's last one.
+                recycled = _serialize_cooler_box_items(
+                    build_cooler_box_picking_items(batch_session)
+                )
                 session[fixed_batch_key] = recycled
                 batch_session.current_item_index = 0
                 db.session.commit()
@@ -3429,6 +3435,25 @@ def complete_batch_confirm(batch_id):
         
         # Check if entire batch is complete
         if batch_session.current_item_index >= len(items):
+            # ── Cooler box-first: never auto-complete while skipped (collect-later)
+            # items are still outstanding. The final pick action would otherwise
+            # mark the batch Completed and redirect away, bypassing the end-of-run
+            # recycle — leaving the skipped_pending item unresolved (shown as
+            # "Collect later" and blocking box closure). Route back through
+            # batch_picking_item so the recycle re-presents them for resolution.
+            if getattr(batch_session, 'session_type', None) == 'cooler_route':
+                _outstanding_skipped = db.session.execute(
+                    text(
+                        "SELECT COUNT(*) FROM batch_pick_queue "
+                        "WHERE batch_session_id = :bid "
+                        "  AND status = 'skipped_pending' "
+                        "  AND pick_zone_type = 'cooler'"
+                    ),
+                    {"bid": batch_id},
+                ).scalar() or 0
+                if _outstanding_skipped > 0:
+                    db.session.commit()
+                    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
             # In sequential mode, we need to check if there are more invoices to process
             if batch_session.picking_mode == 'Sequential':
                 # Get all invoices in this batch to check if we have more to process

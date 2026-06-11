@@ -93,6 +93,11 @@ def record_pick_to_queue(batch_id, invoice_no, item_code, picker, qty_picked):
     NOT the global flag — durable resume must work even if the flag
     flips mid-shift. Returns rowcount; 0 means legacy batch (no-op).
     Errors are re-raised so failures are operationally visible.
+
+    Both ``pending`` and ``skipped_pending`` rows are flipped: an item that
+    was skipped (collect-later) and is now physically picked must become
+    ``picked`` too. Without ``skipped_pending`` here a picked skip-row would
+    stay "Collect later" and keep blocking cooler box closure.
     """
     if not is_db_backed_batch(batch_id):
         return 0
@@ -106,7 +111,7 @@ def record_pick_to_queue(batch_id, invoice_no, item_code, picker, qty_picked):
             "WHERE batch_session_id = :bid "
             "  AND invoice_no = :inv "
             "  AND item_code = :ic "
-            "  AND status = 'pending'"
+            "  AND status IN ('pending', 'skipped_pending')"
         ),
         {"picker": picker, "now": now, "qty": qty_picked,
          "bid": batch_id, "inv": invoice_no, "ic": item_code},

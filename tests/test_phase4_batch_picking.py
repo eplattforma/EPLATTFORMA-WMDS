@@ -270,6 +270,44 @@ class TestPickingResume:
         assert rebuilt[0]["zone"] == "ZRT"
         assert rebuilt[0]["source_items"][0]["invoice_no"] == "INV-RT"
 
+    def test_record_pick_flips_skipped_pending_row(self, setup):
+        """Cooler skip bug: an item skipped (collect-later) and later
+        physically picked must have its queue row flipped to 'picked'.
+        record_pick_to_queue previously matched only status='pending',
+        leaving a skipped_pending row stuck — which kept showing
+        "Collect later" and blocked cooler box closure.
+        """
+        app, db = setup
+        from sqlalchemy import text
+        from services.batch_picking import (
+            create_batch_atomic, record_pick_to_queue,
+        )
+        _make_invoice_with_items(db, "INV-SKIP", 2, "ZSK")
+        batch = create_batch_atomic(filters={"zones": ["ZSK"]}, created_by="test_admin_user")
+        # Simulate a collect-later skip on the first item.
+        db.session.execute(
+            text(
+                "UPDATE batch_pick_queue SET status = 'skipped_pending' "
+                "WHERE batch_session_id = :bid AND item_code = :ic"
+            ),
+            {"bid": batch.id, "ic": "ITEM-INV-SKIP-0"},
+        )
+        db.session.commit()
+
+        rc = record_pick_to_queue(
+            batch.id, "INV-SKIP", "ITEM-INV-SKIP-0", "test_admin_user", 10,
+        )
+        db.session.commit()
+        assert rc == 1
+        status = db.session.execute(
+            text(
+                "SELECT status FROM batch_pick_queue "
+                "WHERE batch_session_id = :bid AND item_code = :ic"
+            ),
+            {"bid": batch.id, "ic": "ITEM-INV-SKIP-0"},
+        ).scalar()
+        assert status == "picked"
+
     def test_p4_12b_queue_drives_resume_after_session_loss(self, setup):
         """Round-4: when the Flask session is empty and the batch is
         DB-backed, the picker route must reconstruct the work list from
