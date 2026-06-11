@@ -294,6 +294,22 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
     )
     planned_box_items_removed = res0.rowcount or 0
 
+    # 0b) Capture the cooler session(s) holding queue rows for this invoice
+    # BEFORE deleting anything, so we can check for session completion at
+    # the end (Bug fix: sessions whose every invoice is unassigned never
+    # reach box_close and would otherwise stay non-terminal forever).
+    affected_session_ids = [
+        r[0] for r in db.session.execute(
+            text(
+                "SELECT DISTINCT batch_session_id FROM batch_pick_queue "
+                "WHERE invoice_no = :inv "
+                "  AND pick_zone_type = 'cooler' "
+                "  AND batch_session_id IS NOT NULL"
+            ),
+            {"inv": invoice_no},
+        ).fetchall()
+    ]
+
     # 1) Drop pending cooler queue rows (always)
     res = db.session.execute(
         text(
@@ -509,6 +525,42 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
                         "bid": box_id,
                     },
                 )
+
+    # 8) If a cooler session that held this invoice now has zero
+    # non-cancelled queue rows left, mark it Completed so it cannot
+    # block warehouse readiness forever (box_close never fires when
+    # there are no boxes left to close).
+    for _sid in affected_session_ids:
+        try:
+            remaining = db.session.execute(
+                text(
+                    "SELECT COUNT(*) FROM batch_pick_queue "
+                    "WHERE batch_session_id = :sid "
+                    "  AND status != 'cancelled'"
+                ),
+                {"sid": _sid},
+            ).scalar() or 0
+            if remaining == 0:
+                db.session.execute(
+                    text(
+                        "UPDATE batch_picking_sessions "
+                        "SET status = 'Completed', last_activity_at = :now "
+                        "WHERE id = :sid "
+                        "  AND session_type = 'cooler_route' "
+                        "  AND status NOT IN ('Completed', 'Cancelled', 'Archived')"
+                    ),
+                    {"sid": _sid, "now": get_utc_now()},
+                )
+                logger.info(
+                    "release_cooler_locks_for_invoice: cooler session %s "
+                    "marked Completed (no remaining queue rows) after "
+                    "invoice %s released", _sid, invoice_no,
+                )
+        except Exception as _done_err:
+            logger.warning(
+                "release_cooler_locks_for_invoice: completion check failed "
+                "for session %s: %s", _sid, _done_err,
+            )
 
     return {
         "queue_deleted": queue_deleted,

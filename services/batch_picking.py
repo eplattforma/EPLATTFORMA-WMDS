@@ -614,6 +614,37 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
                     """),
                     {"sid": batch_id},
                 )
+            # Remove box-item rows for the boxes just cancelled. Without
+            # this, stale cooler_box_items inflate readiness counts and
+            # block re-boxing after re-extraction. Mirrors the UPDATE's
+            # branch logic so legacy (cooler_session_id IS NULL) boxes
+            # are also cleaned up.
+            if _batch_route_id is not None:
+                db.session.execute(
+                    text("""
+                        DELETE FROM cooler_box_items
+                        WHERE cooler_box_id IN (
+                            SELECT id FROM cooler_boxes
+                            WHERE (cooler_session_id = :sid
+                                   OR (cooler_session_id IS NULL
+                                       AND route_id = :rid))
+                              AND status = 'cancelled'
+                        )
+                    """),
+                    {"sid": batch_id, "rid": _batch_route_id},
+                )
+            else:
+                db.session.execute(
+                    text("""
+                        DELETE FROM cooler_box_items
+                        WHERE cooler_box_id IN (
+                            SELECT id FROM cooler_boxes
+                            WHERE cooler_session_id = :sid
+                              AND status = 'cancelled'
+                        )
+                    """),
+                    {"sid": batch_id},
+                )
 
         # Recompute invoice statuses for ALL batch types so orders that were
         # in 'awaiting_batch_items' resolve back to picking / not_started /

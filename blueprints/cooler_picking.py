@@ -1883,12 +1883,12 @@ def pre_plan_boxes(route_id, delivery_date):
                 )
 
         _recalculate_box_fill(preplan_box_ids)
-        db.session.commit()
         _audit(
             "cooler.pre_plan",
             f"Pre-planned {created_boxes} box(es) for route {route_id} "
             f"date={delivery_date} — {skipped_items} item(s) skipped",
         )
+        db.session.commit()
         flash(
             f"\u2713 {created_boxes} box(es) pre-planned. "
             "Label and place them on the picker\u2019s trolley, then start picking.",
@@ -1930,11 +1930,11 @@ def cancel_pre_plan(route_id, delivery_date):
         ),
         {"rid": route_id_int, "dd": str(delivery_date)},
     )
-    db.session.commit()
     _audit(
         "cooler.cancel_preplan",
         f"Cancelled pre-plan for route {route_id} date={delivery_date}",
     )
+    db.session.commit()
     flash("Pre-plan cancelled. You can now generate a new plan.", "info")
     return redirect(url_for("cooler.route_list"))
 
@@ -2738,16 +2738,27 @@ def queue_pick(queue_item_id):
 
         # Promotion check: if this invoice was waiting on cooler items and is
         # now fully ready, advance it to ready_for_dispatch immediately.
-        # This is the safety net for items that are picked but never boxed
-        # (location_order mode, or any case where box_close won't fire).
-        # The same logic also lives in box_close; having it here ensures the
-        # status moves forward even when no box is ever created for the item.
+        # GUARD: is_order_ready()'s cooler-box sub-check passes vacuously
+        # when ZERO boxes exist for the invoice (zero boxes -> "all boxes
+        # closed"). Require at least one non-cancelled cooler box on this
+        # invoice's route before promoting, so a picked-but-never-boxed
+        # invoice cannot be marked ready_for_dispatch prematurely.
         _invoice_no = row[1]
         try:
             from services.order_readiness import is_order_ready
             from models import Invoice as _Invoice
             _inv = _Invoice.query.filter_by(invoice_no=_invoice_no).first()
+            _box_count = db.session.execute(
+                text(
+                    "SELECT COUNT(*) FROM cooler_boxes "
+                    "WHERE route_id = :rid "
+                    "  AND delivery_date = :dd "
+                    "  AND status != 'cancelled'"
+                ),
+                {"rid": row[6], "dd": str(row[7])},
+            ).scalar() or 0
             if _inv is not None \
+                    and _box_count > 0 \
                     and _inv.status in ("awaiting_batch_items", "awaiting_packing") \
                     and is_order_ready(_invoice_no):
                 _prev_status = _inv.status
@@ -3535,6 +3546,33 @@ def _move_zone(queue_item_id, expected_from, target):
         ),
         {"tgt": target, "zone": snapshot_zone, "now": now, "qid": queue_item_id},
     )
+    if target == "normal":
+        # The cooler session will never process this row (normal batch
+        # queries filter pick_zone_type='cooler'), so: cancel the queue
+        # row, release the cooler lock on the invoice item so a normal
+        # batch can lock it, and recompute the invoice status below.
+        db.session.execute(
+            text(
+                "UPDATE batch_pick_queue "
+                "SET status = 'cancelled', cancelled_at = :now, updated_at = :now "
+                "WHERE id = :qid AND status = 'pending'"
+            ),
+            {"now": now, "qid": queue_item_id},
+        )
+        db.session.execute(
+            text(
+                "UPDATE invoice_items "
+                "SET locked_by_batch_id = NULL "
+                "WHERE invoice_no = :inv "
+                "  AND item_code = :ic "
+                "  AND is_picked = FALSE "
+                "  AND locked_by_batch_id IN ( "
+                "    SELECT id FROM batch_picking_sessions "
+                "    WHERE session_type = 'cooler_route' "
+                "  )"
+            ),
+            {"inv": row[0], "ic": row[1]},
+        )
     _audit(
         f"cooler.move_to_{target}",
         f"Queue #{queue_item_id} invoice={row[0]} item={row[1]} "
@@ -3543,6 +3581,15 @@ def _move_zone(queue_item_id, expected_from, target):
         invoice_no=row[0], item_code=row[1],
     )
     db.session.commit()
+    if target == "normal":
+        try:
+            from batch_aware_order_status import update_order_status_batch_aware
+            update_order_status_batch_aware(row[0])
+        except Exception as _zs_err:
+            current_app.logger.warning(
+                "_move_zone: status recompute failed for %s: %s",
+                row[0], _zs_err,
+            )
     return jsonify({
         "queue_item_id": queue_item_id, "pick_zone_type": target,
         "wms_zone": snapshot_zone,
