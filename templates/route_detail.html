@@ -339,7 +339,7 @@
                 <div class="mt-1" style="max-height: 160px; overflow-y: auto;">
                     {% for event in dp.recent_events %}
                     <div class="d-flex align-items-center gap-2 py-1 border-bottom" style="font-size: 0.8rem;">
-                        <span class="text-nowrap text-muted">{{ event.created_at.strftime('%H:%M') }}</span>
+                        <span class="text-nowrap text-muted">{{ event.created_at | local_time('%H:%M') }}</span>
                         {% if event.event_type == 'deliver' %}
                         <span class="badge bg-success" style="width:18px;height:18px;padding:0;display:flex;align-items:center;justify-content:center;"><i class="fas fa-check" style="font-size:0.6rem;"></i></span>
                         {% elif event.event_type == 'fail' %}
