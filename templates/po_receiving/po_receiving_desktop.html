@@ -529,11 +529,11 @@ input[type=number] { -moz-appearance: textfield; }
         try { input.setSelectionRange(newCaret, newCaret); } catch (e) { /* ignore on inputs that don't support it */ }
     };
 
-    function toggleNameSort() {
+    window.toggleNameSort = function() {
         nameSortDir = (nameSortDir === 'asc') ? 'desc' : 'asc';
         document.getElementById('nameSortIcon').textContent = nameSortDir === 'asc' ? '▲' : '▼';
         renderTable();
-    }
+    };
 
     function renderTable() {
         const tbody = document.getElementById('rcvTableBody');
