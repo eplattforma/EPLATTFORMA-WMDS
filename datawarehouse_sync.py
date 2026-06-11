@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import time
 from logging.handlers import RotatingFileHandler
 from sqlalchemy import text as sa_text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from requests.exceptions import HTTPError
 import pytz
@@ -1264,6 +1265,7 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 logger.info(f"No more invoices on page {page}")
                 break
             
+            new_headers = []
             for inv in invoices:
                 invoice_no = inv.get("invoice_no_365")
                 if not invoice_no:
@@ -1286,11 +1288,11 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 }
                 attr_hash = _compute_hash(hash_data)
                 
+                all_headers.append(invoice_no)
+
                 if invoice_no in existing_header_nos:
-                    all_headers.append(invoice_no)
                     continue
                 
-                # Insert new header only
                 # Extract date only (no time)
                 inv_date_str = inv.get("invoice_date_utc0")
                 if inv_date_str:
@@ -1305,31 +1307,32 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 invoice_type = inv.get("invoice_type")
                 sign = _get_invoice_type_sign(invoice_type)
                 
-                total_sub_val = (inv.get("total_sub") or 0) * sign
-                total_discount_val = (inv.get("total_discount") or 0) * sign
-
-                header = DwInvoiceHeader(
-                    invoice_no_365=invoice_no,
-                    invoice_type=invoice_type,
-                    invoice_date_utc0=inv_date,
-                    customer_code_365=inv.get("customer_code_365"),
-                    store_code_365=inv.get("store_code_365"),
-                    user_code_365=inv.get("user_code_365"),
-                    total_sub=total_sub_val,
-                    total_discount=total_discount_val,
-                    total_vat=(inv.get("total_vat") or 0) * sign,
-                    total_grand=(inv.get("total_grand") or 0) * sign,
-                    points_earned=inv.get("points_earned"),
-                    points_redeemed=inv.get("points_redeemed"),
-                    attr_hash=attr_hash,
-                    last_sync_at=utc_now_for_db()
-                )
-                session.add(header)
-                inserted += 1
+                new_headers.append({
+                    "invoice_no_365": invoice_no,
+                    "invoice_type": invoice_type,
+                    "invoice_date_utc0": inv_date,
+                    "customer_code_365": inv.get("customer_code_365"),
+                    "store_code_365": inv.get("store_code_365"),
+                    "user_code_365": inv.get("user_code_365"),
+                    "total_sub": (inv.get("total_sub") or 0) * sign,
+                    "total_discount": (inv.get("total_discount") or 0) * sign,
+                    "total_net": None,
+                    "total_vat": (inv.get("total_vat") or 0) * sign,
+                    "total_grand": (inv.get("total_grand") or 0) * sign,
+                    "points_earned": inv.get("points_earned"),
+                    "points_redeemed": inv.get("points_redeemed"),
+                    "attr_hash": attr_hash,
+                    "last_sync_at": utc_now_for_db(),
+                })
                 existing_header_nos.add(invoice_no)
-                
-                all_headers.append(invoice_no)
-            
+
+            if new_headers:
+                stmt = pg_insert(DwInvoiceHeader).values(new_headers).on_conflict_do_nothing(
+                    index_elements=["invoice_no_365"]
+                )
+                session.execute(stmt)
+                inserted += len(new_headers)
+
             session.commit()
             page += 1
             
