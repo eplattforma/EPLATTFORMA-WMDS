@@ -648,7 +648,12 @@ def admin_dashboard():
                         "JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id "
                         "WHERE bps.session_type = 'cooler_route' "
                         "AND bpq.invoice_no = ANY(:invoice_nos) "
-                        "AND (bpq.qty_picked IS NULL OR bpq.qty_picked = 0)"
+                        "AND (bpq.qty_picked IS NULL OR bpq.qty_picked = 0) "
+                        # An exception line is resolved work, not outstanding —
+                        # so it must NOT keep the cooler badge blue. Only a line
+                        # that is genuinely still unpicked (pending/skipped)
+                        # blocks the green "all cooler items resolved" state.
+                        "AND bpq.status IS DISTINCT FROM 'exception'"
                     ),
                     {"invoice_nos": list(cooler_invoice_nos)}
                 ).fetchall()
