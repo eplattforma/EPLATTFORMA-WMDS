@@ -18,6 +18,7 @@ and ``admin`` (via the wildcard); ``picker`` gains ``cooler.pick`` in
 All routes call into ``services.order_readiness.is_order_ready`` /
 ``services.batch_picking`` rather than open-coding queue rules.
 """
+import logging
 from datetime import datetime, date
 from io import BytesIO
 
@@ -37,6 +38,8 @@ from services.cooler_pdf import (
 )
 from services.cooler_box_planner import generate_box_plan
 from timezone_utils import get_utc_now
+
+logger = logging.getLogger(__name__)
 
 
 # Per-permission role allow-lists for the cooler workflow. These run
