@@ -86,6 +86,9 @@ EXPIRY_EXPORT_DIR = "/tmp"
 
 [userenv.development]
 
+[userenv.production]
+REPLIT_DEPLOYMENT = "1"
+
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
