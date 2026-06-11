@@ -1153,6 +1153,11 @@ def unassign_from_route():
     # Unassign each invoice from its route
     from sqlalchemy import delete
     from services.cooler_route_extraction import release_cooler_locks_for_invoice
+    # Capture the affected route ids BEFORE clearing invoice.route_id so the
+    # empty-stop cleanup below can be scoped to ONLY these routes.
+    affected_route_ids = {
+        invoice.route_id for invoice in invoices if invoice.route_id is not None
+    }
     for invoice in invoices:
         # Always delete route_stop_invoice records (don't rely on stop_id being set)
         db.session.execute(
@@ -1168,14 +1173,21 @@ def unassign_from_route():
 
     db.session.commit()
     
-    # Clean up any empty stops after unassigning invoices
-    empty_stops = db.session.execute(
-        db.select(RouteStop.route_stop_id).outerjoin(
-            RouteStopInvoice
-        ).group_by(RouteStop.route_stop_id).having(
-            db.func.count(RouteStopInvoice.invoice_no) == 0
-        )
-    ).scalars().all()
+    # Clean up any empty stops after unassigning invoices — scoped to ONLY
+    # the routes touched by this request. Never scan the whole database:
+    # unrelated/historical routes may legitimately have empty stops and
+    # must not be modified by this endpoint.
+    empty_stops = []
+    if affected_route_ids:
+        empty_stops = db.session.execute(
+            db.select(RouteStop.route_stop_id).outerjoin(
+                RouteStopInvoice
+            ).where(
+                RouteStop.shipment_id.in_(affected_route_ids)
+            ).group_by(RouteStop.route_stop_id).having(
+                db.func.count(RouteStopInvoice.invoice_no) == 0
+            )
+        ).scalars().all()
     
     for stop_id in empty_stops:
         from services import delete_stop

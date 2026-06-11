@@ -568,16 +568,33 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
                 pass
 
         # Cooler-specific teardown: cancel any open boxes.
+        # Boxes are matched by cooler_session_id (populated at box creation),
+        # with a fallback on route_id for legacy boxes created before
+        # cooler_session_id was being set (those rows have it NULL).
         if getattr(batch, 'session_type', None) == 'cooler_route':
-            db.session.execute(
-                text("""
-                    UPDATE cooler_boxes
-                    SET status = 'cancelled'
-                    WHERE cooler_session_id = :sid
-                      AND status NOT IN ('closed', 'loaded', 'delivered')
-                """),
-                {"sid": batch_id},
-            )
+            _batch_route_id = getattr(batch, 'route_id', None)
+            if _batch_route_id is not None:
+                db.session.execute(
+                    text("""
+                        UPDATE cooler_boxes
+                        SET status = 'cancelled'
+                        WHERE (cooler_session_id = :sid
+                               OR (cooler_session_id IS NULL
+                                   AND route_id = :rid))
+                          AND status NOT IN ('closed', 'loaded', 'delivered')
+                    """),
+                    {"sid": batch_id, "rid": _batch_route_id},
+                )
+            else:
+                db.session.execute(
+                    text("""
+                        UPDATE cooler_boxes
+                        SET status = 'cancelled'
+                        WHERE cooler_session_id = :sid
+                          AND status NOT IN ('closed', 'loaded', 'delivered')
+                    """),
+                    {"sid": batch_id},
+                )
 
         # Recompute invoice statuses for ALL batch types so orders that were
         # in 'awaiting_batch_items' resolve back to picking / not_started /

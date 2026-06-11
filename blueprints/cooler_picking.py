@@ -175,6 +175,28 @@ def _box_dict(row):
     }
 
 
+def _resolve_cooler_session_id(route_id):
+    """Return the id of the LATEST cooler-route batch session for this
+    route (legacy name patterns included), or None if no session exists.
+    Mirrors the lookup used by the sequencing/lock endpoints."""
+    try:
+        rid = int(route_id)
+    except (TypeError, ValueError):
+        return None
+    row = db.session.execute(text(
+        "SELECT id FROM batch_picking_sessions "
+        "WHERE session_type = 'cooler_route' "
+        "  AND (route_id = :rid OR name = :legacy "
+        "       OR name LIKE :legacy_prefix) "
+        "ORDER BY created_at DESC LIMIT 1"
+    ), {
+        "rid": rid,
+        "legacy": f"COOLER-ROUTE-{rid}",
+        "legacy_prefix": f"COOLER-ROUTE-{rid}-%",
+    }).fetchone()
+    return row[0] if row is not None else None
+
+
 def _is_cooler_route_pack_complete(route_id, delivery_date):
     """Return True only when ALL of these conditions hold:
 
@@ -1300,16 +1322,18 @@ def box_create():
                         "created": False}), 200
 
     now = get_utc_now()
+    cooler_session_id = _resolve_cooler_session_id(route_id)
     try:
         result = db.session.execute(
             text(
                 "INSERT INTO cooler_boxes "
-                "(route_id, delivery_date, box_no, status, created_by, created_at) "
-                "VALUES (:rid, :dd, :bn, 'open', :who, :now) "
+                "(route_id, delivery_date, box_no, status, created_by, created_at, "
+                " cooler_session_id) "
+                "VALUES (:rid, :dd, :bn, 'open', :who, :now, :sid) "
                 "RETURNING id"
             ),
             {"rid": route_id, "dd": delivery_date, "bn": box_no,
-             "who": _username(), "now": now},
+             "who": _username(), "now": now, "sid": cooler_session_id},
         )
         new_id = result.scalar()
     except Exception:
@@ -1320,11 +1344,12 @@ def box_create():
             db.session.execute(
                 text(
                     "INSERT INTO cooler_boxes "
-                    "(route_id, delivery_date, box_no, status, created_by, created_at) "
-                    "VALUES (:rid, :dd, :bn, 'open', :who, :now)"
+                    "(route_id, delivery_date, box_no, status, created_by, created_at, "
+                    " cooler_session_id) "
+                    "VALUES (:rid, :dd, :bn, 'open', :who, :now, :sid)"
                 ),
                 {"rid": route_id, "dd": delivery_date, "bn": box_no,
-                 "who": _username(), "now": now},
+                 "who": _username(), "now": now, "sid": cooler_session_id},
             )
             new_id = db.session.execute(
                 text(
@@ -1467,6 +1492,7 @@ def confirm_box_plan(route_id, delivery_date):
     now = get_utc_now()
     created = 0
     skipped = 0
+    cooler_session_id = _resolve_cooler_session_id(route_id_int)
 
     try:
         for idx, box in enumerate(plan, start=1):
@@ -1491,7 +1517,7 @@ def confirm_box_plan(route_id, delivery_date):
                     "btid": box["box_type_id"],
                     "fill": box["estimated_fill_cm3"],
                     "weight": box["estimated_weight_kg"],
-                    "sid": None,
+                    "sid": cooler_session_id,
                 },
             ).fetchone()
             box_id = result_row[0]
@@ -1697,6 +1723,7 @@ def pre_plan_boxes(route_id, delivery_date):
     now = get_utc_now()
     created_boxes = 0
     skipped_items = 0
+    cooler_session_id = _resolve_cooler_session_id(route_id_int)
 
     try:
         for idx, box in enumerate(plan, start=1):
@@ -1705,9 +1732,9 @@ def pre_plan_boxes(route_id, delivery_date):
                     "INSERT INTO cooler_boxes "
                     "(route_id, delivery_date, box_no, status, first_stop_sequence, "
                     " last_stop_sequence, created_by, created_at, box_type_id, "
-                    " fill_cm3, fill_weight_kg) "
+                    " fill_cm3, fill_weight_kg, cooler_session_id) "
                     "VALUES (:rid, :dd, :box_no, 'open', :fs, :ls, :who, :now, "
-                    "        :btid, :fill, :weight) "
+                    "        :btid, :fill, :weight, :sid) "
                     "RETURNING id"
                 ),
                 {
@@ -1718,6 +1745,7 @@ def pre_plan_boxes(route_id, delivery_date):
                     "btid": box["box_type_id"],
                     "fill": box["estimated_fill_cm3"],
                     "weight": box["estimated_weight_kg"],
+                    "sid": cooler_session_id,
                 },
             ).fetchone()
             box_id = result_row[0]
@@ -2296,16 +2324,29 @@ def box_close(box_id):
         )
 
     if _is_cooler_route_pack_complete(box["route_id"], box["delivery_date"]):
-        db.session.execute(
-            text(
-                "UPDATE batch_picking_sessions "
-                "SET status = 'Completed', last_activity_at = :now "
-                "WHERE session_type = 'cooler_route' "
-                "  AND route_id = :rid "
-                "  AND status NOT IN ('Completed', 'Cancelled', 'Archived')"
-            ),
-            {"rid": box["route_id"], "now": now},
-        )
+        # Scope the completion to ONE session: the session this box belongs
+        # to. Never complete by route_id alone — that flips every
+        # non-terminal cooler session on the route (other dates / sibling
+        # runs) to Completed.
+        _session_id = db.session.execute(
+            text("SELECT cooler_session_id FROM cooler_boxes WHERE id = :bid"),
+            {"bid": box_id},
+        ).scalar()
+        if _session_id is None:
+            # Legacy box created before cooler_session_id was populated:
+            # fall back to the latest cooler session for this route.
+            _session_id = _resolve_cooler_session_id(box["route_id"])
+        if _session_id is not None:
+            db.session.execute(
+                text(
+                    "UPDATE batch_picking_sessions "
+                    "SET status = 'Completed', last_activity_at = :now "
+                    "WHERE id = :sid "
+                    "  AND session_type = 'cooler_route' "
+                    "  AND status NOT IN ('Completed', 'Cancelled', 'Archived')"
+                ),
+                {"sid": _session_id, "now": now},
+            )
 
     db.session.commit()
 
@@ -3104,8 +3145,9 @@ def pack_stop(route_id):
     result = db.session.execute(
         text(
             "INSERT INTO cooler_boxes "
-            "(route_id, delivery_date, box_no, status, created_at, created_by) "
-            "VALUES (:rid, :dd, :bno, 'open', :now, :who) RETURNING id"
+            "(route_id, delivery_date, box_no, status, created_at, created_by, "
+            " cooler_session_id) "
+            "VALUES (:rid, :dd, :bno, 'open', :now, :who, :sid) RETURNING id"
         ),
         {
             "rid": route_id_int,
@@ -3113,6 +3155,7 @@ def pack_stop(route_id):
             "bno": new_box_no,
             "now": now,
             "who": _username(),
+            "sid": _resolve_cooler_session_id(route_id_int),
         },
     ).fetchone()
     box_id = result[0]
