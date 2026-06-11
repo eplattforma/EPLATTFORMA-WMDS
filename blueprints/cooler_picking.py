@@ -369,6 +369,68 @@ def _audit(activity_type, details, invoice_no=None, item_code=None):
     ))
 
 
+def _recalculate_box_fill(box_ids):
+    """Recalculate fill_cm3 and fill_weight_kg for the given cooler box id(s)
+    by re-summing the box's CURRENT cooler_box_items contents against
+    ps_items_dw dimensions (same formula as services/cooler_box_planner.py:
+    volume = item_length * item_width * item_height * qty, 0 when any
+    dimension is NULL; weight = item_weight * qty, 0 when weight is NULL).
+
+    Note: cooler_boxes has no stored fill_pct column — fill % is derived at
+    read time as fill_cm3 / (cooler_box_types.internal_volume_cm3 *
+    cooler_box_types.fill_efficiency), so refreshing fill_cm3 corrects every
+    fill % shown in the UI automatically.
+
+    Accepts a single int or an iterable of ints. Does NOT commit — the
+    caller owns the transaction. Never raises: a failed recalc is logged
+    and must not block the item mutation that triggered it.
+    """
+    if box_ids is None:
+        return
+    if isinstance(box_ids, int):
+        box_ids = [box_ids]
+    try:
+        ids = {int(b) for b in box_ids if b is not None}
+    except (TypeError, ValueError):
+        return
+    for bid in ids:
+        try:
+            row = db.session.execute(
+                text(
+                    "SELECT "
+                    "  COALESCE(SUM("
+                    "    CASE WHEN d.item_length IS NOT NULL "
+                    "          AND d.item_width  IS NOT NULL "
+                    "          AND d.item_height IS NOT NULL "
+                    "         THEN d.item_length * d.item_width * d.item_height "
+                    "              * COALESCE(cbi.picked_qty, cbi.expected_qty, 1) "
+                    "         ELSE 0 END), 0) AS vol_cm3, "
+                    "  COALESCE(SUM("
+                    "    COALESCE(d.item_weight, 0) "
+                    "    * COALESCE(cbi.picked_qty, cbi.expected_qty, 1)"
+                    "  ), 0) AS weight_kg "
+                    "FROM cooler_box_items cbi "
+                    "LEFT JOIN ps_items_dw d ON d.item_code_365 = cbi.item_code "
+                    "WHERE cbi.cooler_box_id = :bid"
+                ),
+                {"bid": bid},
+            ).fetchone()
+            new_vol = float(row[0] or 0.0) if row else 0.0
+            new_wt = float(row[1] or 0.0) if row else 0.0
+            db.session.execute(
+                text(
+                    "UPDATE cooler_boxes "
+                    "SET fill_cm3 = :vol, fill_weight_kg = :wt "
+                    "WHERE id = :bid"
+                ),
+                {"vol": new_vol, "wt": new_wt, "bid": bid},
+            )
+        except Exception as _fill_err:
+            current_app.logger.warning(
+                "_recalculate_box_fill failed for box %s: %s", bid, _fill_err
+            )
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -1492,6 +1554,7 @@ def confirm_box_plan(route_id, delivery_date):
     now = get_utc_now()
     created = 0
     skipped = 0
+    confirmed_box_ids = []
     cooler_session_id = _resolve_cooler_session_id(route_id_int)
 
     try:
@@ -1632,6 +1695,11 @@ def confirm_box_plan(route_id, delivery_date):
                     {"fs": actual_first, "ls": actual_last, "bid": box_id},
                 )
                 created += 1
+                confirmed_box_ids.append(box_id)
+
+        # Replace planner-estimated fill with fill computed from the items
+        # that were ACTUALLY inserted (skipped items no longer inflate it).
+        _recalculate_box_fill(confirmed_box_ids)
 
         db.session.commit()
 
@@ -1724,6 +1792,7 @@ def pre_plan_boxes(route_id, delivery_date):
     now = get_utc_now()
     created_boxes = 0
     skipped_items = 0
+    preplan_box_ids = []
 
     # Cancelled boxes may still occupy box numbers — continue numbering after
     # them so re-planning never produces duplicate box_no values.
@@ -1759,6 +1828,7 @@ def pre_plan_boxes(route_id, delivery_date):
             ).fetchone()
             box_id = result_row[0]
             created_boxes += 1
+            preplan_box_ids.append(box_id)
 
             for item in box["item_summaries"]:
                 qid = item["queue_item_id"]
@@ -1812,6 +1882,7 @@ def pre_plan_boxes(route_id, delivery_date):
                     },
                 )
 
+        _recalculate_box_fill(preplan_box_ids)
         db.session.commit()
         _audit(
             "cooler.pre_plan",
@@ -2027,6 +2098,7 @@ def box_assign_item(box_id):
         f"invoice={invoice_no} item={item_code} qty={picked_qty} by {_username()}",
         invoice_no=invoice_no, item_code=item_code,
     )
+    _recalculate_box_fill([box_id])
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "queue_item_id": queue_item_id,
                     "status": "picked"}), 200
@@ -2078,6 +2150,7 @@ def box_remove_item(box_id):
         f"invoice={cb_row[1]} item={cb_row[2]} (remains picked) by {_username()}",
         invoice_no=cb_row[1], item_code=cb_row[2],
     )
+    _recalculate_box_fill([box_id])
     db.session.commit()
     return jsonify({"cooler_box_id": box_id, "queue_item_id": queue_item_id,
                     "status": "picked"}), 200
@@ -2168,6 +2241,7 @@ def move_box_item(cbi_id):
         f"to box #{dest_box_id} ({cbi[4]}) by {_username()}",
         invoice_no=cbi[2], item_code=cbi[3],
     )
+    _recalculate_box_fill([source_box_id, dest_box_id])
     db.session.commit()
     return jsonify({
         "cbi_id": cbi_id,
@@ -2877,6 +2951,7 @@ def queue_assign_box(queue_item_id):
         f"invoice={invoice_no} item={item_code} qty={picked_qty} by {_username()}",
         invoice_no=invoice_no, item_code=item_code,
     )
+    _recalculate_box_fill([box_id])
     db.session.commit()
     flash(f"Assigned {item_code} to Box #{box['box_no']}.", "success")
     return _redirect_to_picking_from_queue(queue_item_id, delivery_date_str)
@@ -2972,6 +3047,7 @@ def box_move_item(from_box_id):
         f"moved from box #{from_box_id} → box #{to_box_id} by {_username()}",
         invoice_no=src_row[1], item_code=src_row[2],
     )
+    _recalculate_box_fill([from_box_id, to_box_id])
     db.session.commit()
 
     if request.form.get("_html_form"):
@@ -3068,6 +3144,7 @@ def box_move_all_to(source_box_id, dest_box_id):
         "cooler.box_consolidation",
         f"Consolidated {moved} item(s) from box #{source_box_id} → box #{dest_box_id} by {_username()}",
     )
+    _recalculate_box_fill([source_box_id, dest_box_id])
     db.session.commit()
 
     flash(f"{moved} item(s) moved from Box #{src['box_no']} to Box #{dst['box_no']}.", "success")
