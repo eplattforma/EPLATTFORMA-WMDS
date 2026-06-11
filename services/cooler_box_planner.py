@@ -158,7 +158,7 @@ def generate_box_plan(
 
     # ── Fetch unboxed queue rows ─────────────────────────────────────────────
     status_filter = (
-        "bpq.status IN ('pending', 'picked')" if include_pending
+        "bpq.status IN ('pending', 'skipped_pending', 'picked')" if include_pending
         else "bpq.status = 'picked'"
     )
 

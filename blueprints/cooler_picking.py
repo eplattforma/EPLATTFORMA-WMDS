@@ -230,7 +230,7 @@ def _is_cooler_route_pack_complete(route_id, delivery_date):
     if unsequenced > 0:
         return False
 
-    # 2. Pending rows
+    # 2. Pending rows (pending or skipped-pending are both outstanding work)
     pending = db.session.execute(
         text(
             "SELECT COUNT(*) FROM batch_pick_queue bpq "
@@ -238,20 +238,25 @@ def _is_cooler_route_pack_complete(route_id, delivery_date):
             "JOIN shipments s ON s.id = i.route_id "
             "WHERE bpq.pick_zone_type = 'cooler' "
             "  AND i.route_id = :rid AND s.delivery_date = :dd "
-            "  AND bpq.status = 'pending'"
+            "  AND bpq.status IN ('pending', 'skipped_pending')"
         ),
         {"rid": rid, "dd": dd},
     ).scalar() or 0
     if pending > 0:
         return False
 
-    # 2b. Planned rows (pre-assigned but not yet physically picked)
+    # 2b. Planned box rows whose queue item is still outstanding. A planned
+    # row whose queue is 'exception' (reported unavailable) or 'picked' is a
+    # stale marker that gets reconciled at box close — it must NOT block here,
+    # otherwise an exceptioned item permanently blocks route completion.
     planned = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_box_items cbi "
             "JOIN cooler_boxes cb ON cb.id = cbi.cooler_box_id "
+            "LEFT JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id "
             "WHERE cb.route_id = :rid AND cb.delivery_date = :dd "
-            "  AND cbi.status = 'planned'"
+            "  AND cbi.status = 'planned' "
+            "  AND (bpq.id IS NULL OR bpq.status IN ('pending', 'skipped_pending'))"
         ),
         {"rid": rid, "dd": dd},
     ).scalar() or 0
@@ -483,9 +488,11 @@ def route_list():
         b = item_stats.setdefault(key, {"pending": 0, "picked": 0, "exception": 0, "total": 0})
         b["total"] += 1
         st = (r[0] or "").lower()
-        if st == "pending":      b["pending"] += 1
-        elif st == "picked":     b["picked"] += 1
-        elif st == "exception":  b["exception"] += 1
+        # skipped_pending is outstanding work (collect-later) — bucket it with
+        # pending so the route shows as still picking, not exception/complete.
+        if st in ("pending", "skipped_pending"):  b["pending"] += 1
+        elif st == "picked":                      b["picked"] += 1
+        elif st == "exception":                   b["exception"] += 1
 
     # ── Step 2: box stats per (route_id, delivery_date_str) ──────────────
     try:
@@ -830,13 +837,17 @@ def route_picking(route_id, delivery_date):
     # box-assignment phase; the actual picking happens via the standard
     # batch picking interface (sorted by warehouse location).
     pending_count = sum(1 for q in queue if q["status"] == "pending")
+    skipped_count = sum(1 for q in queue if q["status"] == "skipped_pending")
     picked_count = sum(1 for q in queue if q["status"] == "picked")
-    other_count = len(queue) - pending_count - picked_count
+    # pending + skipped_pending are both outstanding (still need picking).
+    outstanding_count = pending_count + skipped_count
+    other_count = len(queue) - pending_count - skipped_count - picked_count
     picking_phase = {
-        "complete": (len(queue) > 0 and pending_count == 0),
-        "in_progress": pending_count > 0,
+        "complete": (len(queue) > 0 and outstanding_count == 0),
+        "in_progress": outstanding_count > 0,
         "empty": len(queue) == 0,
         "pending_count": pending_count,
+        "skipped_count": skipped_count,
         "picked_count": picked_count,
         "other_count": other_count,
         "total_count": len(queue),
@@ -2298,11 +2309,46 @@ def box_close(box_id):
             "box_close reconcile failed for box %s (non-fatal): %s", box_id, _rec_err
         )
 
+    # Second reconcile: a planned box row whose queue item is a terminal
+    # 'exception' (reported unavailable) must not block the close. Mirror the
+    # exception onto the box item so the unpicked guard ignores it. This is
+    # what lets a box that contains only reported-unavailable items close, and
+    # clears stale 'planned' rows left behind by an earlier exception.
+    try:
+        db.session.execute(
+            text(
+                "UPDATE cooler_box_items cbi "
+                "SET status = 'exception', updated_at = NOW() "
+                "FROM batch_pick_queue bpq "
+                "WHERE cbi.cooler_box_id = :bid "
+                "  AND cbi.status        = 'planned' "
+                "  AND cbi.queue_item_id = bpq.id "
+                "  AND bpq.status        = 'exception'"
+            ),
+            {"bid": box_id},
+        )
+        db.session.flush()
+    except Exception as _rec2_err:
+        db.session.rollback()
+        current_app.logger.warning(
+            "box_close exception-reconcile failed for box %s (non-fatal): %s",
+            box_id, _rec2_err,
+        )
+
+    # Unpicked guard: a box item blocks the close only when its queue row is
+    # still outstanding ('pending' or 'skipped_pending'), or — for a box item
+    # with no queue row at all — when it is still 'planned'. A 'picked' or
+    # 'exception' queue row never blocks. This is robust against stale
+    # cooler_box_items.status values (the queue is the source of truth).
     unpicked = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_box_items cbi "
+            "LEFT JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id "
             "WHERE cbi.cooler_box_id = :bid "
-            "  AND (cbi.status = 'planned' OR cbi.picked_qty = 0)"
+            "  AND ("
+            "        bpq.status IN ('pending', 'skipped_pending') "
+            "     OR (bpq.id IS NULL AND cbi.status = 'planned')"
+            "  )"
         ),
         {"bid": box_id},
     ).scalar() or 0
@@ -2337,7 +2383,7 @@ def box_close(box_id):
                 "WHERE cbi.queue_item_id = bpq.id "
                 "  AND cbi.cooler_box_id = :bid "
                 "  AND cbi.status = 'planned' "
-                "  AND bpq.status = 'pending'"
+                "  AND bpq.status IN ('pending', 'skipped_pending')"
             ),
             {"bid": box_id, "now": now_f},
         )
@@ -2676,7 +2722,7 @@ def queue_pick(queue_item_id):
         abort(404)
     if row[5] != "cooler":
         flash("Not a cooler queue item.", "danger")
-    elif row[4] != "pending":
+    elif row[4] not in ("pending", "skipped_pending"):
         flash(f"Item is already {row[4]} — nothing to do.", "info")
     else:
         now = get_utc_now()
@@ -2685,7 +2731,7 @@ def queue_pick(queue_item_id):
                 "UPDATE batch_pick_queue "
                 "SET status = 'picked', picked_by = :who, picked_at = :now, "
                 "    qty_picked = qty_required, updated_at = :now "
-                "WHERE id = :qid AND status = 'pending'"
+                "WHERE id = :qid AND status IN ('pending', 'skipped_pending')"
             ),
             {"who": _username(), "now": now, "qid": queue_item_id},
         )
@@ -3173,7 +3219,15 @@ def box_move_all_to(source_box_id, dest_box_id):
 @_require_cooler_pick
 @_require_picking_flag
 def queue_skip(queue_item_id):
-    """Skip a pending cooler item — mark as exception so it can be resumed later."""
+    """Skip a pending cooler item — defer it (collect later).
+
+    Mirrors NORMAL picking: the item is marked ``skipped_pending`` (NOT a
+    terminal exception) so it is brought back at the END of the pick run and
+    must still be picked or reported unavailable before its box can close.
+    The pre-planned box assignment is deliberately LEFT as ``planned`` so the
+    box still shows the item as outstanding and cannot be closed cleanly until
+    the skip is resolved.
+    """
     row = db.session.execute(
         text(
             "SELECT invoice_no, item_code, status, pick_zone_type "
@@ -3192,34 +3246,27 @@ def queue_skip(queue_item_id):
     db.session.execute(
         text(
             "UPDATE batch_pick_queue "
-            "SET status = 'exception', updated_at = :now "
+            "SET status = 'skipped_pending', updated_at = :now "
             "WHERE id = :qid AND status = 'pending'"
         ),
         {"now": now, "qid": queue_item_id},
     )
-    # Keep any pre-planned box assignment in sync — otherwise the box shows a
-    # 'planned' item that will never be picked and can never be closed cleanly.
-    db.session.execute(
-        text(
-            "UPDATE cooler_box_items "
-            "SET status = 'exception', updated_at = :now "
-            "WHERE queue_item_id = :qid AND status = 'planned'"
-        ),
-        {"now": now, "qid": queue_item_id},
-    )
+    # NOTE: do NOT touch cooler_box_items here. A skip is unresolved work — the
+    # box item stays 'planned' so it keeps blocking box close until the picker
+    # actually picks it (or reports it unavailable via queue_exception).
     _audit(
         "cooler.item_skipped",
         f"Cooler queue #{queue_item_id} invoice={row[0]} item={row[1]} "
-        f"skipped by {_username()} (__skip__)",
+        f"skipped by {_username()} (collect later)",
         invoice_no=row[0], item_code=row[1],
     )
     db.session.commit()
 
     if request.form.get("_html_form"):
-        flash(f"Item {row[1]} skipped — it appears in the Skipped section below.", "info")
+        flash(f"Item {row[1]} skipped — it will come back at the end of the pick run.", "info")
         return _redirect_to_picking_from_queue(queue_item_id)
 
-    return jsonify({"queue_item_id": queue_item_id, "status": "exception",
+    return jsonify({"queue_item_id": queue_item_id, "status": "skipped_pending",
                     "reason": "__skip__"}), 200
 
 
@@ -3241,15 +3288,15 @@ def queue_resume(queue_item_id):
         abort(404)
     if row[3] != "cooler":
         return jsonify({"error": "Not a cooler queue row."}), 400
-    if row[2] != "exception":
-        return jsonify({"error": f"Only exception items can be resumed (status={row[2]})."}), 400
+    if row[2] not in ("exception", "skipped_pending"):
+        return jsonify({"error": f"Only skipped/exception items can be resumed (status={row[2]})."}), 400
 
     now = get_utc_now()
     db.session.execute(
         text(
             "UPDATE batch_pick_queue "
             "SET status = 'pending', updated_at = :now "
-            "WHERE id = :qid AND status = 'exception'"
+            "WHERE id = :qid AND status IN ('exception', 'skipped_pending')"
         ),
         {"now": now, "qid": queue_item_id},
     )
@@ -3558,7 +3605,7 @@ def _move_zone(queue_item_id, expected_from, target):
             text(
                 "UPDATE batch_pick_queue "
                 "SET status = 'cancelled', cancelled_at = :now, updated_at = :now "
-                "WHERE id = :qid AND status = 'pending'"
+                "WHERE id = :qid AND status IN ('pending', 'skipped_pending')"
             ),
             {"now": now, "qid": queue_item_id},
         )

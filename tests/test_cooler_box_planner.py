@@ -665,3 +665,134 @@ class TestConfirmBoxPlanSafety:
                "!= \"picked\"" in source, (
             "confirm_box_plan must skip items whose status is no longer 'picked'."
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests for SKIP vs EXCEPTION semantics (match NORMAL picking)
+#   SKIP      -> 'skipped_pending' : defer / collect-later, blocks close,
+#                re-presented at end of run, cbi stays 'planned'.
+#   EXCEPTION -> 'exception'       : terminal/unavailable, ALLOWS box close,
+#                never re-presented, cbi -> 'exception'.
+# ---------------------------------------------------------------------------
+
+class TestSkipVsExceptionSemantics:
+
+    def test_queue_skip_defers_not_terminal(self):
+        """queue_skip must use 'skipped_pending', never the terminal 'skipped'
+        or 'exception' status for the queue row."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.queue_skip)
+        assert "skipped_pending" in source, (
+            "queue_skip must set batch_pick_queue.status='skipped_pending'."
+        )
+        # Must NOT mark the queue row as a terminal exception.
+        assert "status = 'exception'" not in source, (
+            "queue_skip must not mark the queue row as terminal 'exception'."
+        )
+
+    def test_queue_skip_keeps_cbi_planned(self):
+        """A skip is unresolved work — the pre-planned box item must stay
+        'planned' so it keeps blocking box close. queue_skip must not touch
+        cooler_box_items at all."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.queue_skip)
+        assert "UPDATE cooler_box_items" not in source, (
+            "queue_skip must NOT update cooler_box_items — the planned row "
+            "must remain to block box close until the skip is resolved."
+        )
+
+    def test_queue_exception_is_terminal_and_marks_cbi(self):
+        """queue_exception stays terminal: queue row -> 'exception' and the
+        planned box item -> 'exception' (so the box can close)."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.queue_exception)
+        assert "status = 'exception'" in source
+        assert "cooler_box_items" in source, (
+            "queue_exception must reconcile the planned box item to 'exception'."
+        )
+
+    def test_box_close_reconciles_exception_then_ignores_it(self):
+        """box-52 regression: a planned cbi whose queue row is 'exception'
+        must be auto-reconciled and must NOT block the close."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.box_close)
+        # Second reconcile: planned -> exception where the queue row is exception.
+        assert "FROM batch_pick_queue bpq" in source
+        assert "bpq.status        = 'exception'" in source or \
+               "bpq.status = 'exception'" in source, (
+            "box_close must auto-reconcile planned cbi rows whose queue is "
+            "'exception' so a stuck box (box-52) can close."
+        )
+
+    def test_box_close_guard_blocks_only_outstanding(self):
+        """The unpicked guard must LEFT JOIN the queue and block ONLY when the
+        queue row is outstanding ('pending'/'skipped_pending') or the box item
+        has no queue row but is still 'planned'. 'exception' never blocks."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.box_close)
+        assert "LEFT JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id" in source
+        assert "bpq.status IN ('pending', 'skipped_pending')" in source
+        assert "bpq.id IS NULL AND cbi.status = 'planned'" in source
+
+    def test_box_close_force_path_exceptions_skipped_too(self):
+        """Force-close must flip BOTH pending and skipped_pending queue rows to
+        exception (not just pending)."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.box_close)
+        assert "bpq.status IN ('pending', 'skipped_pending')" in source
+
+    def test_recycle_only_skipped_and_no_session_flag(self):
+        """The cooler-route recycle must bring back ONLY 'skipped_pending' rows
+        (never terminal 'exception'), and must NOT use a one-shot session flag
+        (skipped items recycle until resolved)."""
+        import inspect
+        import routes_batch
+        source = inspect.getsource(routes_batch)
+        assert "cooler_skip_recycled" not in source, (
+            "The one-shot recycle session flag must be removed so skipped "
+            "items return every pass until resolved."
+        )
+        # The recycle SQL must target skipped_pending.
+        assert "status = 'skipped_pending'" in source
+
+    def test_skip_batch_item_cooler_uses_skipped_pending(self):
+        """The batch-interface skip (skip_batch_item) cooler branch must write
+        'skipped_pending', not 'exception'."""
+        import inspect
+        import routes_batch
+        source = inspect.getsource(routes_batch.skip_batch_item)
+        assert "skipped_pending" in source, (
+            "skip_batch_item cooler branch must set queue status to "
+            "'skipped_pending'."
+        )
+
+    def test_queue_pick_accepts_skipped_pending(self):
+        """A skipped (collect-later) item must be pickable when re-presented."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.queue_pick)
+        assert "skipped_pending" in source
+
+    def test_queue_resume_accepts_skipped_pending(self):
+        """queue_resume must restore both 'exception' and 'skipped_pending'."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod.queue_resume)
+        assert "skipped_pending" in source
+
+    def test_pack_complete_counts_skipped_as_outstanding(self):
+        """_is_cooler_route_pack_complete must treat skipped_pending as
+        outstanding work in both the pending and planned checks."""
+        import inspect
+        import blueprints.cooler_picking as mod
+        source = inspect.getsource(mod._is_cooler_route_pack_complete)
+        assert "bpq.status IN ('pending', 'skipped_pending')" in source
+        # planned check must LEFT JOIN the queue so exceptioned planned rows
+        # do not permanently block route completion.
+        assert "LEFT JOIN batch_pick_queue bpq ON bpq.id = cbi.queue_item_id" in source

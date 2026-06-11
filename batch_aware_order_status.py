@@ -83,7 +83,7 @@ def update_order_status_batch_aware(invoice_no):
         "SELECT COUNT(*) FROM batch_pick_queue "
         "WHERE invoice_no = :inv "
         "  AND pick_zone_type = 'cooler' "
-        "  AND status = 'pending'"
+        "  AND status IN ('pending', 'skipped_pending')"
     ), {"inv": invoice_no}).scalar() or 0
 
     if picked_items == total_items and cooler_pending == 0:

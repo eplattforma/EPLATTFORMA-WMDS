@@ -516,19 +516,25 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
         db_backed = is_db_backed_batch(batch_id)
 
         if db_backed:
-            # DB-backed batches: cancel ONLY pending rows. picked/skipped/
-            # exception rows must remain untouched for audit. Lock release
-            # is keyed to the actually-cancelled (invoice_no, item_code)
-            # tuples so queue state and lock state stay in sync.
+            # DB-backed batches: cancel pending AND skipped_pending rows
+            # (both are outstanding, non-terminal work that must not survive
+            # cancellation — otherwise a skipped_pending row would keep its
+            # InvoiceItem lock and park the invoice at awaiting_batch_items
+            # forever). picked/skipped/exception rows remain untouched for
+            # audit. Lock release is keyed to the actually-cancelled
+            # (invoice_no, item_code) tuples so queue and lock state stay in
+            # sync.
             pending = db.session.execute(
                 text("SELECT invoice_no, item_code FROM batch_pick_queue "
-                     "WHERE batch_session_id = :sid AND status = 'pending'"),
+                     "WHERE batch_session_id = :sid "
+                     "  AND status IN ('pending', 'skipped_pending')"),
                 {"sid": batch_id},
             ).fetchall()
             db.session.execute(
                 text("UPDATE batch_pick_queue "
                      "SET status = 'cancelled', cancelled_at = :now, updated_at = :now "
-                     "WHERE batch_session_id = :sid AND status = 'pending'"),
+                     "WHERE batch_session_id = :sid "
+                     "  AND status IN ('pending', 'skipped_pending')"),
                 {"sid": batch_id, "now": _now},
             )
             released = 0

@@ -140,7 +140,7 @@ def check_route_warehouse_ready(route_id: int) -> Tuple[bool, List[str]]:
                     "JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id "
                     "WHERE bps.route_id = :rid "
                     "  AND bps.session_type = 'cooler_route' "
-                    "  AND bpq.status = 'pending'"
+                    "  AND bpq.status IN ('pending', 'skipped_pending')"
                 ),
                 {"rid": route_id},
             ).scalar() or 0

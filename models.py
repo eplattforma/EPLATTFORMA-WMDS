@@ -313,7 +313,8 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
                 n = db.session.execute(
                     _sql_text(
                         "SELECT COUNT(*) FROM batch_pick_queue "
-                        "WHERE batch_session_id = :sid AND status = 'pending' "
+                        "WHERE batch_session_id = :sid "
+                        "  AND status IN ('pending', 'skipped_pending') "
                         "  AND pick_zone_type = 'cooler'"
                     ),
                     {"sid": self.id},

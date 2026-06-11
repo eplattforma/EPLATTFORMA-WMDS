@@ -2486,48 +2486,47 @@ def batch_picking_item(batch_id):
         invoice_nos = [bi.invoice_no for bi in batch_invoices]
 
         if getattr(batch_session, 'session_type', None) == 'cooler_route':
-            # Cooler-route batches: bring exception (skipped) queue rows back
-            # once so the picker gets a second chance to pick them.
-            # A session flag prevents an infinite loop — if the picker skips
-            # them again on the second pass, the batch completes.
-            recycle_flag = f"cooler_skip_recycled_{batch_id}"
-            if session.get(recycle_flag):
-                skipped_items = []  # already recycled once; let batch complete
-            else:
-                exc_rows = db.session.execute(
+            # Cooler-route batches: bring SKIPPED (collect-later) queue rows
+            # back so the picker resolves them at the END of the run. This
+            # mirrors normal picking's skipped_pending recycle — skipped items
+            # keep returning every pass UNTIL the picker either picks them or
+            # reports them unavailable (exception). Genuine exceptions
+            # (status='exception') are terminal and are never recycled.
+            # There is no infinite code loop: it is a manual loop the picker
+            # exits by resolving each skipped item.
+            skipped_rows = db.session.execute(
+                text(
+                    "SELECT invoice_no, item_code FROM batch_pick_queue "
+                    "WHERE batch_session_id = :bid "
+                    "  AND status = 'skipped_pending' "
+                    "  AND pick_zone_type = 'cooler'"
+                ),
+                {"bid": batch_id},
+            ).fetchall()
+            if skipped_rows:
+                db.session.execute(
                     text(
-                        "SELECT invoice_no, item_code FROM batch_pick_queue "
+                        "UPDATE batch_pick_queue "
+                        "SET status = 'pending', updated_at = NOW() "
                         "WHERE batch_session_id = :bid "
-                        "  AND status = 'exception' "
+                        "  AND status = 'skipped_pending' "
                         "  AND pick_zone_type = 'cooler'"
                     ),
                     {"bid": batch_id},
-                ).fetchall()
-                if exc_rows:
-                    db.session.execute(
-                        text(
-                            "UPDATE batch_pick_queue "
-                            "SET status = 'pending', updated_at = NOW() "
-                            "WHERE batch_session_id = :bid "
-                            "  AND status = 'exception' "
-                            "  AND pick_zone_type = 'cooler'"
-                        ),
-                        {"bid": batch_id},
-                    )
-                    db.session.commit()
-                    from services.batch_picking import rebuild_items_from_queue as _rebuild_q
-                    recycled = _rebuild_q(batch_id)
-                    session[fixed_batch_key] = recycled
-                    batch_session.current_item_index = 0
-                    db.session.commit()
-                    session[recycle_flag] = True
-                    flash(
-                        f'{len(exc_rows)} skipped item(s) have been brought back — '
-                        'please pick or confirm exception for each.',
-                        'warning',
-                    )
-                    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
-                skipped_items = []
+                )
+                db.session.commit()
+                from services.batch_picking import rebuild_items_from_queue as _rebuild_q
+                recycled = _rebuild_q(batch_id)
+                session[fixed_batch_key] = recycled
+                batch_session.current_item_index = 0
+                db.session.commit()
+                flash(
+                    f'{len(skipped_rows)} skipped item(s) have been brought back — '
+                    'please pick or report unavailable for each.',
+                    'warning',
+                )
+                return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+            skipped_items = []
         elif getattr(batch_session, 'picking_mode', None) == 'Cooler':
             skipped_items = InvoiceItem.query.filter(
                 InvoiceItem.locked_by_batch_id == batch_id,
@@ -4291,14 +4290,16 @@ def skip_batch_item(batch_id):
                 invoice_item.skip_count += 1
 
             # For cooler route batches the DB queue is the source of truth.
-            # Mark the queue row as exception so rebuild_items_from_queue
-            # excludes it and the collect-later logic can detect it.
+            # Mark the queue row as skipped_pending (collect-later, NOT a
+            # terminal exception) so rebuild_items_from_queue excludes it from
+            # the active pass and the end-of-run recycle brings it back until
+            # the picker resolves it.
             if is_cooler_batch:
                 from sqlalchemy import text as _text
                 db.session.execute(
                     _text(
                         "UPDATE batch_pick_queue "
-                        "SET status = 'exception', updated_at = NOW() "
+                        "SET status = 'skipped_pending', updated_at = NOW() "
                         "WHERE batch_session_id = :bid "
                         "  AND invoice_no = :inv "
                         "  AND item_code = :ic "

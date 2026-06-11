@@ -1100,13 +1100,13 @@ def check_cooler_picks():
             "SELECT bpq.invoice_no, "
             "       COUNT(*) FILTER (WHERE bpq.status = 'picked') AS picked_count, "
             "       COUNT(cbi.id) FILTER (WHERE bpq.status = 'picked') AS boxed_count, "
-            "       COUNT(cbi.id) FILTER (WHERE bpq.status = 'pending' "
+            "       COUNT(cbi.id) FILTER (WHERE bpq.status IN ('pending', 'skipped_pending') "
             "                               AND cbi.status = 'planned') AS planned_count "
             "FROM batch_pick_queue bpq "
             "LEFT JOIN cooler_box_items cbi ON cbi.queue_item_id = bpq.id "
             "WHERE bpq.invoice_no = ANY(:inv) "
             "  AND bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status IN ('picked', 'pending') "
+            "  AND bpq.status IN ('picked', 'pending', 'skipped_pending') "
             "GROUP BY bpq.invoice_no"
         ),
         {"inv": invoice_nos},

@@ -286,6 +286,7 @@
       {% for stop_no in _stops_ns.nos | sort %}
         {% set _sg = sequenced | selectattr('delivery_sequence', 'equalto', stop_no) | list %}
         {% set _sg_pending   = _sg | selectattr('status','equalto','pending')   | list | length %}
+        {% set _sg_skipped   = _sg | selectattr('status','equalto','skipped_pending') | list | length %}
         {% set _sg_picked    = _sg | selectattr('status','equalto','picked')    | list | length %}
         {% set _sg_exception = _sg | selectattr('status','equalto','exception') | list | length %}
         {% set _sg_customer  = _sg[0].customer_name if _sg else '' %}
@@ -298,8 +299,9 @@
           {% if _sg_customer %}<span class="small" style="color:#495057;">— {{ _sg_customer }}</span>{% endif %}
           <span class="badge bg-secondary">{{ _sg|length }}</span>
           {% if _sg_pending %}<span class="badge bg-warning text-dark">{{ _sg_pending }} to pick</span>{% endif %}
+          {% if _sg_skipped %}<span class="badge" style="background:#fd7e14;color:#fff;">{{ _sg_skipped }} collect later</span>{% endif %}
           {% if _sg_picked  %}<span class="badge bg-success">{{ _sg_picked }} picked</span>{% endif %}
-          {% if _sg_exception %}<span class="badge bg-danger">{{ _sg_exception }} skipped</span>{% endif %}
+          {% if _sg_exception %}<span class="badge bg-danger">{{ _sg_exception }} unavailable</span>{% endif %}
         </div>
         <div class="collapse show" id="stopGroup_{{ loop.index }}">
           <div class="table-responsive">
@@ -323,13 +325,15 @@
                     {% else %}{% set _rfilters = 'all picked' %}{% endif %}
                   {% elif q.status == 'exception' %}
                     {% set _rfilters = 'all exception' %}
+                  {% elif q.status == 'skipped_pending' %}
+                    {% set _rfilters = 'all not-picked skipped' %}
                   {% else %}
                     {% if _qbn is none %}{% set _rfilters = 'all not-picked' %}
                     {% elif _qbox.obj and _qbox.obj.status == 'open' %}{% set _rfilters = 'all not-picked box-open' %}
                     {% elif _qbox.obj and _qbox.obj.status == 'closed' %}{% set _rfilters = 'all not-picked box-closed' %}
                     {% else %}{% set _rfilters = 'all not-picked' %}{% endif %}
                   {% endif %}
-                {% set _row_bg = '#d1e7dd' if q.status == 'picked' else '#f8d7da' if q.status == 'exception' else '#fff' %}
+                {% set _row_bg = '#d1e7dd' if q.status == 'picked' else '#f8d7da' if q.status == 'exception' else '#fff3cd' if q.status == 'skipped_pending' else '#fff' %}
                 <tr class="status-row" style="background:{{ _row_bg }};color:#212529;"
                     data-filters="{{ _rfilters }}">
                   <td class="fw-semibold">{{ stop_no|int if stop_no is not none else '—' }}</td>
@@ -341,7 +345,8 @@
                   <td class="text-end">{{ q.expected_qty|int }}</td>
                   <td>
                     {% if q.status == 'picked' %}<span class="badge bg-success"><i class="fas fa-check me-1"></i>Picked</span>
-                    {% elif q.status == 'exception' %}<span class="badge bg-danger"><i class="fas fa-times me-1"></i>Skipped</span>
+                    {% elif q.status == 'exception' %}<span class="badge bg-danger"><i class="fas fa-times me-1"></i>Unavailable</span>
+                    {% elif q.status == 'skipped_pending' %}<span class="badge" style="background:#fd7e14;color:#fff;"><i class="fas fa-clock me-1"></i>Collect later</span>
                     {% else %}<span class="badge bg-secondary">Pending</span>{% endif %}
                   </td>
                   <td>{% if _qbn is not none %}<span class="badge bg-primary">Box #{{ _qbn }}</span>{% else %}—{% endif %}</td>
@@ -384,9 +389,9 @@
                   {% set _qbn2 = (planned_box.get(q.queue_item_id) if planned_box else none) or (assigned_to_box.get(q.queue_item_id) if assigned_to_box else none) %}
                   {% set _qbox2 = namespace(obj=none) %}
                   {% if _qbn2 is not none %}{% for b in boxes if b.box_no == _qbn2 %}{% set _qbox2.obj = b %}{% endfor %}{% endif %}
-                {% set _row_bg2 = '#d1e7dd' if q.status == 'picked' else '#fff' %}
+                {% set _row_bg2 = '#d1e7dd' if q.status == 'picked' else '#f8d7da' if q.status == 'exception' else '#fff3cd' if q.status == 'skipped_pending' else '#fff' %}
                 <tr class="status-row" style="background:{{ _row_bg2 }};color:#212529;"
-                    data-filters="all {% if q.status == 'picked' %}picked{% if _qbn2 is none %} unboxed{% endif %}{% else %}not-picked{% endif %}">
+                    data-filters="all {% if q.status == 'picked' %}picked{% if _qbn2 is none %} unboxed{% endif %}{% elif q.status == 'exception' %}exception{% elif q.status == 'skipped_pending' %}not-picked skipped{% else %}not-picked{% endif %}">
                   <td>—</td>
                   <td class="font-monospace small">{{ q.invoice_no }}</td>
                   {% if not _is_locked %}<td class="small">{{ q.customer_name or q.customer_code or '—' }}</td>{% endif %}
@@ -396,7 +401,8 @@
                   <td class="text-end">{{ q.expected_qty|int }}</td>
                   <td>
                     {% if q.status == 'picked' %}<span class="badge bg-success">Picked</span>
-                    {% elif q.status == 'exception' %}<span class="badge bg-danger">Skipped</span>
+                    {% elif q.status == 'exception' %}<span class="badge bg-danger">Unavailable</span>
+                    {% elif q.status == 'skipped_pending' %}<span class="badge" style="background:#fd7e14;color:#fff;">Collect later</span>
                     {% else %}<span class="badge bg-secondary">Pending</span>{% endif %}
                   </td>
                   <td>{% if _qbn2 is not none %}<span class="badge bg-primary">Box #{{ _qbn2 }}</span>{% else %}—{% endif %}</td>
@@ -1055,7 +1061,7 @@
           <td>{{ q.item_name or '' }}</td>
           <td class="fw-semibold">{{ q.location or '—' }}</td>
           <td class="text-end">{{ q.expected_qty|int }}</td>
-          <td>{{ 'Picked' if q.status == 'picked' else 'Skipped' if q.status == 'exception' else 'Pending' }}</td>
+          <td>{{ 'Picked' if q.status == 'picked' else 'Unavailable' if q.status == 'exception' else 'Collect later' if q.status == 'skipped_pending' else 'Pending' }}</td>
           <td>{{ 'Box #' + (_pqbn|string) if _pqbn is not none else '—' }}</td>
           <td>{% if _pqbox.obj %}
             {% if _pqbox.obj.status == 'open' %}<span class="badge bg-primary"><i class="fas fa-box-open me-1"></i>Open</span>

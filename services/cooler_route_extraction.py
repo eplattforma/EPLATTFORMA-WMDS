@@ -287,7 +287,7 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
             "    SELECT id FROM batch_pick_queue "
             "    WHERE invoice_no = :inv "
             "      AND pick_zone_type = 'cooler' "
-            "      AND status = 'pending' "
+            "      AND status IN ('pending', 'skipped_pending') "
             ")"
         ),
         {"inv": invoice_no},
@@ -316,7 +316,7 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
             "DELETE FROM batch_pick_queue "
             "WHERE invoice_no = :inv "
             "  AND pick_zone_type = 'cooler' "
-            "  AND status = 'pending'"
+            "  AND status IN ('pending', 'skipped_pending')"
         ),
         {"inv": invoice_no},
     )
@@ -586,7 +586,7 @@ def _detach_queue_rows_from_other_sessions(invoice_no, keep_session_id):
             "WHERE invoice_no = :inv "
             "  AND pick_zone_type = 'cooler' "
             "  AND batch_session_id != :keep "
-            "  AND status = 'pending'"
+            "  AND status IN ('pending', 'skipped_pending')"
         ),
         {"inv": invoice_no, "keep": keep_session_id},
     )
