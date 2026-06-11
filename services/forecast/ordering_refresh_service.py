@@ -342,6 +342,20 @@ def refresh_ordering_snapshot(
             "supplier_source": sup_ctx["supplier_source"],
             "stock_source": "db_snapshot",
         }
+
+        # Lead time silently defaulted to 0 because no ForecastItemSupplierMap
+        # row exists for this item. Do not change the calculation - flag the
+        # item so planners set up its supplier parameters.
+        if smap is None and lead_time == 0.0:
+            explanation["review_reason"] = "LEAD_TIME_MISSING"
+            if profile is not None:
+                existing = profile.review_reason or ""
+                parts = [r.strip() for r in existing.split(";") if r.strip()] if existing else []
+                if "LEAD_TIME_MISSING" not in parts:
+                    parts.append("LEAD_TIME_MISSING")
+                profile.review_reason = "; ".join(parts)
+                profile.review_flag = True
+
         if override:
             explanation["override_weekly_qty"] = round(override_weekly, 6)
             explanation["override_reason_code"] = override.reason_code

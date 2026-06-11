@@ -295,7 +295,7 @@ def _build_warnings(case_qty, projected_stock, reserved, ordered, expiry_data,
     if cover_fcst <= 0:
         warnings.append(("NO_RECENT_SALES", WARNING_TEXT_MAP["NO_RECENT_SALES"]))
 
-    if expiry_data and expiry_data.get("has_expiry_within_30d"):
+    if expiry_data and float(expiry_data.get("expiring_within_30_days_units", 0) or 0) > 0:
         warnings.append(("EXPIRY_SOON", WARNING_TEXT_MAP["EXPIRY_SOON"]))
 
     if ordered > 0:

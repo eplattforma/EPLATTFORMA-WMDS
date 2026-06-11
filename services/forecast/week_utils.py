@@ -42,10 +42,11 @@ def get_completed_week_cutoff(
 
     SQL pattern used throughout the app: ``WHERE week_start < :week_cutoff``.
 
-    * **Before** the configured rollover moment → returns this_monday
-      (current week is excluded from the forecast).
-    * **At / after** the configured rollover moment → returns next_monday
-      (current week is included in the forecast).
+    A week is only complete when 'now' is strictly past the last day of that
+    week (its Sunday). The current week is always in progress, so the cutoff
+    is always this_monday: the latest completed week is the one starting
+    this_monday - 7 days. Rollover settings no longer shift the cutoff —
+    a partial week must never enter the forecast history window.
 
     Default rollover: Friday 10:00 Athens time (``forecast_week_rollover_weekday=4``,
     ``forecast_week_rollover_time="10:00"``).
@@ -66,15 +67,14 @@ def get_completed_week_cutoff(
     now_athens = _now_athens if _now_athens is not None else datetime.now(tz=_ATHENS_TZ)
     this_monday = monday_of(now_athens.date())
 
-    rollover_day = this_monday + timedelta(days=rollover_weekday)
-    rollover_dt = datetime(
-        rollover_day.year, rollover_day.month, rollover_day.day,
-        hour, minute, 0,
-        tzinfo=_ATHENS_TZ,
-    )
-
-    if now_athens >= rollover_dt:
-        return this_monday + timedelta(weeks=1)
+    # Invariant: a week is only complete when 'now' is strictly past its last
+    # day (Sunday). The current week (starting this_monday) is by definition
+    # still in progress, so it must never enter the history window, regardless
+    # of the configured rollover weekday/time. The exclusive cutoff is
+    # therefore always this_monday. rollover_weekday / hour / minute are kept
+    # in the signature for backward compatibility with callers and tests, but
+    # they no longer shift the cutoff forward.
+    _ = (rollover_weekday, hour, minute)
     return this_monday
 
 

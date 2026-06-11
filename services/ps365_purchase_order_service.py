@@ -11,6 +11,7 @@ and error handling stay consistent.
 import os
 import json
 import logging
+import math
 from datetime import datetime, timezone, timedelta
 
 import requests as http_requests
@@ -36,7 +37,7 @@ def _normalize_order_lines(order_lines):
     for ln in order_lines or []:
         code = (ln.get("item_code_365") or "").strip()
         try:
-            qty = int(float(ln.get("line_quantity") or 0))
+            qty = int(math.ceil(float(ln.get("line_quantity") or 0)))
         except (TypeError, ValueError):
             qty = 0
         if not code or qty <= 0:

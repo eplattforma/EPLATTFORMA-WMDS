@@ -91,28 +91,41 @@ def _fetch_ordered_from_purchase_orders(supplier_code: str, warehouse_store_code
         from_date = (today - timedelta(days=180)).isoformat()
         to_date = (today + timedelta(days=365)).isoformat()
 
-        resp = call_ps365("list_purchase_orders", method="POST", payload={
-            "filter_define": {
-                "page_number": 1,
-                "page_size": 100,
-                "only_counted": "N",
-                "orders_supplier_selection": supplier_code,
-                "order_status_selection": "",
-                "from_date": from_date,
-                "to_date": to_date,
-                "items_selection": "",
-                "stores_selection": "",
-                "orders_type": "all",
-                "shopping_cart_code_selection": "",
-            }
-        })
+        page_size = 100
+        max_pages = 100  # safety cap: 10,000 POs
+        pos = []
+        page_number = 1
+        while page_number <= max_pages:
+            resp = call_ps365("list_purchase_orders", method="POST", payload={
+                "filter_define": {
+                    "page_number": page_number,
+                    "page_size": page_size,
+                    "only_counted": "N",
+                    "orders_supplier_selection": supplier_code,
+                    "order_status_selection": "",
+                    "from_date": from_date,
+                    "to_date": to_date,
+                    "items_selection": "",
+                    "stores_selection": "",
+                    "orders_type": "all",
+                    "shopping_cart_code_selection": "",
+                }
+            })
 
-        if not resp or resp.get("api_response", {}).get("response_code") != "1":
-            error_msg = resp.get("api_response", {}).get("response_msg", "Unknown") if resp else "No response"
-            logger.warning(f"Failed to fetch POs from PS365: {error_msg}")
-            return {}
+            if not resp or resp.get("api_response", {}).get("response_code") != "1":
+                error_msg = resp.get("api_response", {}).get("response_msg", "Unknown") if resp else "No response"
+                logger.warning(f"Failed to fetch POs page {page_number} from PS365: {error_msg}")
+                if page_number == 1:
+                    return {}
+                break  # keep what we already accumulated
 
-        pos = resp.get("list_purchase_orders") or []
+            page_pos = resp.get("list_purchase_orders") or []
+            pos.extend(page_pos)
+            logger.debug(f"PO page {page_number}: {len(page_pos)} orders (running total {len(pos)})")
+            if len(page_pos) < page_size:
+                break
+            page_number += 1
+
         logger.info(f"Found {len(pos)} purchase orders for supplier {supplier_code}")
 
         ordered_by_item = defaultdict(float)

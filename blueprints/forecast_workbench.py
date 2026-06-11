@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import logging
+import math
 import re
 from datetime import datetime, date
 from decimal import Decimal
@@ -1725,7 +1726,7 @@ def send_supplier_po(supplier_code):
         if qty > 0:
             order_lines.append({
                 "item_code_365": dw.item_code_365,
-                "line_quantity": int(qty),
+                "line_quantity": int(math.ceil(qty)),
             })
 
     if not order_lines:
