@@ -273,6 +273,27 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
 
     Returns dict with counters.
     """
+    # 0) Remove planned cooler_box_items rows whose backing queue row is a
+    #    PENDING row for this invoice — those queue rows are deleted in
+    #    step 1 below, and leaving the planned box assignments behind would
+    #    create dangling queue_item_id references (orphans on manifests and
+    #    in the pick-to-box flow). Runs in BOTH the default and full_reset
+    #    paths; in full_reset the broader delete later is a harmless no-op
+    #    for these rows.
+    res0 = db.session.execute(
+        text(
+            "DELETE FROM cooler_box_items "
+            "WHERE queue_item_id IN ( "
+            "    SELECT id FROM batch_pick_queue "
+            "    WHERE invoice_no = :inv "
+            "      AND pick_zone_type = 'cooler' "
+            "      AND status = 'pending' "
+            ")"
+        ),
+        {"inv": invoice_no},
+    )
+    planned_box_items_removed = res0.rowcount or 0
+
     # 1) Drop pending cooler queue rows (always)
     res = db.session.execute(
         text(
@@ -301,10 +322,33 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
     )
     items_unlocked = res2.rowcount or 0
 
+    # 2b) Default (non-full_reset) path: picked queue rows are preserved
+    #     for audit, but they must not keep blocking the OLD route's
+    #     WAREHOUSE_READY check forever (readiness condition 3 counts
+    #     picked-but-unboxed rows via bps.route_id). Flag them
+    #     'needs_return' — not deleted, because the picker may physically
+    #     have these items in hand and they need follow-up (return to
+    #     cooler stock). Readiness only counts status = 'picked'.
+    if not full_reset:
+        res_nr = db.session.execute(
+            text(
+                "UPDATE batch_pick_queue "
+                "SET status = 'needs_return', "
+                "    updated_at = :now "
+                "WHERE invoice_no = :inv "
+                "  AND pick_zone_type = 'cooler' "
+                "  AND status = 'picked'"
+            ),
+            {"inv": invoice_no, "now": get_utc_now()},
+        )
+        picked_flagged_for_return = res_nr.rowcount or 0
+
     box_items_removed = 0
     picked_queue_deleted = 0
     items_unpicked = 0
     boxes_cancelled = 0
+    closed_boxes_voided = 0
+    picked_flagged_for_return = 0
 
     if full_reset:
         # 3) Find which boxes contain items for this invoice (before deleting)
@@ -352,18 +396,29 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
             {"inv": invoice_no},
         )
 
-        # 6) Reset is_picked on invoice_items that were picked in cooler context
+        # 6) Reset is_picked on invoice_items that were picked in cooler context.
+        #
+        # WHY THE BROAD CONDITION: we cannot filter on the current
+        # locked_by_batch_id — once picking completes, the batch auto-clear /
+        # orphan-lock cleanup sets locked_by_batch_id = NULL, so a filter on
+        # the lock matches nothing by the time a manager runs a full reset
+        # (leaving is_picked stuck TRUE forever). We also cannot join through
+        # the queue rows, because step 5 above already deleted them. Resetting
+        # ALL is_picked = TRUE rows for this invoice is safe HERE because
+        # this function only runs for invoices in the cooler unassign flow,
+        # and full_reset means the user explicitly confirmed a complete
+        # return-to-warehouse: every physically picked item for this invoice
+        # (cooler or otherwise) is coming back to stock and must be re-picked
+        # when the invoice is re-routed. Normal-zone items use a different
+        # is_picked lifecycle that does not pass through this function, and
+        # after a full reset they too must be re-picked from scratch.
         res5 = db.session.execute(
             text(
                 "UPDATE invoice_items "
                 "SET is_picked = FALSE, "
                 "    locked_by_batch_id = NULL "
                 "WHERE invoice_no = :inv "
-                "  AND is_picked = TRUE "
-                "  AND locked_by_batch_id IN ( "
-                "        SELECT id FROM batch_picking_sessions "
-                "        WHERE session_type = 'cooler_route' "
-                "  )"
+                "  AND is_picked = TRUE"
             ),
             {"inv": invoice_no},
         )
@@ -383,7 +438,8 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
             ).fetchone()
 
             if not remaining or remaining[0] == 0:
-                db.session.execute(
+                # Cancel open boxes; only count when a row actually changed.
+                res_open = db.session.execute(
                     text(
                         "UPDATE cooler_boxes "
                         "SET status = 'cancelled' "
@@ -391,18 +447,65 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
                     ),
                     {"bid": box_id},
                 )
-                boxes_cancelled += 1
+                if (res_open.rowcount or 0) > 0:
+                    boxes_cancelled += 1
+                else:
+                    # The box was already 'closed'. It cannot be un-closed,
+                    # but it is now EMPTY — mark it 'cancelled' so it stops
+                    # appearing on manifests/labels, and count separately.
+                    res_closed = db.session.execute(
+                        text(
+                            "UPDATE cooler_boxes "
+                            "SET status = 'cancelled' "
+                            "WHERE id = :bid AND status = 'closed'"
+                        ),
+                        {"bid": box_id},
+                    )
+                    closed_boxes_voided += res_closed.rowcount or 0
             else:
+                # Box still has items: re-sum fill volume/weight from the
+                # remaining cooler_box_items (dimensions from ps_items_dw,
+                # weight fallback from invoice_items) and refresh the stop
+                # sequence window. Uses picked_qty when set, else expected_qty
+                # — mirroring the planner's estimation formula.
+                fill_row = db.session.execute(
+                    text(
+                        "SELECT "
+                        "  COALESCE(SUM("
+                        "    COALESCE(dw.item_length, 0) * "
+                        "    COALESCE(dw.item_width, 0) * "
+                        "    COALESCE(dw.item_height, 0) * "
+                        "    COALESCE(NULLIF(cbi.picked_qty, 0), cbi.expected_qty, 0)"
+                        "  ), 0) AS vol_cm3, "
+                        "  COALESCE(SUM("
+                        "    COALESCE(dw.item_weight, ii.item_weight, 0) * "
+                        "    COALESCE(NULLIF(cbi.picked_qty, 0), cbi.expected_qty, 0)"
+                        "  ), 0) AS weight_kg "
+                        "FROM cooler_box_items cbi "
+                        "LEFT JOIN ps_items_dw dw "
+                        "  ON dw.item_code_365 = cbi.item_code "
+                        "LEFT JOIN invoice_items ii "
+                        "  ON ii.invoice_no = cbi.invoice_no "
+                        " AND ii.item_code = cbi.item_code "
+                        "WHERE cbi.cooler_box_id = :bid"
+                    ),
+                    {"bid": box_id},
+                ).fetchone()
+
                 db.session.execute(
                     text(
                         "UPDATE cooler_boxes "
                         "SET first_stop_sequence = :fs, "
-                        "    last_stop_sequence  = :ls "
+                        "    last_stop_sequence  = :ls, "
+                        "    fill_cm3            = :fc, "
+                        "    fill_weight_kg      = :fw "
                         "WHERE id = :bid"
                     ),
                     {
                         "fs": remaining[1],
                         "ls": remaining[2],
+                        "fc": float(fill_row[0] or 0),
+                        "fw": float(fill_row[1] or 0),
                         "bid": box_id,
                     },
                 )
@@ -414,6 +517,9 @@ def release_cooler_locks_for_invoice(invoice_no, full_reset=False):
         "picked_queue_deleted": picked_queue_deleted,
         "items_unpicked": items_unpicked,
         "boxes_cancelled": boxes_cancelled,
+        "closed_boxes_voided": closed_boxes_voided,
+        "planned_box_items_removed": planned_box_items_removed,
+        "picked_flagged_for_return": picked_flagged_for_return,
     }
 
 

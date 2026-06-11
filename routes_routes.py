@@ -1098,21 +1098,28 @@ def check_cooler_picks():
     rows = db.session.execute(
         text(
             "SELECT bpq.invoice_no, "
-            "       COUNT(*) AS picked_count, "
-            "       COUNT(cbi.id) AS boxed_count "
+            "       COUNT(*) FILTER (WHERE bpq.status = 'picked') AS picked_count, "
+            "       COUNT(cbi.id) FILTER (WHERE bpq.status = 'picked') AS boxed_count, "
+            "       COUNT(cbi.id) FILTER (WHERE bpq.status = 'pending' "
+            "                               AND cbi.status = 'planned') AS planned_count "
             "FROM batch_pick_queue bpq "
             "LEFT JOIN cooler_box_items cbi ON cbi.queue_item_id = bpq.id "
             "WHERE bpq.invoice_no = ANY(:inv) "
             "  AND bpq.pick_zone_type = 'cooler' "
-            "  AND bpq.status = 'picked' "
+            "  AND bpq.status IN ('picked', 'pending') "
             "GROUP BY bpq.invoice_no"
         ),
         {"inv": invoice_nos},
     ).fetchall()
 
     affected = [
-        {"invoice_no": r[0], "picked_count": int(r[1]), "boxed_count": int(r[2])}
-        for r in rows if r[1] > 0
+        {
+            "invoice_no": r[0],
+            "picked_count": int(r[1]),
+            "boxed_count": int(r[2]),
+            "planned_count": int(r[3]),
+        }
+        for r in rows if r[1] > 0 or r[3] > 0
     ]
     return jsonify({"ok": True, "affected": affected})
 

@@ -69,7 +69,11 @@ def check_route_warehouse_ready(route_id: int) -> Tuple[bool, List[str]]:
                     f"Cooler picking pending ({pending_cooler} session(s))"
                 )
 
-            # 3 & 6. No picked cooler items unassigned to a box
+            # 3 & 6. No picked cooler items unassigned to a box.
+            # Only rows still in status='picked' count — rows flagged
+            # 'needs_return' belong to invoices unassigned from this route
+            # and are handled by the picker-return follow-up flow, so they
+            # must not block WAREHOUSE_READY here.
             unboxed = conn.execute(
                 db.text(
                     "SELECT COUNT(*) "
@@ -77,6 +81,7 @@ def check_route_warehouse_ready(route_id: int) -> Tuple[bool, List[str]]:
                     "JOIN batch_picking_sessions bps ON bps.id = bpq.batch_session_id "
                     "WHERE bps.route_id = :rid "
                     "  AND bps.session_type = 'cooler_route' "
+                    "  AND bpq.status = 'picked' "
                     "  AND bpq.qty_picked > 0 "
                     "  AND NOT EXISTS ("
                     "      SELECT 1 FROM cooler_box_items cbi "
