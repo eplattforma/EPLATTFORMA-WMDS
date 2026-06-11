@@ -542,6 +542,25 @@ def cancel_batch(batch_id, cancelled_by, reason=None):
                     {InvoiceItem.locked_by_batch_id: None},
                     synchronize_session=False,
                 )
+            # Also release locks held by exception/skipped queue rows of
+            # this batch. Their queue rows stay untouched for audit, but
+            # the InvoiceItem lock must not survive cancellation or the
+            # invoice deadlocks at awaiting_batch_items forever.
+            stuck = db.session.execute(
+                text("SELECT invoice_no, item_code FROM batch_pick_queue "
+                     "WHERE batch_session_id = :sid "
+                     "  AND status IN ('exception', 'skipped')"),
+                {"sid": batch_id},
+            ).fetchall()
+            for row in stuck:
+                released += db.session.query(InvoiceItem).filter(
+                    InvoiceItem.invoice_no == row.invoice_no,
+                    InvoiceItem.item_code == row.item_code,
+                    InvoiceItem.locked_by_batch_id == batch_id,
+                ).update(
+                    {InvoiceItem.locked_by_batch_id: None},
+                    synchronize_session=False,
+                )
         else:
             # Legacy batches (no queue rows): release unpicked locks
             # held by this batch.

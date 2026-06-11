@@ -1,7 +1,7 @@
 """
 Flask blueprint for route and stop management
 """
-from flask import Blueprint, request, render_template, redirect, url_for, flash, jsonify, abort
+from flask import Blueprint, request, render_template, redirect, url_for, flash, jsonify, abort, current_app
 from flask_login import login_required, current_user
 from datetime import datetime
 from functools import wraps
@@ -1172,7 +1172,20 @@ def unassign_from_route():
         release_cooler_locks_for_invoice(invoice.invoice_no, full_reset=force_reset)
 
     db.session.commit()
-    
+
+    # Recompute invoice statuses now that route assignment and cooler
+    # locks/queue rows have changed. Without this, invoices stay at
+    # awaiting_batch_items / ready_for_dispatch with stale status.
+    from batch_aware_order_status import update_order_status_batch_aware
+    for invoice in invoices:
+        try:
+            update_order_status_batch_aware(invoice.invoice_no)
+        except Exception as _sre:
+            current_app.logger.warning(
+                "unassign_from_route: status recompute failed for %s: %s",
+                invoice.invoice_no, _sre,
+            )
+
     # Clean up any empty stops after unassigning invoices — scoped to ONLY
     # the routes touched by this request. Never scan the whole database:
     # unrelated/historical routes may legitimately have empty stops and

@@ -51,6 +51,12 @@ def update_order_status_batch_aware(invoice_no):
         batches = BatchPickingSession.query.filter(BatchPickingSession.id.in_(batch_ids)).all()
         batch_status_map = {b.id: b.status for b in batches}
 
+    # Batches in these statuses no longer hold their locks. Cancelled and
+    # Archived batches must NOT count as blocking, otherwise stale locks
+    # (e.g. exception/skipped rows from a later-cancelled batch) park the
+    # invoice at awaiting_batch_items forever.
+    RELEASED_BATCH_STATUSES = ('Completed', 'Cancelled', 'Archived')
+
     # Now iterate items with cached batch statuses
     for item in all_items:
         if item.is_picked and item.pick_status in TERMINAL_PICK_STATUSES:
@@ -60,10 +66,10 @@ def update_order_status_batch_aware(invoice_no):
             # Check if item is locked by an ACTIVE batch
             if item.locked_by_batch_id is not None:
                 batch_status = batch_status_map.get(item.locked_by_batch_id)
-                if batch_status and batch_status != 'Completed':
+                if batch_status and batch_status not in RELEASED_BATCH_STATUSES:
                     batch_locked_items += 1
-                elif batch_status == 'Completed':
-                    # Unlock item from completed batch
+                elif batch_status in RELEASED_BATCH_STATUSES:
+                    # Unlock item from a completed/cancelled/archived batch
                     item.locked_by_batch_id = None
     
     # Determine the correct status
@@ -92,7 +98,7 @@ def update_order_status_batch_aware(invoice_no):
             ready = is_order_ready(invoice_no)
         except Exception:
             ready = False
-        if old_status == 'awaiting_batch_items' and ready:
+        if old_status in ('awaiting_batch_items', 'ready_for_dispatch') and ready:
             invoice.status = 'ready_for_dispatch'
         else:
             invoice.status = 'awaiting_packing'

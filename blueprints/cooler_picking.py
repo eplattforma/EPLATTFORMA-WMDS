@@ -2399,15 +2399,75 @@ def box_reopen(box_id):
             "error": f"Box #{box_id} is {box['status']}; only closed "
                      f"boxes can be re-opened."
         }), 400
+    now = get_utc_now()
     db.session.execute(
         text("UPDATE cooler_boxes SET status = 'open' WHERE id = :bid"),
         {"bid": box_id},
     )
+
+    # (a) Reverse the auto-completion done by box_close: the route's
+    # cooler session is no longer complete while a box is open.
+    db.session.execute(
+        text(
+            "UPDATE batch_picking_sessions "
+            "SET status = 'In Progress', last_activity_at = :now "
+            "WHERE session_type = 'cooler_route' "
+            "  AND route_id = :rid "
+            "  AND status = 'Completed'"
+        ),
+        {"rid": box["route_id"], "now": now},
+    )
+
+    # (b) Demote invoices that were promoted to ready_for_dispatch when
+    # this box closed. is_order_ready() consults cooler box statuses, so
+    # with the box open again it returns False for affected invoices.
+    demoted = []
+    try:
+        from services.order_readiness import is_order_ready
+        from models import Invoice
+        inv_rows = db.session.execute(
+            text(
+                "SELECT DISTINCT invoice_no FROM cooler_box_items "
+                "WHERE cooler_box_id = :bid"
+            ),
+            {"bid": box_id},
+        ).fetchall()
+        for (inv_no,) in inv_rows:
+            inv = Invoice.query.filter_by(invoice_no=inv_no).first()
+            if inv is None:
+                continue
+            if inv.status == 'ready_for_dispatch' and not is_order_ready(inv_no):
+                inv.status = 'awaiting_batch_items'
+                demoted.append(inv_no)
+                _audit(
+                    "cooler.order_demoted_on_reopen",
+                    f"Invoice {inv_no} demoted "
+                    f"ready_for_dispatch -> awaiting_batch_items "
+                    f"after cooler box #{box_id} reopened",
+                    invoice_no=inv_no,
+                )
+    except Exception as exc:  # never block box reopen on demotion failure
+        current_app.logger.warning(
+            "cooler.box_reopen: demotion check failed for box %s: %s",
+            box_id, exc,
+        )
+
     _audit(
         "cooler.box_reopened",
         f"Cooler box #{box_id} re-opened by {_username()}",
     )
     db.session.commit()
+
+    # (c) Recalculate warehouse readiness — the route is no longer ready
+    # while this box is open.
+    try:
+        from services.route_warehouse_readiness import recalculate_route_warehouse_status
+        recalculate_route_warehouse_status(box["route_id"])
+    except Exception as _wre:
+        current_app.logger.warning(
+            "warehouse readiness recalc failed after box_reopen %s: %s", box_id, _wre
+        )
+
     flash(f"Box #{box_id} re-opened.", "success")
     return redirect(url_for("cooler.route_picking",
                             route_id=box["route_id"],
