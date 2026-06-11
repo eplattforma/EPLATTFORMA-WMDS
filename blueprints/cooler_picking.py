@@ -1684,7 +1684,8 @@ def pre_plan_boxes(route_id, delivery_date):
     existing_boxes = db.session.execute(
         text(
             "SELECT COUNT(*) FROM cooler_boxes "
-            "WHERE route_id = :rid AND delivery_date = :dd"
+            "WHERE route_id = :rid AND delivery_date = :dd "
+            "  AND status != 'cancelled'"
         ),
         {"rid": route_id_int, "dd": str(delivery_date)},
     ).scalar() or 0
@@ -1723,6 +1724,14 @@ def pre_plan_boxes(route_id, delivery_date):
     now = get_utc_now()
     created_boxes = 0
     skipped_items = 0
+
+    # Cancelled boxes may still occupy box numbers — continue numbering after
+    # them so re-planning never produces duplicate box_no values.
+    max_box_no = db.session.execute(
+        text("SELECT COALESCE(MAX(box_no), 0) FROM cooler_boxes "
+             "WHERE route_id = :rid AND delivery_date = :dd"),
+        {"rid": route_id_int, "dd": str(delivery_date)},
+    ).scalar() or 0
     cooler_session_id = _resolve_cooler_session_id(route_id_int)
 
     try:
@@ -1739,7 +1748,7 @@ def pre_plan_boxes(route_id, delivery_date):
                 ),
                 {
                     "rid": route_id_int, "dd": str(delivery_date),
-                    "box_no": idx,
+                    "box_no": int(max_box_no) + idx,
                     "fs": box["stop_min"], "ls": box["stop_max"],
                     "who": _username(), "now": now,
                     "btid": box["box_type_id"],
@@ -1770,6 +1779,10 @@ def pre_plan_boxes(route_id, delivery_date):
                     continue
 
                 item_status = qcheck[0]
+                # bpq status is 'picked' or 'pending'; cooler_box_items only
+                # allows ('planned','picked','exception') — map pending->planned
+                # exactly like confirm_box_plan does.
+                cbi_status = "picked" if item_status == "picked" else "planned"
                 db.session.execute(
                     text(
                         "INSERT INTO cooler_box_items "
@@ -1794,7 +1807,7 @@ def pre_plan_boxes(route_id, delivery_date):
                         "who": _username() if item_status == "picked" else None,
                         "now": now if item_status == "picked" else None,
                         "qid": qid,
-                        "status": item_status,
+                        "status": cbi_status,
                         "ts": now,
                     },
                 )
@@ -2234,6 +2247,23 @@ def box_close(box_id):
         # Mark planned (unphysically-picked) items as exception so the route
         # completion check no longer treats them as blocking planned rows.
         now_f = get_utc_now()
+        # FIRST: mark the matching batch_pick_queue rows as exception too,
+        # otherwise they stay 'pending' forever and
+        # _is_cooler_route_pack_complete() check #2 permanently blocks the
+        # route from completing. Must run BEFORE the cbi update below because
+        # it joins on cbi.status = 'planned'.
+        db.session.execute(
+            text(
+                "UPDATE batch_pick_queue bpq "
+                "SET status = 'exception', updated_at = :now "
+                "FROM cooler_box_items cbi "
+                "WHERE cbi.queue_item_id = bpq.id "
+                "  AND cbi.cooler_box_id = :bid "
+                "  AND cbi.status = 'planned' "
+                "  AND bpq.status = 'pending'"
+            ),
+            {"bid": box_id, "now": now_f},
+        )
         affected = db.session.execute(
             text(
                 "UPDATE cooler_box_items "
@@ -3076,6 +3106,16 @@ def queue_skip(queue_item_id):
         ),
         {"now": now, "qid": queue_item_id},
     )
+    # Keep any pre-planned box assignment in sync — otherwise the box shows a
+    # 'planned' item that will never be picked and can never be closed cleanly.
+    db.session.execute(
+        text(
+            "UPDATE cooler_box_items "
+            "SET status = 'exception', updated_at = :now "
+            "WHERE queue_item_id = :qid AND status = 'planned'"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
     _audit(
         "cooler.item_skipped",
         f"Cooler queue #{queue_item_id} invoice={row[0]} item={row[1]} "
@@ -3119,6 +3159,20 @@ def queue_resume(queue_item_id):
             "UPDATE batch_pick_queue "
             "SET status = 'pending', updated_at = :now "
             "WHERE id = :qid AND status = 'exception'"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
+    # Mirror of queue_skip/queue_exception: restore the pre-planned box
+    # assignment (exception -> planned) so the item is pickable into its box.
+    db.session.execute(
+        text(
+            "UPDATE cooler_box_items cbi "
+            "SET status = 'planned', updated_at = :now "
+            "FROM cooler_boxes cb "
+            "WHERE cbi.queue_item_id = :qid "
+            "  AND cbi.status = 'exception' "
+            "  AND cb.id = cbi.cooler_box_id "
+            "  AND cb.status = 'open'"
         ),
         {"now": now, "qid": queue_item_id},
     )
@@ -3326,6 +3380,16 @@ def queue_exception(queue_item_id):
             "UPDATE batch_pick_queue "
             "SET status = 'exception', updated_at = :now "
             "WHERE id = :qid"
+        ),
+        {"now": now, "qid": queue_item_id},
+    )
+    # Keep any pre-planned box assignment in sync — otherwise the box shows a
+    # 'planned' item that will never be picked and can never be closed cleanly.
+    db.session.execute(
+        text(
+            "UPDATE cooler_box_items "
+            "SET status = 'exception', updated_at = :now "
+            "WHERE queue_item_id = :qid AND status = 'planned'"
         ),
         {"now": now, "qid": queue_item_id},
     )
