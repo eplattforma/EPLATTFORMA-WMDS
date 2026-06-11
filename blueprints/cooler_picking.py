@@ -974,6 +974,40 @@ def route_picking(route_id, delivery_date):
         {"rid": _route_id_int, "dd": str(delivery_date)},
     ).scalar() or 0
 
+    # ── Auto-stamp late-addition delivery_sequence ───────────────────────
+    # When an invoice is added to a route AFTER lock_sequencing ran, its
+    # bpq rows arrive with delivery_sequence = NULL.  Stamp them here using
+    # the live route_stop join so the status report and box plan show them
+    # in the correct stop group on the very next page load.
+    # Idempotent — rows already stamped are skipped (WHERE IS NULL).
+    if cooler_session and cooler_session.get("sequence_locked_at"):
+        try:
+            _late_stamped = db.session.execute(text(
+                "UPDATE batch_pick_queue bpq "
+                "SET delivery_sequence = rs.seq_no, "
+                "    updated_at = NOW() "
+                "FROM route_stop_invoice rsi "
+                "JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id "
+                "WHERE bpq.batch_session_id = :sid "
+                "  AND bpq.delivery_sequence IS NULL "
+                "  AND rsi.invoice_no = bpq.invoice_no "
+                "  AND rsi.is_active = TRUE "
+                "  AND rs.seq_no IS NOT NULL"
+            ), {"sid": cooler_session["id"]}).rowcount
+            if _late_stamped:
+                db.session.commit()
+                logging.getLogger(__name__).info(
+                    "route_picking auto-stamp: stamped %d late-addition bpq "
+                    "row(s) for session %s (route %s)",
+                    _late_stamped, cooler_session["id"], _route_id_int,
+                )
+        except Exception as _late_stamp_err:
+            db.session.rollback()
+            logging.getLogger(__name__).warning(
+                "route_picking auto-stamp failed for session %s: %s",
+                cooler_session.get("id"), _late_stamp_err,
+            )
+
     # ── Self-healing sync ─────────────────────────────────────────────────
     # When items were picked via the cooler route page (queue_pick), only
     # batch_pick_queue is updated — InvoiceItem.is_picked is never set.
@@ -3718,13 +3752,16 @@ def get_cooler_route_status_data(route_id, delivery_date):
         box_no   = r[7]
         box_st   = (r[8] or "").lower() if r[8] else None
 
-        if seq is None:
-            pick_label = "Awaiting"; awaiting += 1
-        elif st == "picked":
+        # Completed statuses take precedence over NULL delivery_sequence so
+        # that late-addition items which were already picked/exceptioned before
+        # delivery_sequence was stamped still report correctly.
+        if st == "picked":
             pick_label = "Picked"; picked += 1
             if box_no is None: unboxed_picked += 1
         elif st == "exception":
             pick_label = "Exception"; exc_count += 1
+        elif seq is None:
+            pick_label = "Awaiting"; awaiting += 1
         else:
             pick_label = "Not Picked"; pending += 1
 
