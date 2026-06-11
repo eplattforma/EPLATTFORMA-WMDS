@@ -129,7 +129,7 @@ def generate_box_plan(
     box_type_id=None,
     include_pending=True,
     available_type_counts=None,
-    target_fill_pct=0.80,
+    target_fill_pct=0.90,
 ):
     """Generate a two-phase cooler box plan.
 
