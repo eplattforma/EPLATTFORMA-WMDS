@@ -58,11 +58,16 @@ elif is_production:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         'pool_pre_ping': True,
         "pool_recycle": 300,
-        "pool_size": 5,
-        "max_overflow": 10,
+        # Autoscale (Cloud Run) can spin up many instances; keep the per-worker
+        # pool small so the total open connections to Neon stays within limits.
+        # 2 workers × (pool_size=2 + max_overflow=8) = max 20 connections/instance.
+        "pool_size": 2,
+        "max_overflow": 8,
         "pool_timeout": 30,
         "connect_args": {
-            "connect_timeout": 10,
+            # Neon serverless can take up to ~20 s to cold-start after idle.
+            # 10 s was too tight and caused spurious "connection refused" errors.
+            "connect_timeout": 30,
             "keepalives": 1,
             "keepalives_idle": 30,
             "options": "-c statement_timeout=120000 -c lock_timeout=30000"

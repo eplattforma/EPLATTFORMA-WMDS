@@ -134,22 +134,27 @@ def inject_context():
     if 'csrf_token' not in session:
         import secrets
         session['csrf_token'] = secrets.token_urlsafe(32)
-    
+
     # Create csrf_token function for templates
     def csrf_token():
         return session.get('csrf_token', '')
-    
-    # Make use_shipments feature flag available to all templates
-    use_shipments_raw = Setting.get(db.session, 'use_shipments', 'false')
-    use_shipments = str(use_shipments_raw).strip().lower() in ('true', '1', 'yes', 'on')
 
-    # Phase 2: hide the legacy MVP Replenishment menu unless the operator
-    # has explicitly turned it back on. Default OFF (see Phase 1 defaults).
-    legacy_repl_raw = Setting.get(db.session, 'legacy_replenishment_enabled', 'false')
-    legacy_replenishment_enabled = str(legacy_repl_raw).strip().lower() in ('true', '1', 'yes', 'on')
+    # Guard all DB reads so that when the database is temporarily unreachable
+    # (e.g. Neon cold-start, pool exhaustion) the error page itself can still
+    # render instead of producing a second traceback ("error.html also failed").
+    try:
+        use_shipments_raw = Setting.get(db.session, 'use_shipments', 'false')
+        use_shipments = str(use_shipments_raw).strip().lower() in ('true', '1', 'yes', 'on')
 
-    cooler_raw = Setting.get(db.session, 'cooler_picking_enabled', 'false')
-    cooler_picking_enabled = str(cooler_raw).strip().lower() in ('true', '1', 'yes', 'on')
+        legacy_repl_raw = Setting.get(db.session, 'legacy_replenishment_enabled', 'false')
+        legacy_replenishment_enabled = str(legacy_repl_raw).strip().lower() in ('true', '1', 'yes', 'on')
+
+        cooler_raw = Setting.get(db.session, 'cooler_picking_enabled', 'false')
+        cooler_picking_enabled = str(cooler_raw).strip().lower() in ('true', '1', 'yes', 'on')
+    except Exception:
+        use_shipments = False
+        legacy_replenishment_enabled = False
+        cooler_picking_enabled = False
 
     return {
         'now': get_local_time(),

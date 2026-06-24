@@ -1,0 +1,150 @@
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+self._dbapi_connection = engine.raw_connection()
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+^^^^^^^^^^^^^^^^^^^^
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+ERROR:root:error.html also failed:
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 838, in get_connection
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+raise exc_value.with_traceback(exc_tb)
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 901, in __connect
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 897, in __connect
+
+2026-06-24 12:27:45.79
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 145, in __init__
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 449, in connect
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3297, in raw_connection
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 716, in checkout
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 718, in checkout
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+with util.safe_reraise():
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+dbapi_connection = rec.get_connection()
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+Traceback (most recent call last):
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+^^^^^^^^^^^^^^^^^^^
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+raise exc_value.with_traceback(exc_tb)
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+return self.pool.connect()
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+return _ConnectionFairy._checkout(self)
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+ERROR:app:Exception on /login [GET]
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+fairy = _ConnectionRecord.checkout(pool)
+
+2026-06-24 12:28:03.96
+318c2e90
+User
+self._dbapi_connection = engine.raw_connection()
