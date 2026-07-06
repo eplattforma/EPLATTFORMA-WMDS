@@ -2,14 +2,14 @@ import os
 import json
 import uuid
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
 from flask_login import login_required, current_user
 from app import db
 from models import PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine, DwItem, StockPosition
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, nullslast, false
 from shelves_service import fetch_item_shelves, Ps365Error
 from utils.image_handler import get_product_image
 
@@ -1389,10 +1389,28 @@ def archived():
     search_query = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
     per_page = 10
-    
-    query = PurchaseOrder.query.filter_by(is_archived=True)
-    
+
+    # Per-PO "last received" timestamp (max receipt time across all sessions/lots).
+    # Used both to filter to the current week and to order newest-first.
+    last_recv_subq = db.session.query(
+        ReceivingSession.purchase_order_id.label('po_id'),
+        func.max(ReceivingLine.received_at).label('last_received_at')
+    ).join(
+        ReceivingLine, ReceivingLine.session_id == ReceivingSession.id
+    ).group_by(ReceivingSession.purchase_order_id).subquery()
+
+    query = PurchaseOrder.query.filter(
+        PurchaseOrder.is_archived == True
+    ).outerjoin(
+        last_recv_subq, last_recv_subq.c.po_id == PurchaseOrder.id
+    )
+
+    week_start = None
+    week_end = None
+    is_week_view = False
+
     if search_query:
+        # Search spans ALL archived orders (by order number or supplier).
         query = query.filter(
             or_(
                 PurchaseOrder.code_365.ilike(f'%{search_query}%'),
@@ -1400,11 +1418,42 @@ def archived():
                 PurchaseOrder.supplier_name.ilike(f'%{search_query}%')
             )
         )
-    
-    pagination = query.order_by(PurchaseOrder.archived_at.desc()).paginate(
+    else:
+        # Default view: only the current week's archived orders, where the
+        # "current week" is the Mon-Sun week that contains the most recently
+        # received archived PO.
+        latest_received = db.session.query(
+            func.max(ReceivingLine.received_at)
+        ).join(
+            ReceivingSession, ReceivingLine.session_id == ReceivingSession.id
+        ).join(
+            PurchaseOrder, PurchaseOrder.id == ReceivingSession.purchase_order_id
+        ).filter(PurchaseOrder.is_archived == True).scalar()
+
+        if latest_received is not None:
+            is_week_view = True
+            week_start = (
+                latest_received - timedelta(days=latest_received.weekday())
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
+            week_end = week_start + timedelta(days=7)
+            query = query.filter(
+                last_recv_subq.c.last_received_at >= week_start,
+                last_recv_subq.c.last_received_at < week_end,
+            )
+        else:
+            # No archived POs have any receipts yet, so there is no "current
+            # week" to anchor on. Show nothing by default (the requirement is
+            # to show only the current week's received orders); the user can
+            # still search across all archived orders.
+            is_week_view = True
+            query = query.filter(false())
+
+    pagination = query.order_by(
+        nullslast(last_recv_subq.c.last_received_at.desc())
+    ).paginate(
         page=page, per_page=per_page, error_out=False
     )
-    
+
     orders = pagination.items
     
     # Calculate receiving progress for each order
@@ -1438,7 +1487,11 @@ def archived():
     return render_template('po_receiving/archived.html', 
                            order_data=order_data, 
                            pagination=pagination,
-                           search_query=search_query)
+                           search_query=search_query,
+                           is_week_view=is_week_view,
+                           week_start=week_start,
+                           week_end=week_end,
+                           week_end_display=(week_end - timedelta(days=1)) if week_end else None)
 
 @po_receiving_bp.route('/api/reset-lot/<int:line_id>', methods=['POST'])
 @login_required
