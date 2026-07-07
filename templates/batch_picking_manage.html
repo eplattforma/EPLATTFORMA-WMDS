@@ -90,8 +90,14 @@
                         <td>
                             {% if session.status == 'Created' %}
                             <span class="badge bg-secondary">Created</span>
-                            {% elif session.status == 'In Progress' %}
-                            <span class="badge bg-warning text-dark">In Progress</span>
+                            {% elif session.status == 'Active' %}
+                            <span class="badge bg-success">Assigned</span>
+                            {% elif session.status == 'picking' %}
+                            <span class="badge bg-info">Picking</span>
+                            {% elif session.status == 'Paused' %}
+                            <span class="badge bg-warning text-dark">Paused</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ session.status }}</span>
                             {% endif %}
                         </td>
                         <td>
@@ -145,7 +151,7 @@
                                 
                                 <form method="post" action="{{ url_for('batch.batch_delete', batch_id=session.id) }}" class="d-inline">
                                     <button type="submit" class="btn btn-sm btn-danger" 
-                                            onclick="return confirm('Are you sure you want to delete this batch? This action cannot be undone.');">
+                                            onclick="return confirm('Cancel this batch? Unpicked items are released back to normal picking. Audit history is kept.');">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </form>
@@ -297,10 +303,11 @@
                 const batchId = button.getAttribute('data-batch-id');
                 const batchName = button.getAttribute('data-batch-name');
                 
-                // Update the form action URL with the batch ID
+                // Rebuild the form action URL from a constant base each time
                 const form = document.getElementById('assignForm');
-                form.action = form.action.replace('/0', '/' + batchId);
-                
+                form.action = "{{ url_for('batch.batch_picking_assign', batch_id=0) }}"
+                                  .replace(/0$/, batchId);
+
                 // Update the batch name display
                 document.getElementById('batch-name-display').textContent = batchName;
             });

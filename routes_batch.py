@@ -915,7 +915,7 @@ def batch_picking_create_simple():
                     name=name,
                 )
                 flash(f'Batch picking session "{name}" created (DB-backed queue).', 'success')
-                return redirect(url_for('batch.batch_picking_view', batch_id=batch.id))
+                return redirect(url_for('batch.batch_picking_manage'))
             except _BatchConflict as bc:
                 flash(bc.message, 'danger')
                 return redirect(url_for('batch.batch_picking_create_simple'))
@@ -1026,7 +1026,7 @@ def batch_picking_create_simple():
             db.session.commit()
             
             flash(f'Batch picking session "{name}" created successfully with {len(invoice_numbers)} invoices.', 'success')
-            return redirect(url_for('batch.batch_picking_view', batch_id=batch_session.id))
+            return redirect(url_for('batch.batch_picking_manage'))
             
         except Exception as e:
             db.session.rollback()
@@ -1379,7 +1379,7 @@ def batch_picking_create():
                 name=name,
             )
             flash(f'Batch "{name}" created with DB-backed queue.', 'success')
-            return redirect(url_for('batch.batch_picking_view', batch_id=batch.id))
+            return redirect(url_for('batch.batch_picking_manage'))
         except _BatchConflict as bc:
             flash(bc.message, 'danger')
             return redirect(url_for('batch.batch_picking_filter'))
@@ -1633,93 +1633,6 @@ def filter_invoices_by_zone():
     
     return jsonify({'success': True, 'invoices': result})
 
-# DISABLED: Use print reports instead of batch view
-# @batch_bp.route('/admin/batch/view/<int:batch_id>')
-# @login_required
-# def batch_picking_view(batch_id):
-    """Admin page to view a batch picking session"""
-    # Only admin users can access this page
-    if current_user.role not in ['admin', 'warehouse_manager']:
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('index'))
-    
-    # Get the batch session
-    batch_session = BatchPickingSession.query.get_or_404(batch_id)
-    
-    # Get the invoices in this batch
-    batch_invoices = BatchSessionInvoice.query.filter_by(
-        batch_session_id=batch_id
-    ).all()
-    
-    # Get the invoice details
-    invoices = []
-    for bi in batch_invoices:
-        invoice = Invoice.query.get(bi.invoice_no)
-        if invoice:
-            # Count items that match the batch zones
-            zones = batch_session.zones.split(',')
-            total_items = InvoiceItem.query.filter(
-                InvoiceItem.invoice_no == invoice.invoice_no,
-                InvoiceItem.zone.in_(zones)
-            ).count()
-            
-            # Count picked items in this batch
-            picked_items = BatchPickedItem.query.filter_by(
-                batch_session_id=batch_id,
-                invoice_no=invoice.invoice_no
-            ).count()
-            
-            invoices.append({
-                'invoice': invoice,
-                'is_completed': bi.is_completed,
-                'total_items': total_items,
-                'picked_items': picked_items
-            })
-    
-    # Get pickers for the assign dropdown
-    pickers = get_picking_eligible_users()
-    
-    # Calculate completion stats for template
-    total_items = sum(inv.get('total_items', 0) for inv in invoices)
-    picked_items = sum(inv.get('picked_items', 0) for inv in invoices)
-    completion_percentage = (picked_items / total_items * 100) if total_items > 0 else 0
-    
-    # Calculate invoice completion stats
-    total_invoices = len(invoices)
-    completed_invoices = sum(1 for inv in invoices if inv.get('is_completed', False))
-    invoice_completion_percentage = (completed_invoices / total_invoices * 100) if total_invoices > 0 else 0
-    
-    # Format batch_invoices data for template compatibility
-    batch_invoices_data = []
-    invoice_items_data = {}
-    
-    for inv_data in invoices:
-        invoice = inv_data['invoice']
-        bi = next((bi for bi in batch_invoices if bi.invoice_no == invoice.invoice_no), None)
-        
-        # Get items for this invoice in the batch zones
-        zones = batch_session.zones.split(',')
-        items = InvoiceItem.query.filter(
-            InvoiceItem.invoice_no == invoice.invoice_no,
-            InvoiceItem.zone.in_(zones)
-        ).all()
-        
-        batch_invoices_data.append((bi, invoice))
-        invoice_items_data[invoice.invoice_no] = items
-    
-    return render_template('batch_picking_view.html',
-                          batch_session=batch_session,
-                          batch=batch_session,  # Add this for template compatibility
-                          batch_invoices=batch_invoices_data,
-                          invoice_items=invoice_items_data,
-                          invoices=invoices,
-                          pickers=pickers,
-                          total_items=total_items,
-                          picked_items=picked_items,
-                          completion_percentage=completion_percentage,
-                          total_invoices=total_invoices,
-                          completed_invoices=completed_invoices,
-                          invoice_completion_percentage=invoice_completion_percentage)
 
 @batch_bp.route('/admin/batch/assign/<int:batch_id>', methods=['POST'])
 @login_required
@@ -1835,7 +1748,7 @@ def picker_batch_list():
 
 @batch_bp.route('/picker/batch/clear_cache/<int:batch_id>')
 @login_required
-def clear_batch_cache(batch_id):
+def clear_batch_cache_route(batch_id):
     """Clear the session cache for a specific batch"""
     if current_user.role not in ['admin', 'warehouse_manager'] and current_user.role != 'picker':
         flash('Access denied. Picker privileges required.', 'danger')
@@ -2853,106 +2766,6 @@ def api_batch_arrived(batch_id):
     return jsonify({'ok': True})
 
 
-@batch_bp.route('/picker/batch/confirm/<int:batch_id>', methods=['POST'])
-@login_required
-def confirm_batch_item(batch_id):
-    """Confirm a picked item in a batch - redirects to confirmation screen"""
-    if current_user.role not in ['admin', 'warehouse_manager'] and current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
-        return redirect(url_for('index'))
-
-    batch_session = BatchPickingSession.query.get_or_404(batch_id)
-
-    if current_user.role not in ['admin', 'warehouse_manager'] and batch_session.assigned_to != current_user.username:
-        flash('You are not assigned to this batch picking session.', 'danger')
-        return redirect(url_for('batch.picker_batch_list'))
-
-    # Phase 4: claim-required gate applies to ALL pick actions
-    from services.batch_picking import is_claim_required as _is_claim_required
-    if _is_claim_required() and not getattr(batch_session, 'claimed_by', None):
-        flash('This batch requires explicit claim before picking.', 'warning')
-        return redirect(url_for('batch.picker_batch_list'))
-
-    # CRUCIAL FIX: Use our fixed item list from the session
-    # This prevents the list from changing during the batch picking process
-    fixed_batch_key = 'batch_items_' + str(batch_id)
-    
-    # Get the items from our fixed list instead of recalculating
-    if fixed_batch_key in session:
-        items = session[fixed_batch_key]
-        current_app.logger.info(f"Confirming batch item using fixed list: {len(items)} items, current index: {batch_session.current_item_index}")
-    else:
-        # Fallback to database query if session data is missing
-        items = batch_session.get_grouped_items()
-        
-        # Store for future access
-        if items:
-            # Create a fully detailed serialized list for session storage
-            serialized_items = []
-            for item in items:
-                serialized_item = {
-                    'item_code': item['item_code'],
-                    'item_name': item.get('item_name', 'Unknown Item'),
-                    'location': item['location'],
-                    'zone': item['zone'],
-                    'barcode': item.get('barcode', ''),
-                    'unit_type': item.get('unit_type', ''),
-                    'pack': item.get('pack', ''),
-                    'total_qty': item['total_qty'],
-                    'source_items': [
-                        {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
-                        for s in item['source_items']
-                    ]
-                }
-                serialized_items.append(serialized_item)
-            
-            # Store in session to prevent further recalculation
-            session[fixed_batch_key] = serialized_items
-            items = serialized_items
-            
-        current_app.logger.info(f"Fallback in confirm: Using database query, found {len(items if items else [])} items")
-    
-    # CRITICAL DEBUG INFO
-    current_app.logger.info(f"Confirm: Processing item at index {batch_session.current_item_index} of {len(items)} total")
-    
-    if not items or batch_session.current_item_index >= len(items):
-        flash('No more items to pick in this batch session.', 'info')
-        return redirect(url_for('batch.picker_batch_list'))
-    
-    # Get the current item
-    current_item = items[batch_session.current_item_index]
-    
-    # Get the picked quantity from the form
-    try:
-        picked_qty = int(request.form.get('picked_qty', 0))
-    except ValueError:
-        picked_qty = 0
-    
-    if picked_qty <= 0:
-        flash('Please enter a valid picked quantity.', 'danger')
-        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
-    
-    # Get the source items for this batch item
-    source_items = current_item['source_items']
-    total_required = current_item['total_qty']
-    
-    # Check the setting for showing product images on the confirmation screen
-    try:
-        show_product_image = Setting.get_json(db.session, 'show_product_image_confirmation', default=False)
-    except Exception as e:
-        current_app.logger.error(f"Error loading product image settings: {str(e)}")
-        show_product_image = False
-    
-    # Redirect to the confirmation screen
-    return render_template('batch_picking_confirm.html',
-                          batch_session=batch_session,
-                          item=current_item,
-                          picked_qty=picked_qty,
-                          total_items=len(items),
-                          current_index=batch_session.current_item_index,
-                          show_product_image=show_product_image,
-                          show_product_image_confirmation=show_product_image)
-
 @batch_bp.route('/picker/batch/complete-confirm/<int:batch_id>', methods=['POST'])
 @login_required
 def complete_batch_confirm(batch_id):
@@ -3697,7 +3510,8 @@ def force_complete_batch(batch_id):
             return redirect(url_for('batch.picker_batch_list'))
         
         # Check if user has permission to access this batch
-        if batch_session.assigned_to != current_user.username:
+        if (current_user.role not in ['admin', 'warehouse_manager']
+                and batch_session.assigned_to != current_user.username):
             flash('You are not assigned to this batch', 'danger')
             return redirect(url_for('batch.picker_batch_list'))
         
@@ -3770,252 +3584,6 @@ def force_complete_batch(batch_id):
         current_app.logger.error(f"Error force completing batch: {str(e)}")
         return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
 
-@batch_bp.route('/batch/<int:batch_id>/report_issue', methods=['POST'])
-@login_required
-def batch_report_issue(batch_id):
-    """Handle reporting an issue with a batch item"""
-    batch_session = BatchPickingSession.query.get_or_404(batch_id)
-    
-    # Check access
-    if current_user.role not in ['admin', 'warehouse_manager'] and batch_session.assigned_to != current_user.username:
-        flash('Access denied.', 'danger')
-        return redirect(url_for('batch.picker_batch_list'))
-    
-    # Get form data
-    issue_type = request.form.get('issueType', '')
-    picked_qty = int(request.form.get('pickedQuantity', 0))
-    notes = request.form.get('issueNotes', '')
-    
-    # Get current item info
-    fixed_batch_key = 'batch_items_' + str(batch_id)
-    if fixed_batch_key in session:
-        items = session[fixed_batch_key]
-        if batch_session.current_item_index < len(items):
-            current_item = items[batch_session.current_item_index]
-            
-            # If any quantity was picked, allocate it to customers
-            if picked_qty > 0:
-                # Use the same allocation logic as normal picking
-                source_items = current_item['source_items']
-                sorted_sources = sorted(source_items, key=lambda x: x['invoice_no'])
-                remaining_qty = picked_qty
-                
-                for source in sorted_sources:
-                    if remaining_qty <= 0:
-                        break
-                        
-                    invoice_no = source['invoice_no']
-                    item_code = source['item_code']
-                    required_qty = source['qty']
-                    
-                    # Allocate as much as possible to this invoice
-                    allocated_qty = min(remaining_qty, required_qty)
-                    
-                    if allocated_qty > 0:
-                        # Update the invoice item
-                        invoice_item = InvoiceItem.query.filter_by(
-                            invoice_no=invoice_no,
-                            item_code=item_code
-                        ).first()
-                        
-                        if invoice_item:
-                            # Update the invoice item
-                            invoice_item.picked_qty = allocated_qty
-                            invoice_item.is_picked = True
-                            invoice_item.pick_status = 'picked'
-                            
-                            # Record the batch picked item (prevent duplicates)
-                            existing_batch_picked = BatchPickedItem.query.filter_by(
-                                batch_session_id=batch_id,
-                                invoice_no=invoice_no,
-                                item_code=item_code
-                            ).first()
-                            
-                            if existing_batch_picked:
-                                # Update existing record instead of creating duplicate
-                                existing_batch_picked.picked_qty = allocated_qty
-                            else:
-                                # Create new record
-                                batch_picked = BatchPickedItem(
-                                    batch_session_id=batch_id,
-                                    invoice_no=invoice_no,
-                                    item_code=item_code,
-                                    picked_qty=allocated_qty
-                                )
-                                db.session.add(batch_picked)
-                            
-                            # Create exception if partially allocated
-                            if allocated_qty != required_qty:
-                                exception = PickingException(
-                                    invoice_no=invoice_no,
-                                    item_code=item_code,
-                                    expected_qty=required_qty,
-                                    picked_qty=allocated_qty,
-                                    picker_username=current_user.username,
-                                    reason=f"Batch picking (issue reported): {allocated_qty} allocated, {required_qty} required. Issue: {issue_type}. Notes: {notes}"
-                                )
-                                db.session.add(exception)
-                            
-                            # Reduce the remaining quantity
-                            remaining_qty -= allocated_qty
-                
-                # Record activity for allocated items
-                activity = ActivityLog(
-                    picker_username=current_user.username,
-                    activity_type='batch_item_issue',
-                    details=f"Batch {batch_id}: Issue reported for {current_item['item_code']} - {picked_qty} allocated to customers. Issue: {issue_type}"
-                )
-                db.session.add(activity)
-            
-            # Create exceptions for customers who didn't receive their items
-            total_required = current_item['total_qty']
-            if picked_qty < total_required:
-                # Find customers who didn't get their items
-                source_items = current_item['source_items']
-                sorted_sources = sorted(source_items, key=lambda x: x['invoice_no'])
-                allocated_so_far = picked_qty
-                
-                for source in sorted_sources:
-                    invoice_no = source['invoice_no']
-                    item_code = source['item_code']
-                    required_qty = source['qty']
-                    
-                    if allocated_so_far >= required_qty:
-                        # This customer got their full allocation
-                        allocated_so_far -= required_qty
-                    else:
-                        # This customer is short
-                        shortage = required_qty - allocated_so_far
-                        if allocated_so_far > 0:
-                            # Partial allocation already recorded above
-                            allocated_so_far = 0
-                        else:
-                            # No allocation for this customer
-                            exception = PickingException(
-                                invoice_no=invoice_no,
-                                item_code=item_code,
-                                expected_qty=required_qty,
-                                picked_qty=0,
-                                picker_username=current_user.username,
-                                reason=f"Batch picking (issue reported): No items available. Issue: {issue_type}. Notes: {notes}"
-                            )
-                            db.session.add(exception)
-            
-            # Move to next item
-            batch_session.current_item_index += 1
-            db.session.commit()
-    
-    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
-
-def delete_batch_comprehensive(batch_id, batch_name, admin_username):
-    """
-    Comprehensive batch deletion that cleans up all related data
-    
-    Args:
-        batch_id: ID of the batch to delete
-        batch_name: Name of the batch for logging
-        admin_username: Username of admin performing deletion
-    
-    Returns:
-        Summary string of what was deleted
-    """
-    deletion_counts = {
-        'batch_picked_items': 0,
-        'batch_session_invoices': 0,
-        'activity_logs': 0,
-        'picking_exceptions': 0,
-        'unlocked_items': 0
-    }
-    
-    # 1. Unlock items that were locked by this batch
-    from batch_locking_utils import unlock_items_for_batch
-    deletion_counts['unlocked_items'] = unlock_items_for_batch(batch_id, preserve_picked=False)
-
-    # 1b. Cooler-specific teardown: cancel any open boxes.
-    _batch_obj = BatchPickingSession.query.get(batch_id)
-    if _batch_obj and getattr(_batch_obj, 'session_type', None) == 'cooler_route':
-        db.session.execute(
-            text("""
-                UPDATE cooler_boxes
-                SET status = 'cancelled'
-                WHERE cooler_session_id = :sid
-                  AND status NOT IN ('closed', 'loaded', 'delivered')
-            """),
-            {"sid": batch_id},
-        )
-
-    # 1c. Recompute invoice statuses for ALL batch types — without this,
-    # items sent to a batch and then deleted leave the invoice stuck in
-    # 'awaiting_batch_items' even though its locks have been released.
-    _affected = db.session.execute(
-        text("""
-            SELECT DISTINCT invoice_no
-            FROM batch_session_invoices
-            WHERE batch_session_id = :sid
-        """),
-        {"sid": batch_id},
-    ).fetchall()
-    from batch_aware_order_status import update_order_status_batch_aware
-    for _row in _affected:
-        try:
-            update_order_status_batch_aware(_row[0])
-        except Exception as _e:
-            current_app.logger.warning("delete_batch_comprehensive: status recompute failed for %s: %s", _row[0], _e)
-
-    # 2. Delete batch picked items
-    deletion_counts['batch_picked_items'] = BatchPickedItem.query.filter_by(batch_session_id=batch_id).count()
-    BatchPickedItem.query.filter_by(batch_session_id=batch_id).delete()
-    
-    # 3. Delete picking exceptions related to this batch
-    batch_exceptions = PickingException.query.filter(
-        (PickingException.reason.contains(f'batch {batch_id}')) |
-        (PickingException.reason.contains(f'Batch {batch_id}')) |
-        (PickingException.reason.contains(batch_name))
-    ).all()
-    deletion_counts['picking_exceptions'] = len(batch_exceptions)
-    for exception in batch_exceptions:
-        db.session.delete(exception)
-    
-    # 4. Delete activity logs related to this batch
-    batch_logs = ActivityLog.query.filter(
-        (ActivityLog.details.contains(f'batch {batch_id}')) |
-        (ActivityLog.details.contains(f'Batch {batch_id}')) |
-        (ActivityLog.details.contains(batch_name))
-    ).all()
-    deletion_counts['activity_logs'] = len(batch_logs)
-    for log in batch_logs:
-        db.session.delete(log)
-    
-    # 5. Delete batch session invoices
-    deletion_counts['batch_session_invoices'] = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).count()
-    BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).delete()
-    
-    # 6. Delete the batch session itself
-    batch_session = BatchPickingSession.query.get(batch_id)
-    if batch_session:
-        db.session.delete(batch_session)
-    
-    # 7. Create deletion activity log (use valid username from users table)
-    deletion_log = ActivityLog(
-        picker_username='administrator',
-        activity_type='BATCH_DELETED',
-        details=f'Comprehensive deletion of batch {batch_name} (ID: {batch_id}) by {admin_username}. '
-               f'Cleaned up: {deletion_counts["batch_picked_items"]} picked items, '
-               f'{deletion_counts["batch_session_invoices"]} invoice links, '
-               f'{deletion_counts["activity_logs"]} activity logs, '
-               f'{deletion_counts["picking_exceptions"]} exceptions, '
-               f'{deletion_counts["unlocked_items"]} unlocked items'
-    )
-    db.session.add(deletion_log)
-    
-    # Commit all changes
-    db.session.commit()
-    
-    # Return summary
-    return (f"Removed {deletion_counts['batch_picked_items']} picked items, "
-           f"{deletion_counts['activity_logs']} logs, "
-           f"{deletion_counts['picking_exceptions']} exceptions, "
-           f"unlocked {deletion_counts['unlocked_items']} items")
 
 @batch_bp.route('/batch/delete/<int:batch_id>', methods=['POST'])
 @login_required
@@ -4781,12 +4349,16 @@ def batch_admin_print_report(batch_id):
                         exception_data = item_data.copy()
                         exception_data['shortage_qty'] = original_qty - allocated_qty
                         exception_data['reason'] = f"Shortage: {allocated_qty} allocated, {original_qty} required"
+                        exception_data['pick_status'] = 'skipped' if item.pick_status == 'skipped_pending' else 'exception'
+                        exception_data['skip_reason'] = item.skip_reason or ''
                         exception_items.append(exception_data)
                 elif original_qty > 0:
                     # No allocation but was required - full exception
                     exception_data = item_data.copy()
                     exception_data['shortage_qty'] = original_qty
                     exception_data['reason'] = f"Not allocated: 0 received, {original_qty} required"
+                    exception_data['pick_status'] = 'skipped' if item.pick_status == 'skipped_pending' else 'exception'
+                    exception_data['skip_reason'] = item.skip_reason or ''
                     exception_items.append(exception_data)
         
         # Also check for picking exceptions in the database, but only for items in batch scope

@@ -256,7 +256,7 @@ def batch_badge_filter(invoice_no):
                   BatchSessionInvoice.batch_session_id == BatchPickingSession.id)
             .filter(
                 BatchSessionInvoice.invoice_no == invoice_no,
-                BatchPickingSession.status.in_(['Created', 'In Progress', 'Assigned']),
+                BatchPickingSession.status.in_(['Created', 'Active', 'picking', 'Paused']),
                 BatchPickingSession.deleted_at.is_(None),
             )
             .all()
@@ -267,7 +267,7 @@ def batch_badge_filter(invoice_no):
         for b in rows:
             label = b.batch_number or f'BATCH-{b.id}'
             colour = 'bg-info' if b.status == 'In Progress' else 'bg-secondary'
-            link = url_for('batch.batch_picking_view', batch_id=b.id)
+            link = url_for('batch.batch_picking_manage')
             parts.append(
                 f'<a href="{link}" class="badge {colour} ms-1 text-decoration-none" '
                 f'title="In batch: {b.name}">'

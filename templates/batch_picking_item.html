@@ -112,32 +112,6 @@
     <p class="text-white mt-3">Processing...</p>
 </div>
 
-<!-- New Order Notification for Sequential Mode -->
-{% if batch_session.picking_mode == 'Sequential' and item.is_new_order %}
-<div class="alert alert-info alert-dismissible fade show mb-3" role="alert" style="border-left: 5px solid #007bff; background-color: #e7f3ff;">
-    <div class="row align-items-center">
-        <div class="col-auto">
-            <i class="fas fa-clipboard-list fa-2x text-primary"></i>
-        </div>
-        <div class="col">
-            <h4 class="alert-heading mb-2">Starting New Order</h4>
-            <div class="row">
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Invoice:</strong> {{ item.current_invoice }}</p>
-                    <p class="mb-1"><strong>Customer:</strong> {{ item.customer_name or 'N/A' }}</p>
-                </div>
-                <div class="col-md-6">
-                    <p class="mb-1"><strong>Items:</strong> {{ item.order_total_items or 'N/A' }}</p>
-                    <p class="mb-1"><strong>Weight:</strong> {{ "%.1f"|format(item.order_total_weight or 0) }} kg</p>
-                </div>
-            </div>
-            <p class="mb-0 text-muted"><small>Order {{ item.invoice_position }} in this batch</small></p>
-        </div>
-    </div>
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endif %}
-
 <!-- Batch ID and Progress -->
 <div class="card mb-3 batch-info-card">
     <div class="card-body py-2">
@@ -158,9 +132,6 @@
             </div>
             <div class="col-md-6 text-md-end">
                 <span class="badge bg-primary">{{ current_index + 1 }} of {{ total_items }} items</span>
-                {% if batch_session.picking_mode == 'Sequential' %}
-                    <span class="badge bg-secondary ms-1">Order {{ item.invoice_position }}</span>
-                {% endif %}
             </div>
         </div>
         {% if batch_session.zones %}
@@ -535,66 +506,6 @@
                     <button type="button" id="submitSkipBtn" class="btn btn-warning">Skip Item</button>
                 </div>
             </form>
-        </div>
-    </div>
-</div>
-
-<!-- Report Issue Modal -->
-<div class="modal fade" id="reportIssueModal" tabindex="-1" aria-labelledby="reportIssueModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="reportIssueModalLabel">Report Issue</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="reportIssueForm" action="{{ url_for('batch.batch_report_issue', batch_id=batch_session.id) }}" method="POST">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Issue Type:</label>
-                        <div class="row">
-                            <div class="col-6 mb-2">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="issueType" id="notFound" value="Not Found">
-                                    <label class="form-check-label" for="notFound">Not Found</label>
-                                </div>
-                            </div>
-                            <div class="col-6 mb-2">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="issueType" id="damaged" value="Damaged">
-                                    <label class="form-check-label" for="damaged">Damaged</label>
-                                </div>
-                            </div>
-                            <div class="col-6 mb-2">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="issueType" id="wrongLabel" value="Wrong Label">
-                                    <label class="form-check-label" for="wrongLabel">Wrong Label</label>
-                                </div>
-                            </div>
-                            <div class="col-6 mb-2">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="issueType" id="other" value="Other">
-                                    <label class="form-check-label" for="other">Other</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="pickedQuantity" class="form-label fw-bold">Actual Picked Quantity:</label>
-                        <input type="number" class="form-control" id="pickedQuantity" name="pickedQuantity" value="0" min="0" max="{{ item.total_qty }}" placeholder="Enter quantity actually picked">
-                        <small class="text-muted">Expected: {{ item.total_qty }} {{ item.unit_type }}</small>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="issueNotes" class="form-label">Notes (Optional):</label>
-                        <textarea class="form-control" id="issueNotes" name="issueNotes" rows="3" placeholder="Additional details about the issue..."></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="submitIssueBtn">Submit Issue</button>
-            </div>
         </div>
     </div>
 </div>
