@@ -5,6 +5,7 @@ from app import db
 from models import InvoiceItem, BatchPickingSession
 from sqlalchemy import and_
 import logging
+from services.batch_status import ACTIVE_BATCH_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +264,7 @@ def check_batch_conflicts(zones_list, corridors_list=None, invoice_nos=None, uni
             BatchPickingSession, InvoiceItem.locked_by_batch_id == BatchPickingSession.id
         ).filter(
             and_(*filter_conditions),
-            BatchPickingSession.status.in_(['Created', 'In Progress', 'Assigned'])  # Active batch statuses
+            BatchPickingSession.status.in_(ACTIVE_BATCH_STATUSES)
         ).all()
         
         if not conflicting_items:

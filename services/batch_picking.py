@@ -63,9 +63,9 @@ class BatchConflict(Exception):
 
 
 def is_db_queue_enabled():
-    """Read ``use_db_backed_picking_queue`` flag (defaults OFF)."""
+    """Read ``use_db_backed_picking_queue`` flag (defaults ON — Phase A)."""
     try:
-        return Setting.get(db.session, "use_db_backed_picking_queue", "false").lower() == "true"
+        return Setting.get(db.session, "use_db_backed_picking_queue", "true").lower() == "true"
     except Exception:
         return False
 
@@ -212,6 +212,7 @@ def rebuild_items_from_queue(batch_id):
             'invoice_no': r.invoice_no,
             'item_code': r.item_code,
             'qty': int(r.qty_required or 0),
+            'expected_pick_pieces': int(r.qty_required or 0),
         })
     if is_sequential:
         # Order like a normal Sequential batch: one customer/invoice at a

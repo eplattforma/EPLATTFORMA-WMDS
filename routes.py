@@ -713,7 +713,7 @@ def admin_dashboard():
         import logging as _oblog
         _oblog.getLogger(__name__).warning("admin_dashboard: cooler_open_boxes query failed: %s", _obe)
 
-    open_batch_statuses = ['Created', 'In Progress', 'Active', 'Paused', 'picking']
+    from services.batch_status import ACTIVE_BATCH_STATUSES as open_batch_statuses
     open_batch_sessions = BatchPickingSession.query.filter(
         BatchPickingSession.status.in_(open_batch_statuses),
         BatchPickingSession.archived_at.is_(None),
@@ -3842,7 +3842,7 @@ def pick_item(invoice_no):
                bps.name as lock_batch_name
         FROM invoice_items ii
         LEFT JOIN batch_picking_sessions bps ON ii.locked_by_batch_id = bps.id 
-            AND bps.status IN ('Created', 'Active', 'Paused')
+            AND bps.status IN ('Created', 'Active', 'picking', 'Paused')
         WHERE ii.invoice_no = :invoice_no
     """)
     

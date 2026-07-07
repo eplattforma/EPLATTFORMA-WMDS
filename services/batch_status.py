@@ -11,6 +11,11 @@ Helpers replace scattered ``status in (...)`` checks across
 actual stored string values.
 """
 
+# Ordered lists for use in SQLAlchemy .in_() and raw SQL IN clauses.
+# These replace every scattered hardcoded list of batch statuses.
+ACTIVE_BATCH_STATUSES = ['Created', 'Active', 'picking', 'Paused']
+TERMINAL_BATCH_STATUSES = ['Completed', 'Cancelled', 'Archived']
+
 # Canonical sets (case-insensitive comparison via _norm() below).
 ACTIVE = {"created", "in progress", "picking", "active", "paused"}
 TERMINAL = {"completed", "cancelled", "archived"}

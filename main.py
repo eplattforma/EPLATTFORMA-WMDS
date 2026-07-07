@@ -266,7 +266,7 @@ def batch_badge_filter(invoice_no):
         parts = []
         for b in rows:
             label = b.batch_number or f'BATCH-{b.id}'
-            colour = 'bg-info' if b.status == 'In Progress' else 'bg-secondary'
+            colour = 'bg-info' if b.status in ('picking', 'Active') else 'bg-secondary'
             link = url_for('batch.batch_picking_manage')
             parts.append(
                 f'<a href="{link}" class="badge {colour} ms-1 text-decoration-none" '

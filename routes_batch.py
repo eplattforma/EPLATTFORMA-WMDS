@@ -13,6 +13,7 @@ from models import User, Invoice, InvoiceItem, PickingException, BatchPickingSes
 from sorting_utils import sort_batch_items, get_sorting_config
 from services.permissions import require_permission
 from services.picking_utils import get_picking_eligible_users
+from services.batch_status import ACTIVE_BATCH_STATUSES
 
 # Create a blueprint for batch picking routes
 batch_bp = Blueprint('batch', __name__)
@@ -239,7 +240,7 @@ def batch_picking_manage():
 
     # Get active batch sessions
     active_sessions = BatchPickingSession.query.filter(
-        BatchPickingSession.status.in_(['Created', 'picking', 'Active', 'Paused'])
+        BatchPickingSession.status.in_(ACTIVE_BATCH_STATUSES)
     ).order_by(BatchPickingSession.created_at.desc()).all()
 
     # Get completed batch sessions
@@ -1139,7 +1140,7 @@ def filter_invoices_for_batch():
     # Step 2: Get all invoices with items in selected zones first, then filter items later
     # This ensures we don't exclude entire invoices just because some items are locked
     active_batch_ids = [batch.id for batch in db.session.query(BatchPickingSession).filter(
-        BatchPickingSession.status.in_(['Created', 'In Progress', 'Assigned'])
+        BatchPickingSession.status.in_(ACTIVE_BATCH_STATUSES)
     ).all()]
     
     current_app.logger.info(f"Active batches: {len(active_batch_ids)} batches: {active_batch_ids}")
@@ -1513,7 +1514,7 @@ def batch_picking_create():
         
         # Get active batch IDs to exclude locked items
         active_batch_ids = [batch.id for batch in db.session.query(BatchPickingSession).filter(
-            BatchPickingSession.status.in_(['Created', 'In Progress', 'Assigned'])
+            BatchPickingSession.status.in_(ACTIVE_BATCH_STATUSES)
         ).all()]
         
         item_filter_conditions = [
@@ -2290,31 +2291,36 @@ def batch_picking_item(batch_id):
             })
         return out
 
-    # Phase 4: queue-as-source-of-truth resume for DB-backed batches.
-    # For cooler_route sessions we rebuild from box plan instead of the queue,
-    # because queue items lack box metadata required by the box-first UI.
+    # Phase A: DB-backed batches read directly from the queue every request.
+    # This eliminates the cookie-overflow bug (>15-item batches losing order).
+    # Cooler-route batches keep the cookie path because box metadata (box_id,
+    # box_no, is_last_item_in_box) lives outside the queue.
     from services.batch_picking import (
         is_db_backed_batch as _is_db_backed,
         rebuild_items_from_queue as _rebuild_from_queue,
     )
-    if fixed_batch_key not in session and _is_db_backed(batch_id):
-        if getattr(batch_session, 'session_type', None) == 'cooler_route':
-            _resume_items = build_cooler_box_picking_items(batch_session)
-            rebuilt = _serialize_cooler_box_items(_resume_items)
-        else:
-            rebuilt = _rebuild_from_queue(batch_id)
+    if _is_db_backed(batch_id) and getattr(batch_session, 'session_type', None) != 'cooler_route':
+        # Queue IS the pointer — pending rows only, always items[0] is current.
+        items = _rebuild_from_queue(batch_id)
+        batch_session.current_item_index = 0
+        current_app.logger.info(
+            "queue-primary: %d pending item(s) for batch %s",
+            len(items), batch_id,
+        )
+    elif fixed_batch_key not in session and _is_db_backed(batch_id):
+        # Cooler-route DB-backed resume via box plan (box metadata not in queue).
+        _resume_items = build_cooler_box_picking_items(batch_session)
+        rebuilt = _serialize_cooler_box_items(_resume_items)
         session[fixed_batch_key] = rebuilt
         batch_session.current_item_index = 0
         batch_session.current_invoice_index = 0
         db.session.commit()
         current_app.logger.info(
-            "queue-resume: rebuilt %d item(s) for batch %s (cooler_route=%s)",
+            "queue-resume cooler: rebuilt %d item(s) for batch %s",
             len(rebuilt), batch_id,
-            getattr(batch_session, 'session_type', None) == 'cooler_route',
         )
-
-    # Now use our fixed item list
-    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+    elif fixed_batch_key in session:
         items = session[fixed_batch_key]
         current_app.logger.info(f"Using fixed batch list: {len(items)} items, current index: {batch_session.current_item_index}")
     else:
@@ -2452,26 +2458,44 @@ def batch_picking_item(batch_id):
                 InvoiceItem.pick_status == 'skipped_pending',
             ).all()
         else:
-            zones_list = batch_session.zones.split(',')
-            # Find skipped items that need to be resolved - only in scope for this batch
-            skipped_filter_conditions = [
-                InvoiceItem.invoice_no.in_(invoice_nos),
-                InvoiceItem.zone.in_(zones_list),
-                InvoiceItem.pick_status == 'skipped_pending'
-            ]
-            # Add corridor filter if corridors are specified for this batch
-            if batch_session.corridors:
-                corridors_list = [c.strip() for c in batch_session.corridors.split(',')]
-                skipped_filter_conditions.append(InvoiceItem.corridor.in_(corridors_list))
+            # Scope by batch lock — mirrors the Cooler branch directly above and
+            # FIX-002 principle: the lock, not zone filters, defines membership.
+            # This prevents a different batch's skipped item in the same zone/invoice
+            # from being presented to this picker.
             skipped_items = InvoiceItem.query.filter(
-                and_(*skipped_filter_conditions)
+                InvoiceItem.locked_by_batch_id == batch_id,
+                InvoiceItem.pick_status == 'skipped_pending',
             ).all()
         
         if skipped_items:
             # There are skipped items - add them back to the batch for resolution
             current_app.logger.info(f"Skip and collect: Found {len(skipped_items)} skipped items to resolve")
-            
-            # Create a new list with skipped items grouped like the original batch
+
+            # For DB-backed non-cooler batches the queue is the work-list.
+            # Reset 'skipped_pending' rows to 'pending' so the next
+            # rebuild_items_from_queue call surfaces them again — no cookie update needed.
+            from services.batch_picking import is_db_backed_batch as _is_db_backed_recycle
+            if (
+                _is_db_backed_recycle(batch_id)
+                and getattr(batch_session, 'session_type', None) != 'cooler_route'
+            ):
+                db.session.execute(
+                    text(
+                        "UPDATE batch_pick_queue "
+                        "SET status = 'pending', updated_at = NOW() "
+                        "WHERE batch_session_id = :bid "
+                        "  AND status = 'skipped_pending'"
+                    ),
+                    {"bid": batch_id},
+                )
+                db.session.commit()
+                flash(
+                    f'Please resolve {len(skipped_items)} skipped item(s) before completing the batch.',
+                    'warning',
+                )
+                return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+
+            # Legacy path: rebuild the cookie list from InvoiceItem skipped rows.
             skipped_batch_items = []
             item_groups = {}
             
@@ -2951,73 +2975,71 @@ def complete_batch_confirm(batch_id):
                     batch_invoice.is_completed = True
         
         else:  # Consolidated mode
-            # Need to allocate the picked quantity across invoices
-            # We'll prioritize allocating to the earliest invoices first
-            
-            # Sort source items by invoice number (assuming invoice numbers are chronological)
+            # Allocate picked_qty to invoices in invoice-number order (earliest first).
+            # Every source — including zero-allocation ones — gets an InvoiceItem update,
+            # a BatchPickedItem record, and (when short/excepted) a PickingException.
+            # No early break: customers cut to zero must still advance out of
+            # awaiting_batch_items and appear in reports.
             sorted_sources = sorted(source_items, key=lambda x: x['invoice_no'])
-            
+
+            # First pass: compute allocations
             remaining_qty = picked_qty
-            
+            allocated_map = {}
+            for source in sorted_sources:
+                alloc = min(remaining_qty, source['qty'])
+                allocated_map[(source['invoice_no'], source['item_code'])] = alloc
+                remaining_qty -= alloc
+
+            # Second pass: persist every source
             for source in sorted_sources:
                 invoice_no = source['invoice_no']
                 item_code = source['item_code']
                 required_qty = source['qty']
-                
-                # Allocate as much as possible to this invoice
-                allocated_qty = min(remaining_qty, required_qty)
+                allocated_qty = allocated_map[(invoice_no, item_code)]
 
-                if allocated_qty > 0 or is_exception:
-                    # Update the invoice item
-                    invoice_item = InvoiceItem.query.filter_by(
+                invoice_item = InvoiceItem.query.filter_by(
+                    invoice_no=invoice_no,
+                    item_code=item_code
+                ).first()
+
+                if not invoice_item:
+                    continue
+
+                # Exception for any discrepancy (short pick or zero allocation)
+                if allocated_qty != required_qty or is_exception:
+                    db.session.add(PickingException(
                         invoice_no=invoice_no,
-                        item_code=item_code
-                    ).first()
+                        item_code=item_code,
+                        expected_qty=required_qty,
+                        picked_qty=allocated_qty,
+                        picker_username=current_user.username,
+                        reason=(exception_reason if is_exception
+                                else f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required"),
+                    ))
 
-                    if invoice_item:
-                        # Record any exceptions if there's a discrepancy
-                        if allocated_qty != required_qty or is_exception:
-                            exception = PickingException(
-                                invoice_no=invoice_no,
-                                item_code=item_code,
-                                expected_qty=required_qty,
-                                picked_qty=allocated_qty,
-                                picker_username=current_user.username,
-                                reason=(exception_reason if is_exception
-                                        else f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required")
-                            )
-                            db.session.add(exception)
+                invoice_item.picked_qty = allocated_qty
+                invoice_item.is_picked = True
+                invoice_item.pick_status = (
+                    'exception'
+                    if (is_exception or allocated_qty != required_qty)
+                    else 'picked'
+                )
 
-                        # Update the invoice item
-                        invoice_item.picked_qty = allocated_qty
-                        invoice_item.is_picked = True
-                        invoice_item.pick_status = 'exception' if is_exception else 'picked'
-                        
-                        # Record the batch picked item (prevent duplicates)
-                        existing_batch_picked = BatchPickedItem.query.filter_by(
-                            batch_session_id=batch_id,
-                            invoice_no=invoice_no,
-                            item_code=item_code
-                        ).first()
-                        
-                        if existing_batch_picked:
-                            # Update existing record instead of creating duplicate
-                            existing_batch_picked.picked_qty = allocated_qty
-                        else:
-                            # Create new record
-                            batch_picked = BatchPickedItem(
-                                batch_session_id=batch_id,
-                                invoice_no=invoice_no,
-                                item_code=item_code,
-                                picked_qty=allocated_qty
-                            )
-                            db.session.add(batch_picked)
-                        
-                        # Reduce the remaining quantity
-                        remaining_qty -= allocated_qty
-                        
-                        if remaining_qty <= 0:
-                            break  # No more quantity to allocate
+                # BatchPickedItem upsert (runs for ALL sources, including qty 0)
+                existing_batch_picked = BatchPickedItem.query.filter_by(
+                    batch_session_id=batch_id,
+                    invoice_no=invoice_no,
+                    item_code=item_code
+                ).first()
+                if existing_batch_picked:
+                    existing_batch_picked.picked_qty = allocated_qty
+                else:
+                    db.session.add(BatchPickedItem(
+                        batch_session_id=batch_id,
+                        invoice_no=invoice_no,
+                        item_code=item_code,
+                        picked_qty=allocated_qty,
+                    ))
         
         # Phase 4: mirror this line's outcome into ``batch_pick_queue`` (and,
         # for cooler routes, ``cooler_box_items``) so refresh / restart resumes
@@ -3933,6 +3955,8 @@ def skip_batch_item(batch_id):
         skip_reason = request.form.get('other_skip_reason')
     
     is_cooler_batch = getattr(batch_session, 'session_type', None) == 'cooler_route'
+    from services.batch_picking import is_db_backed_batch as _is_db_backed_skip
+    _is_queue_backed = _is_db_backed_skip(batch_id)
 
     try:
         # Process all source items
@@ -3952,12 +3976,11 @@ def skip_batch_item(batch_id):
                 invoice_item.skip_timestamp = utc_now_for_db()
                 invoice_item.skip_count += 1
 
-            # For cooler route batches the DB queue is the source of truth.
-            # Mark the queue row as skipped_pending (collect-later, NOT a
-            # terminal exception) so rebuild_items_from_queue excludes it from
-            # the active pass and the end-of-run recycle brings it back until
-            # the picker resolves it.
-            if is_cooler_batch:
+            # For DB-backed batches (including cooler-route) the queue is the
+            # source of truth. Mark the queue row skipped_pending so that
+            # rebuild_items_from_queue excludes it from the active pass and
+            # the end-of-run recycle brings it back until the picker resolves.
+            if is_cooler_batch or _is_queue_backed:
                 from sqlalchemy import text as _text
                 db.session.execute(
                     _text(
@@ -4202,57 +4225,84 @@ def batch_print_reports(batch_id):
             'routing_label': _routing_label_for_invoice(invoice, stop_seq_lookup),
         })
     
-    # Get batch invoices with proper data structure for template
-    batch_invoices_with_data = []
-    invoice_items = {}  # Dictionary expected by template
-    
-    for bi in batch_invoices:
-        invoice = Invoice.query.get(bi.invoice_no)
-        if invoice:
-            # Calculate actual picked vs required for this invoice
-            batch_picked_items = BatchPickedItem.query.filter_by(
-                batch_session_id=batch_id,
-                invoice_no=invoice.invoice_no
-            ).all()
-            
-            # Create lookup for allocated quantities
-            batch_picked_lookup = {item.item_code: item.picked_qty for item in batch_picked_items}
-            
-            # Get original items that are actually locked by this batch
-            original_items = InvoiceItem.query.filter(
-                InvoiceItem.invoice_no == invoice.invoice_no,
-                InvoiceItem.locked_by_batch_id == batch_session.id
-            ).all()
-            
-            # Calculate actual status based on allocations
-            total_required = len(original_items)
-            total_allocated = len(batch_picked_items)
-            
-            # Update invoice completion status
-            if total_allocated == total_required:
-                # Check if all allocations match requirements
-                full_completion = True
-                for item in original_items:
-                    allocated = batch_picked_lookup.get(item.item_code, 0)
-                    if allocated != item.qty:
-                        full_completion = False
-                        break
-                bi.completion_status = "Completed" if full_completion else "In Progress"
-            elif total_allocated > 0:
-                bi.completion_status = "In Progress"
-            else:
-                bi.completion_status = "Not Started"
-            
-            batch_invoices_with_data.append((bi, invoice))
-            invoice_items[invoice.invoice_no] = original_items
-    
-    # Render the print reports page
-    return render_template('batch_print_reports.html',
-                          batch=batch_session,
-                          batch_session=batch_session,
-                          batch_invoices=batch_invoices_with_data,
-                          invoice_items=invoice_items,
-                          invoices_data=invoices_data)
+    # Build unified report contract from invoices_data
+    invoices_out = []
+    for inv_data in invoices_data:
+        invoice = inv_data['invoice']
+        picked = []
+        problems = []
+        total_lines = 0
+        total_units = 0
+        total_weight = 0.0
+        picked_count = 0
+
+        for d in inv_data['batch_picked']:
+            itm = d['item']
+            total_lines += 1
+            total_units += itm.qty or 0
+            total_weight += (itm.item_weight or 0) * (itm.qty or 0)
+            picked_count += 1
+            picked.append({
+                'item_code': itm.item_code,
+                'item_name': itm.item_name or '',
+                'location': itm.location or '',
+                'unit_type': itm.unit_type or '',
+                'pack': itm.pack or '',
+                'qty': itm.qty or 0,
+                'picked_qty': d['picked_qty'],
+                'source': 'batch',
+            })
+
+        for d in inv_data['manually_picked']:
+            itm = d['item']
+            total_lines += 1
+            total_units += itm.qty or 0
+            total_weight += (itm.item_weight or 0) * (itm.qty or 0)
+            picked_count += 1
+            picked.append({
+                'item_code': itm.item_code,
+                'item_name': itm.item_name or '',
+                'location': itm.location or '',
+                'unit_type': itm.unit_type or '',
+                'pack': itm.pack or '',
+                'qty': itm.qty or 0,
+                'picked_qty': d['picked_qty'],
+                'source': 'manual',
+            })
+
+        for itm in inv_data['unpicked']:
+            total_lines += 1
+            total_units += itm.qty or 0
+            total_weight += (itm.item_weight or 0) * (itm.qty or 0)
+            problems.append({
+                'item_code': itm.item_code,
+                'item_name': itm.item_name or '',
+                'location': itm.location or '',
+                'unit_type': itm.unit_type or '',
+                'pack': itm.pack or '',
+                'qty': itm.qty or 0,
+                'picked_qty': itm.picked_qty or 0,
+                'status': itm.pick_status or 'unpicked',
+                'reason': itm.skip_reason or '',
+            })
+
+        completion_pct = (picked_count / total_lines * 100) if total_lines > 0 else 0
+        invoices_out.append({
+            'invoice': invoice,
+            'routing_label': inv_data['routing_label'],
+            'picked': picked,
+            'problems': problems,
+            'total_lines': total_lines,
+            'total_units': total_units,
+            'total_weight': total_weight,
+            'completion_pct': completion_pct,
+        })
+
+    return render_template('batch_report.html',
+                           batch=batch_session,
+                           generated_at=get_local_time(),
+                           picker_name=batch_session.assigned_to or 'Unassigned',
+                           invoices=invoices_out)
 
 @batch_bp.route('/admin/batch/print-report/<int:batch_id>')
 @login_required
@@ -4426,25 +4476,48 @@ def batch_admin_print_report(batch_id):
         
         completion_percentage = (total_picked_items / total_lines * 100) if total_lines > 0 else 0
         
-        # Include ALL invoices that are part of this batch (total_lines > 0)
-        # This ensures the sort order is preserved
         if total_lines > 0:
+            picked_out = []
+            for item in picked_items:
+                picked_out.append({
+                    'item_code': item['item_code'],
+                    'item_name': item['item_name'],
+                    'location': item.get('location') or '',
+                    'unit_type': item.get('unit_type') or '',
+                    'pack': item.get('pack') or '',
+                    'qty': item['qty'],
+                    'picked_qty': item['picked_qty'],
+                    'source': 'batch',
+                })
+            problems_out = []
+            for item in exception_items:
+                problems_out.append({
+                    'item_code': item['item_code'],
+                    'item_name': item['item_name'],
+                    'location': item.get('location') or '',
+                    'unit_type': item.get('unit_type') or '',
+                    'pack': item.get('pack') or '',
+                    'qty': item['qty'],
+                    'picked_qty': item['picked_qty'],
+                    'status': item.get('pick_status') or 'exception',
+                    'reason': item.get('reason') or '',
+                })
             invoices.append({
                 'invoice': invoice,
-                'picked_items': picked_items,
-                'exception_items': exception_items,
-                'unpicked_items': [],  # We'll handle unpicked items separately
+                'routing_label': _routing_label_for_invoice(invoice, stop_seq_lookup),
+                'picked': picked_out,
+                'problems': problems_out,
                 'total_lines': total_lines,
                 'total_units': total_units,
                 'total_weight': total_weight,
-                'completion_percentage': completion_percentage,
-                'routing_label': _routing_label_for_invoice(invoice, stop_seq_lookup),
+                'completion_pct': completion_percentage,
             })
-    
-    return render_template('batch_admin_print_report.html',
-                          batch_session=batch_session,
-                          invoices=invoices,
-                          current_time=current_time)
+
+    return render_template('batch_report.html',
+                           batch=batch_session,
+                           generated_at=current_time,
+                           picker_name=batch_session.assigned_to or 'Unassigned',
+                           invoices=invoices)
 
 
 @batch_bp.route('/route-batch/<int:route_id>/lock', methods=['POST'])
