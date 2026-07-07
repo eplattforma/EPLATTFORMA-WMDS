@@ -73,7 +73,7 @@ def get_remaining_locked_items_count(batch_session, invoice_no):
         InvoiceItem.invoice_no == invoice_no,
         InvoiceItem.locked_by_batch_id == batch_session.id,
         InvoiceItem.is_picked == False,
-        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING'])
+        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING', 'SENT_TO_BATCH'])
     ).count()
 
 def find_next_incomplete_invoice_index(batch_session, invoice_order):
@@ -82,7 +82,7 @@ def find_next_incomplete_invoice_index(batch_session, invoice_order):
     invoices_with_items = db.session.query(InvoiceItem.invoice_no).filter(
         InvoiceItem.locked_by_batch_id == batch_session.id,
         InvoiceItem.is_picked == False,
-        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING'])
+        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING', 'SENT_TO_BATCH'])
     ).distinct().all()
     
     # Create a set for fast lookup
@@ -1901,7 +1901,7 @@ def start_batch_picking(batch_id):
             InvoiceItem.invoice_no == bi.invoice_no,
             InvoiceItem.locked_by_batch_id == batch_session.id,
             InvoiceItem.is_picked == False,
-            InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+            InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'sent_to_batch'])
         ).all()
         
         current_app.logger.info(f"Invoice {bi.invoice_no}: Found {len(invoice_items)} items locked by batch {batch_session.id}")
@@ -3107,14 +3107,25 @@ def complete_batch_confirm(batch_id):
                     )
                     db.session.add(batch_picked)
             
-            # Check if all items for this invoice in the batch are picked
-            zones = batch_session.zones.split(',')
-            unpicked_count = InvoiceItem.query.filter(
-                InvoiceItem.invoice_no == invoice_no,
-                InvoiceItem.zone.in_(zones),
-                InvoiceItem.is_picked == False,
-                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
-            ).count()
+            # Check if all items for this invoice in the batch are picked.
+            # Deferred-route batches use a 'DEFERRED' sentinel zone, so the
+            # zone filter would always yield 0 and mark the invoice complete
+            # prematurely — count by batch lock instead.
+            if getattr(batch_session, 'session_type', None) == 'deferred_route':
+                unpicked_count = InvoiceItem.query.filter(
+                    InvoiceItem.invoice_no == invoice_no,
+                    InvoiceItem.locked_by_batch_id == batch_session.id,
+                    InvoiceItem.is_picked == False,
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'sent_to_batch'])
+                ).count()
+            else:
+                zones = batch_session.zones.split(',')
+                unpicked_count = InvoiceItem.query.filter(
+                    InvoiceItem.invoice_no == invoice_no,
+                    InvoiceItem.zone.in_(zones),
+                    InvoiceItem.is_picked == False,
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+                ).count()
             
             if unpicked_count == 0:
                 # Mark this invoice as completed in the batch
@@ -3512,7 +3523,7 @@ def complete_batch_confirm(batch_id):
                     InvoiceItem.invoice_no.in_(invoice_nos),
                     InvoiceItem.locked_by_batch_id == batch_id,
                     InvoiceItem.is_picked == False,
-                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'sent_to_batch'])
                 ).count()
                 
                 if remaining_items_count > 0:
@@ -3574,11 +3585,20 @@ def complete_batch_confirm(batch_id):
             
             for invoice_no in [bi.invoice_no for bi in batch_session.invoices]:
                 # Build filter conditions for items that are actually in scope for this batch
-                filter_conditions = [
-                    InvoiceItem.invoice_no == invoice_no,
-                    InvoiceItem.zone.in_(batch_session.zones.split(',')),
-                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'picked'])
-                ]
+                if getattr(batch_session, 'session_type', None) == 'deferred_route':
+                    # Deferred batches use a 'DEFERRED' sentinel zone; scope
+                    # by batch lock instead of warehouse zone.
+                    filter_conditions = [
+                        InvoiceItem.invoice_no == invoice_no,
+                        InvoiceItem.locked_by_batch_id == batch_id,
+                        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'sent_to_batch', 'picked'])
+                    ]
+                else:
+                    filter_conditions = [
+                        InvoiceItem.invoice_no == invoice_no,
+                        InvoiceItem.zone.in_(batch_session.zones.split(',')),
+                        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'picked'])
+                    ]
                 
                 # Add corridor filter if corridors are specified for this batch
                 if batch_session.corridors:
@@ -3687,11 +3707,20 @@ def force_complete_batch(batch_id):
         
         for invoice_no in [bi.invoice_no for bi in batch_session.invoices]:
             # Build filter conditions for items that are actually in scope for this batch
-            filter_conditions = [
-                InvoiceItem.invoice_no == invoice_no,
-                InvoiceItem.zone.in_(batch_session.zones.split(',')),
-                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'picked'])
-            ]
+            if getattr(batch_session, 'session_type', None) == 'deferred_route':
+                # Deferred batches use a 'DEFERRED' sentinel zone; scope by
+                # batch lock instead of warehouse zone.
+                filter_conditions = [
+                    InvoiceItem.invoice_no == invoice_no,
+                    InvoiceItem.locked_by_batch_id == batch_id,
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'sent_to_batch', 'picked'])
+                ]
+            else:
+                filter_conditions = [
+                    InvoiceItem.invoice_no == invoice_no,
+                    InvoiceItem.zone.in_(batch_session.zones.split(',')),
+                    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'picked'])
+                ]
             
             # Add corridor filter if corridors are specified for this batch
             if batch_session.corridors:

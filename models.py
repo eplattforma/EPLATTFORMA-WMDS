@@ -293,9 +293,13 @@ class BatchPickingSession(db.Model, SoftDeleteMixin):
         ]
 
         if not include_picked:
+            # 'sent_to_batch' marks items deferred into a per-route batch via
+            # "Send to Batch"; they are locked to that batch (locked_by_batch_id
+            # above) so including the status here only surfaces them inside
+            # their own deferred session — regular picking still hides them.
             filters.extend([
                 InvoiceItem.is_picked.is_(False),
-                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'sent_to_batch'])
             ])
 
         return filters

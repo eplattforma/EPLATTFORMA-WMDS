@@ -142,12 +142,21 @@ def rebuild_items_from_queue(batch_id):
     # nothing. For cooler batches we invert the filter so the resume path
     # shows the cooler items (sorted by location via InvoiceItem below).
     session_type_row = db.session.execute(
-        text("SELECT session_type FROM batch_picking_sessions WHERE id = :bid"),
+        text("SELECT session_type, picking_mode FROM batch_picking_sessions WHERE id = :bid"),
         {"bid": batch_id},
     ).fetchone()
     is_cooler_batch = (
         session_type_row is not None
         and (session_type_row[0] or "") == "cooler_route"
+    )
+    # Sequential batches (including deferred-route sessions) pick one
+    # customer/invoice at a time — the rebuilt list must keep each
+    # invoice's items separate instead of merging quantities of the same
+    # item across customers.
+    is_sequential = (
+        session_type_row is not None
+        and (session_type_row[1] or "") == "Sequential"
+        and not is_cooler_batch
     )
     if is_cooler_batch:
         zone_clause = "AND pick_zone_type = 'cooler'"
@@ -173,7 +182,11 @@ def rebuild_items_from_queue(batch_id):
         ii = InvoiceItem.query.filter_by(invoice_no=r.invoice_no, item_code=r.item_code).first()
         zone = (getattr(ii, 'zone', '') if ii else '') or ''
         location = (getattr(ii, 'location', '') if ii else '') or ''
-        key = (r.item_code, location, zone)
+        if is_sequential:
+            # One entry per (invoice, item): never merge across customers.
+            key = (r.invoice_no, r.item_code, location, zone)
+        else:
+            key = (r.item_code, location, zone)
         if key not in seen:
             inv = Invoice.query.filter_by(invoice_no=r.invoice_no).first()
             seen[key] = {
@@ -200,6 +213,21 @@ def rebuild_items_from_queue(batch_id):
             'item_code': r.item_code,
             'qty': int(r.qty_required or 0),
         })
+    if is_sequential:
+        # Order like a normal Sequential batch: one customer/invoice at a
+        # time, invoices by routing number descending, items within an
+        # invoice by location.
+        def _routing_key(e):
+            try:
+                return float(e.get('routing') or -1)
+            except (TypeError, ValueError):
+                return -1
+        rebuilt.sort(key=lambda e: (
+            -_routing_key(e),
+            e.get('current_invoice') or '',
+            e.get('location') or '',
+            e.get('item_code') or '',
+        ))
     return rebuilt
 
 

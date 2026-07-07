@@ -463,3 +463,59 @@ def test_list_open_deferred_batches_summary(client):
     assert row["picked_count"] == 0
     assert row["invoice_count"] == 2
     assert row["assigned_to"] is None
+
+
+# ---------------------------------------------------------------------------
+# Per-customer separation: same item deferred from two invoices must NOT be
+# merged into one pick line (Sequential-mode behavior).
+# ---------------------------------------------------------------------------
+
+def test_deferred_get_grouped_items_visible_and_per_invoice(client):
+    """Deferred items carry pick_status='sent_to_batch'; get_grouped_items
+    must still surface them, one customer/invoice at a time."""
+    _make_invoice("INVG1", route_id=700)
+    _make_invoice("INVG2", route_id=700)
+    # SAME item on both invoices — must never be merged across customers.
+    _make_item("INVG1", "SKU-SAME", qty=2)
+    _make_item("INVG2", "SKU-SAME", qty=3)
+    db.session.commit()
+
+    session_obj = send_item_to_batch("INVG1", "SKU-SAME", "picker1")
+    send_item_to_batch("INVG2", "SKU-SAME", "picker1")
+
+    items = session_obj.get_grouped_items()
+    # Sequential mode returns only the CURRENT invoice's items.
+    assert len(items) == 1
+    only = items[0]
+    src_invoices = {s["invoice_no"] for s in only["source_items"]}
+    assert len(src_invoices) == 1, "item merged across invoices"
+    assert only["total_qty"] in (2, 3)
+    assert only.get("customer_name") in ("Customer INVG1", "Customer INVG2")
+    # And the batch sees both items as remaining work.
+    assert session_obj.get_filtered_item_count() == 2
+
+
+def test_deferred_rebuild_from_queue_separates_customers(client):
+    """Queue-resume rebuild must keep one entry per (invoice, item) for
+    Sequential batches instead of aggregating quantities across customers."""
+    from services.batch_picking import rebuild_items_from_queue
+
+    _make_invoice("INVR1", route_id=710)
+    _make_invoice("INVR2", route_id=710)
+    _make_item("INVR1", "SKU-DUP", qty=2)
+    _make_item("INVR2", "SKU-DUP", qty=5)
+    db.session.commit()
+
+    session_obj = send_item_to_batch("INVR1", "SKU-DUP", "picker1")
+    send_item_to_batch("INVR2", "SKU-DUP", "picker1")
+
+    rebuilt = rebuild_items_from_queue(session_obj.id)
+    assert len(rebuilt) == 2, "expected one entry per customer/invoice"
+    by_invoice = {e["current_invoice"]: e for e in rebuilt}
+    assert set(by_invoice) == {"INVR1", "INVR2"}
+    assert by_invoice["INVR1"]["total_qty"] == 2
+    assert by_invoice["INVR2"]["total_qty"] == 5
+    assert by_invoice["INVR1"]["customer_name"] == "Customer INVR1"
+    assert by_invoice["INVR2"]["customer_name"] == "Customer INVR2"
+    for e in rebuilt:
+        assert len({s["invoice_no"] for s in e["source_items"]}) == 1

@@ -5,8 +5,8 @@ description: How PO email sending is configured when using Brevo as the SMTP rel
 
 ## Rule
 When SMTP_HOST=smtp-relay.brevo.com, two separate env vars are required:
-- `SMTP_EMAIL` — Brevo authentication key (e.g. `ad6cab001@smtp-brevo.com`)
-- `SMTP_FROM` — visible sender address (e.g. `purchase.orders@eplattforma.com.cy`)
+- `SMTP_EMAIL` — Brevo authentication key (a `...@smtp-brevo.com` account identifier, not a real mailbox)
+- `SMTP_FROM` — visible sender address (the real business email address)
 
 The code reads `SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_EMAIL` so it falls back gracefully if SMTP_FROM is not set.
 

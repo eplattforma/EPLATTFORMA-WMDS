@@ -1,4 +1,5 @@
 - [Cooler planner test mock pattern](cooler-planner-test-mock.md) — auto mode uses fetchall(); manual mode uses fetchone(); test helper must set both correctly.
 - [SMTP Brevo relay setup](smtp-brevo-setup.md) — Brevo needs separate SMTP_FROM secret for the visible From address; SMTP_EMAIL is the auth key only.
+- [Deferred batch item filters](deferred-batch-filters.md) — deferred sessions use sentinel zone 'DEFERRED' + status 'sent_to_batch'; zone-based or whitelist filters silently return 0 rows and picking falls back to a customer-merging rebuild.
 - [New batch_pick_queue status fan-out](cooler-queue-status-surfaces.md) — a new non-terminal queue status must also be added to cancel_batch + route-extraction DELETEs, or rows park invoices forever.
 - [Cooler boxing keys off bpq.status='picked'](cooler-boxing-picked-signal.md) — exception/zero-pick must set bpq+cbi 'exception', never leave 'picked', or the unavailable item gets boxed & shipped.
