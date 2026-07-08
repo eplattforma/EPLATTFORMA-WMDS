@@ -400,11 +400,22 @@ def send_broadcast_push(title, body, url=None, push_target_type=None,
     if not app_id:
         return {"ok": False, "error": "ONESIGNAL_APP_ID not configured"}
 
-    push_data = _build_push_data(push_target_type, category_id, product_id, deep_link)
+    # Mirror the dashboard "New Message" format: plain data fields
+    # (e.g. category_id) instead of the customer-push target_type wrapper.
+    push_data = {}
+    try:
+        if category_id is not None:
+            push_data["category_id"] = int(category_id)
+        if product_id is not None:
+            push_data["product_id"] = int(product_id)
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid broadcast push data: cat={category_id}, prod={product_id}")
+        push_data = {}
+    if deep_link:
+        push_data["deep_link"] = str(deep_link)
 
     payload = {
         "app_id": app_id,
-        "included_segments": ["Subscribed Users"],
         "headings": {"en": title or "Notification"},
         "contents": {"en": body or ""},
     }
@@ -436,23 +447,35 @@ def send_broadcast_push(title, body, url=None, push_target_type=None,
     provider_msg_id = None
     recipients = None
     status = "failed"
+    # Different OneSignal apps have different default segment names —
+    # try them in order until one is accepted (same audience as the
+    # dashboard's "Send to Subscribed Users").
+    segment_candidates = ["All users", "Total Subscriptions", "Subscribed Users", "All"]
     try:
-        r = req_lib.post(
-            f"{ONESIGNAL_API_BASE}/notifications",
-            headers=_headers(),
-            json=payload,
-            timeout=20,
-        )
-        raw_response = r.text
-        data = r.json()
-        if r.status_code in (200, 201) and data.get("id"):
-            status = "sent"
-            provider_msg_id = data.get("id")
-            recipients = data.get("recipients")
-        else:
+        for seg in segment_candidates:
+            payload["included_segments"] = [seg]
+            r = req_lib.post(
+                f"{ONESIGNAL_API_BASE}/notifications",
+                headers=_headers(),
+                json=payload,
+                timeout=20,
+            )
+            raw_response = r.text
+            data = r.json()
+            if r.status_code in (200, 201) and data.get("id"):
+                status = "sent"
+                provider_msg_id = data.get("id")
+                recipients = data.get("recipients")
+                break
             errors = data.get("errors", [])
             if errors:
                 raw_response = json.dumps(errors)
+            err_text = raw_response.lower()
+            # Retry with next segment name only for segment-related errors
+            if "segment" in err_text or "not subscribed" in err_text:
+                logger.info(f"OneSignal broadcast: segment '{seg}' rejected, trying next ({raw_response[:200]})")
+                continue
+            break
     except req_lib.exceptions.Timeout:
         raw_response = "timeout"
     except Exception as e:
