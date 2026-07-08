@@ -172,11 +172,27 @@ def api_notify():
         return jsonify({"ok": False, "error": "forbidden"}), 403
 
     payload = request.get_json(silent=True) or {}
+    cat = _category_id()
     names = [n.strip() for n in (payload.get("item_names") or []) if n and n.strip()]
+
+    if not names and payload.get("use_current"):
+        # Announce whatever is currently in the e-shop category
+        status, body_txt = magento_rest_get(f"/rest/V1/categories/{cat}/products")
+        if status != 200:
+            return jsonify({"ok": False,
+                            "error": f"Cannot read category {cat}: Magento {status}: {body_txt[:300]}"}), 502
+        skus = [l.get("sku") for l in json.loads(body_txt) if l.get("sku")]
+        if not skus:
+            return jsonify({"ok": False, "error": "Category is empty — nothing to announce"}), 400
+        rows = db.session.execute(text("""
+            SELECT item_code_365, item_name FROM ps_items_dw
+            WHERE item_code_365 = ANY(:skus)
+        """), {"skus": skus}).mappings().all()
+        name_by_code = {r["item_code_365"]: r["item_name"] for r in rows}
+        names = [name_by_code.get(s, s) for s in skus]
+
     if not names:
         return jsonify({"ok": False, "error": "No items provided"}), 400
-
-    cat = _category_id()
     title = "Νέα Παραλαβή 📦"
 
     max_list = 6
