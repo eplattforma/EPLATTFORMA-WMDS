@@ -35,6 +35,62 @@ from timezone_utils import get_utc_now
 logger = logging.getLogger(__name__)
 
 
+def pieces_required_for_source(invoice_no, item_code, fallback_qty=0):
+    """Pieces the picker must physically pick for one invoice line.
+
+    Same authority as the normal picking screen: ``InvoiceItem.display_qty``
+    multiplies qty by ``DwItem.number_of_pieces`` for VPACK (virtual pack)
+    items, so a line of 4 virtual packs of 3 means "pick 12 pieces".
+    Falls back to ``fallback_qty`` when the invoice line is missing.
+    """
+    ii = InvoiceItem.query.filter_by(
+        invoice_no=invoice_no, item_code=item_code
+    ).first()
+    if not ii:
+        return int(fallback_qty or 0)
+    try:
+        dq = ii.display_qty
+    except Exception:
+        dq = None
+    if dq:
+        return int(dq)
+    return int(fallback_qty or 0)
+
+
+def apply_vpack_display(item):
+    """Add ``display_qty`` / ``display_unit_type`` to a consolidated batch
+    item dict so the batch pick screen instructs in PIECES for virtual
+    packs, exactly like normal picking ("Pick 12 Pieces" instead of
+    "Pick 4 VIRTUAL PACK (3)").
+    """
+    if not item:
+        return item
+    total_pieces = 0
+    unit = None
+    for src in item.get('source_items') or []:
+        ii = InvoiceItem.query.filter_by(
+            invoice_no=src.get('invoice_no'),
+            item_code=src.get('item_code'),
+        ).first()
+        if ii:
+            try:
+                total_pieces += int(ii.display_qty or 0)
+            except Exception:
+                total_pieces += int(src.get('qty') or 0)
+            if unit is None:
+                try:
+                    unit = ii.display_unit_type
+                except Exception:
+                    unit = None
+        else:
+            total_pieces += int(src.get('qty') or 0)
+    if total_pieces <= 0:
+        total_pieces = int(item.get('total_qty') or 0)
+    item['display_qty'] = total_pieces
+    item['display_unit_type'] = unit or item.get('unit_type') or ''
+    return item
+
+
 class BatchConflict(Exception):
     """Raised when batch creation cannot proceed because some items are
     already locked by another active batch.

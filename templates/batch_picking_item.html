@@ -342,7 +342,8 @@
                 </div>
                 
                 <!-- Quantity Entry Section for items > 1 -->
-                {% if item.total_qty|int > 1 %}
+                {% set _entry_qty = (item.display_qty or item.total_qty)|int %}
+                {% if _entry_qty > 1 %}
                 <div id="quantityEntrySection" class="mb-4">
                     <div class="form-group">
                         <label for="picked_quantity_input" class="form-label fs-5 fw-bold text-center d-block mb-2">Enter quantity picked:</label>
@@ -353,8 +354,8 @@
                             inputmode="numeric" 
                             pattern="[0-9]*" 
                             min="0"
-                            max="{{ item.total_qty|int }}"
-                            placeholder="{{ item.total_qty|int }}"
+                            max="{{ _entry_qty }}"
+                            placeholder="{{ _entry_qty }}"
                             autofocus 
                             autocomplete="off"
                             style="font-size: 2rem; height: 70px;"
@@ -370,7 +371,7 @@
                 <form id="pickForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
                     <input type="hidden" name="item_code" value="{{ item.item_code }}">
                     <input type="hidden" name="current_invoice" value="{{ item.current_invoice or '' }}">
-                    <input type="hidden" name="picked_qty" id="picked_qty" value="{{ item.total_qty|int }}">
+                    <input type="hidden" name="picked_qty" id="picked_qty" value="{{ (item.display_qty or item.total_qty)|int }}">
                     <input type="hidden" name="quantity_adjusted" id="quantity_adjusted" value="false">
                     {% if cooler_current_box %}
                     <input type="hidden" name="cooler_box_id" value="{{ cooler_current_box.box_id }}">
@@ -381,7 +382,7 @@
             <div class="modal-footer" style="display: flex; padding: 1rem; gap: 10px;">
                 <button type="button" id="cancelConfirmBtn" class="btn btn-outline-secondary" style="flex: 1; font-size: 1.1rem; padding: 0.75rem 0;" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" id="reportExceptionButton" class="btn btn-warning" style="flex: 1; font-size: 1.1rem; padding: 0.75rem 0;" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#issueModal">Exception</button>
-                <button type="button" id="confirmYesBtn" class="btn btn-success" style="flex: 2; font-size: 1.2rem; padding: 0.75rem 0;" {% if item.total_qty|int > 1 %}disabled{% endif %}>Confirm</button>
+                <button type="button" id="confirmYesBtn" class="btn btn-success" style="flex: 2; font-size: 1.2rem; padding: 0.75rem 0;" {% if (item.display_qty or item.total_qty)|int > 1 %}disabled{% endif %}>Confirm</button>
             </div>
         </div>
     </div>
@@ -444,11 +445,11 @@
                             inputmode="numeric" 
                             pattern="[0-9]*" 
                             min="0" 
-                            max="{{ (item.total_qty|int) - 1 }}" 
+                            max="{{ ((item.display_qty or item.total_qty)|int) - 1 }}" 
                             autocomplete="off"
                             style="font-size: 2rem; height: 70px;"
                             required>
-                        <div class="form-text">Enter the actual quantity you were able to pick (whole numbers only, must be less than {{ item.total_qty|int }} for exception reports)</div>
+                        <div class="form-text">Enter the actual quantity you were able to pick (whole numbers only, must be less than {{ (item.display_qty or item.total_qty)|int }} for exception reports)</div>
                     </div>
                     
                     <div class="mb-3">
@@ -572,7 +573,7 @@
         const confirmBtn = document.getElementById('confirmYesBtn');
         const warningMessage = document.getElementById('warningMessage');
         const pickedQtyHidden = document.getElementById('picked_qty');
-        const expectedQuantity = {{ item.total_qty|int }};
+        const expectedQuantity = {{ (item.display_qty or item.total_qty)|int }};
         
         if (pickedQuantityInput) {
             // Enable confirm button when quantity is entered and valid
@@ -656,7 +657,7 @@
             // Enable submit button when quantity is entered and less than expected
             issuePickedQtyInput.addEventListener('input', function() {
                 const enteredQty = parseInt(this.value) || 0;
-                const expectedQty = {{ item.total_qty|int }};
+                const expectedQty = {{ (item.display_qty or item.total_qty)|int }};
                 
                 // Only allow quantities less than expected for exception reports
                 if (enteredQty >= 0 && enteredQty < expectedQty) {

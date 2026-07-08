@@ -2760,6 +2760,13 @@ def batch_picking_item(batch_id):
     except Exception as e:
         current_app.logger.warning(f"Error starting batch item tracking: {e}")
     
+    # VPACK: instruct in pieces like normal picking ("Pick 12 Pieces")
+    from services.batch_picking import apply_vpack_display
+    try:
+        apply_vpack_display(current_item)
+    except Exception as _vpe:
+        current_app.logger.warning(f"VPACK display calc failed for batch {batch_id}: {_vpe}")
+
     # Render the picking page
     return render_template('batch_picking_item.html',
                           batch_session=batch_session,
@@ -2955,7 +2962,19 @@ def complete_batch_confirm(batch_id):
             # Sequential mode - one invoice at a time
             invoice_no = source_items[0]['invoice_no']
             item_code = source_items[0]['item_code']
-            required_qty = source_items[0].get('expected_pick_pieces', source_items[0]['qty'])
+            # VPACK: required is in PIECES (same authority as the pick
+            # screen's "Pick N Pieces" instruction) so quantity checks
+            # compare like with like.
+            from services.batch_picking import pieces_required_for_source
+            required_qty = pieces_required_for_source(
+                invoice_no, item_code,
+                source_items[0].get('expected_pick_pieces', source_items[0]['qty']),
+            )
+            if required_qty != source_items[0]['qty']:
+                current_app.logger.info(
+                    f"VPACK pieces drift: {invoice_no}/{item_code} queue qty "
+                    f"{source_items[0]['qty']} vs required pieces {required_qty}"
+                )
             
             # Update the invoice item
             invoice_item = InvoiceItem.query.filter_by(
@@ -3069,11 +3088,21 @@ def complete_batch_confirm(batch_id):
             # awaiting_batch_items and appear in reports.
             sorted_sources = sorted(source_items, key=lambda x: x['invoice_no'])
 
+            # VPACK: picker entered PIECES (screen said "Pick N Pieces"),
+            # so allocate/compare against per-source pieces, like normal
+            # picking does.
+            from services.batch_picking import pieces_required_for_source
+            source_pieces = {
+                (s['invoice_no'], s['item_code']): pieces_required_for_source(
+                    s['invoice_no'], s['item_code'], s['qty'])
+                for s in sorted_sources
+            }
+
             # First pass: compute allocations
             remaining_qty = picked_qty
             allocated_map = {}
             for source in sorted_sources:
-                alloc = min(remaining_qty, source['qty'])
+                alloc = min(remaining_qty, source_pieces[(source['invoice_no'], source['item_code'])])
                 allocated_map[(source['invoice_no'], source['item_code'])] = alloc
                 remaining_qty -= alloc
 
@@ -3081,7 +3110,7 @@ def complete_batch_confirm(batch_id):
             for source in sorted_sources:
                 invoice_no = source['invoice_no']
                 item_code = source['item_code']
-                required_qty = source['qty']
+                required_qty = source_pieces[(invoice_no, item_code)]
                 allocated_qty = allocated_map[(invoice_no, item_code)]
 
                 invoice_item = InvoiceItem.query.filter_by(
@@ -3184,7 +3213,7 @@ def complete_batch_confirm(batch_id):
                     # Sequential falls back to the required/picked qty.
                     qty_picked=allocated_map.get(
                         (_src['invoice_no'], _src['item_code']),
-                        _src.get('qty', picked_qty),
+                        picked_qty,
                     ),
                 )
                 # CAS guard: on the queue-primary path the UPDATE above is
