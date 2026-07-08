@@ -195,12 +195,9 @@ def api_notify():
         return jsonify({"ok": False, "error": "No items provided"}), 400
     title = "Νέα Παραλαβή 📦"
 
-    max_list = 6
-    listed = names[:max_list]
-    body = "Μόλις παραλάβαμε: " + ", ".join(listed)
-    if len(names) > max_list:
-        body += f" και άλλα {len(names) - max_list} προϊόντα"
-    body += ". Δείτε τα στην κατηγορία Νέα Παραλαβή!"
+    body = "Μόλις παραλάβαμε:\n"
+    body += "\n".join(f"• {n}" for n in names)
+    body += "\nΔείτε τα στην κατηγορία Νέα Παραλαβή!"
 
     from services.onesignal_service import send_broadcast_push
     result = send_broadcast_push(

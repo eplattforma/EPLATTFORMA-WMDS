@@ -192,7 +192,7 @@ async function sendPush(btn, payload, confirmMsg){
   if(js.ok){
     box.innerHTML = '<div class="alert alert-success"><i class="fas fa-bell me-1"></i>'
       + 'Push sent'+(js.recipients!=null?' to '+js.recipients+' subscriber(s)':'')
-      + '.<br><b>'+esc(js.title)+'</b> — '+esc(js.body)+'</div>';
+      + '.<br><b>'+esc(js.title)+'</b><div style="white-space:pre-line">'+esc(js.body)+'</div></div>';
   } else {
     box.innerHTML = '<div class="alert alert-danger"><b>Push failed.</b> '+esc(js.error||'')+'</div>';
   }
