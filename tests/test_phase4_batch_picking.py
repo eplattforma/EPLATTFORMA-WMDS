@@ -537,12 +537,13 @@ class TestOrphanedLocks:
 # P4-25..27 — Feature-flag coexistence
 # ---------------------------------------------------------------------------
 class TestFlagCoexistence:
-    def test_p4_25_default_flag_off(self, setup):
+    def test_p4_25_default_flag_on(self, setup):
         app, db = setup
         from services.batch_picking import is_db_queue_enabled
-        # Defaults are seeded false in production; on a fresh test DB the
-        # row may not exist at all → also returns false.
-        assert is_db_queue_enabled() is False
+        # FIX-006/FIX-007 queue cutover: the DB-backed queue is now the
+        # default. On a fresh DB with no settings row the code default
+        # applies and returns True.
+        assert is_db_queue_enabled() is True
 
     def test_p4_26_flag_on_returns_true(self, setup):
         app, db = setup

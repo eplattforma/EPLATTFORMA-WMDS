@@ -2616,7 +2616,7 @@ def box_reopen(box_id):
     db.session.execute(
         text(
             "UPDATE batch_picking_sessions "
-            "SET status = 'In Progress', last_activity_at = :now "
+            "SET status = 'picking', last_activity_at = :now "
             "WHERE session_type = 'cooler_route' "
             "  AND route_id = :rid "
             "  AND status = 'Completed'"

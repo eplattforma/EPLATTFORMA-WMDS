@@ -188,6 +188,7 @@ def rebuild_items_from_queue(batch_id):
         else:
             key = (r.item_code, location, zone)
         if key not in seen:
+            _seq_no = r.sequence_no if r.sequence_no is not None else 10**9
             inv = Invoice.query.filter_by(invoice_no=r.invoice_no).first()
             seen[key] = {
                 'item_code': r.item_code,
@@ -203,6 +204,7 @@ def rebuild_items_from_queue(batch_id):
                 'routing': (getattr(inv, 'routing', None) if inv else None),
                 'order_total_items': (getattr(inv, 'total_items', None) if inv else None),
                 'order_total_weight': (getattr(inv, 'total_weight', None) if inv else None),
+                'sequence_no': _seq_no,
                 'source_items': [],
             }
             rebuilt.append(seen[key])
@@ -223,10 +225,13 @@ def rebuild_items_from_queue(batch_id):
                 return float(e.get('routing') or -1)
             except (TypeError, ValueError):
                 return -1
+        # Within an invoice, follow the walking order captured at enqueue
+        # time (sequence_no) rather than the raw location string, so the
+        # admin-configured route survives the Sequential re-sort.
         rebuilt.sort(key=lambda e: (
             -_routing_key(e),
             e.get('current_invoice') or '',
-            e.get('location') or '',
+            e.get('sequence_no') if e.get('sequence_no') is not None else 10**9,
             e.get('item_code') or '',
         ))
     return rebuilt
@@ -455,6 +460,11 @@ def create_batch_atomic(filters, created_by, mode="Sequential", name=None,
             _wms_zone_for_item_codes({i.item_code for i in free})
             if cooler_mode else {}
         )
+        # FIX-007: write sequence_no in the admin-configured walking order
+        # (zone → corridor → shelf → level → bin) so the queue-primary
+        # picker walks the warehouse in route order, not insertion order.
+        from sorting_utils import sort_items_for_picking
+        free = sort_items_for_picking(free)
         for seq, item in enumerate(free, start=1):
             wms_zone = zone_lookup.get(item.item_code, "")
             row_pzt = pick_zone_type

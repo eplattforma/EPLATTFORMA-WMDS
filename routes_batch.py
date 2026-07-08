@@ -114,40 +114,51 @@ def _enqueue_locked_items(batch_id):
     Returns the number of rows inserted.
     """
     try:
-        result = db.session.execute(
-            text("""
-                INSERT INTO batch_pick_queue (
-                    batch_session_id, invoice_no, item_code, pick_zone_type,
-                    sequence_no, status, qty_required, wms_zone
-                )
-                SELECT
-                    ii.locked_by_batch_id,
-                    ii.invoice_no,
-                    ii.item_code,
-                    'normal',
-                    ROW_NUMBER() OVER (
-                        PARTITION BY ii.locked_by_batch_id
-                        ORDER BY ii.invoice_no, ii.item_code
-                    ) + COALESCE(
-                        (SELECT MAX(sequence_no) FROM batch_pick_queue
-                         WHERE batch_session_id = ii.locked_by_batch_id), 0
-                    ),
-                    'pending',
-                    COALESCE(NULLIF(ii.expected_pick_pieces::text,'')::numeric,
-                             NULLIF(ii.qty::text,'')::numeric),
-                    ii.zone
-                FROM invoice_items ii
-                WHERE ii.locked_by_batch_id = :bid
-                  AND NOT EXISTS (
-                      SELECT 1 FROM batch_pick_queue bpq
-                      WHERE bpq.batch_session_id = :bid
-                        AND bpq.invoice_no   = ii.invoice_no
-                        AND bpq.item_code    = ii.item_code
-                  )
-            """),
+        # FIX-007: sequence_no must reflect the admin-configured walking
+        # order (zone → corridor → shelf → level → bin), which raw SQL
+        # ROW_NUMBER() cannot express. Sort the locked items in Python and
+        # insert with the loop index as sequence_no.
+        from sorting_utils import sort_items_for_picking
+        locked_items = InvoiceItem.query.filter(
+            InvoiceItem.locked_by_batch_id == batch_id
+        ).all()
+        locked_items = sort_items_for_picking(locked_items)
+
+        base_seq = db.session.execute(
+            text(
+                "SELECT COALESCE(MAX(sequence_no), 0) FROM batch_pick_queue "
+                "WHERE batch_session_id = :bid"
+            ),
             {"bid": batch_id},
-        )
-        inserted = result.rowcount
+        ).scalar() or 0
+
+        inserted = 0
+        for offset, ii in enumerate(locked_items, start=1):
+            qty_required = ii.expected_pick_pieces if ii.expected_pick_pieces is not None else ii.qty
+            result = db.session.execute(
+                text("""
+                    INSERT INTO batch_pick_queue (
+                        batch_session_id, invoice_no, item_code, pick_zone_type,
+                        sequence_no, status, qty_required, wms_zone
+                    )
+                    SELECT :bid, :inv, :code, 'normal', :seq, 'pending', :qty, :zone
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM batch_pick_queue bpq
+                        WHERE bpq.batch_session_id = :bid
+                          AND bpq.invoice_no   = :inv
+                          AND bpq.item_code    = :code
+                    )
+                """),
+                {
+                    "bid": batch_id,
+                    "inv": ii.invoice_no,
+                    "code": ii.item_code,
+                    "seq": base_seq + offset,
+                    "qty": float(qty_required) if qty_required is not None else None,
+                    "zone": ii.zone,
+                },
+            )
+            inserted += result.rowcount
         current_app.logger.info(
             "_enqueue_locked_items: inserted %d queue rows for batch %d",
             inserted, batch_id,
@@ -2241,7 +2252,12 @@ def batch_picking_item(batch_id):
                     'customer_name': customer_name,
                     'routing': routing,
                     'source_items': [
-                        {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
+                        {
+                            'invoice_no': s['invoice_no'],
+                            'item_code': s['item_code'],
+                            'qty': s['qty'],
+                            'expected_pick_pieces': s.get('expected_pick_pieces', s['qty']),
+                        }
                         for s in item['source_items']
                     ],
                     # Order details for display
@@ -2813,23 +2829,59 @@ def complete_batch_confirm(batch_id):
         flash('This batch requires explicit claim before picking.', 'warning')
         return redirect(url_for('batch.picker_batch_list'))
 
-    # CRUCIAL FIX: Use our fixed item list from the session
-    fixed_batch_key = 'batch_items_' + str(batch_id)
-    
-    if fixed_batch_key in session:
-        items = session[fixed_batch_key]
-        current_app.logger.info(f"Complete confirm using fixed list: {len(items)} items, current index: {batch_session.current_item_index}")
+    # FIX-007: for DB-backed non-cooler batches the queue is the work-list.
+    # The display route always shows the queue head, so the confirm action
+    # must resolve the same item from the queue head — never the cookie/index.
+    from services.batch_picking import (
+        is_db_backed_batch as _is_db_backed_confirm,
+        rebuild_items_from_queue as _rebuild_from_queue_confirm,
+    )
+    _queue_primary = (
+        _is_db_backed_confirm(batch_id)
+        and getattr(batch_session, 'session_type', None) != 'cooler_route'
+    )
+    if _queue_primary:
+        items = _rebuild_from_queue_confirm(batch_id)
+        if not items:
+            return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        current_item = items[0]  # queue head == what the screen showed
+        # Belt-and-braces: the form posts the identity of the item it displayed.
+        # If the queue head changed since the page rendered (another device,
+        # refresh, recycle), refuse to write and re-show the current head.
+        _posted_code = (request.form.get('item_code') or '').strip()
+        _posted_inv = (request.form.get('current_invoice') or '').strip()
+        _stale = False
+        if not _posted_code or _posted_code != current_item['item_code']:
+            _stale = True
+        if (not _stale
+                and batch_session.picking_mode == 'Sequential'
+                and _posted_inv != str(current_item.get('current_invoice') or '')):
+            _stale = True
+        if _stale:
+            flash('The picking list was refreshed — please re-check the current item.', 'warning')
+            return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        current_app.logger.info(
+            f"Complete confirm (queue-primary): head item {current_item['item_code']} "
+            f"of {len(items)} pending"
+        )
     else:
-        # Fallback to database query if session data is missing
-        items = batch_session.get_grouped_items()
-        current_app.logger.info(f"Fallback in complete confirm: Using database query, found {len(items if items else [])} items")
-    
-    if not items or batch_session.current_item_index >= len(items):
-        flash('No more items to pick in this batch session.', 'info')
-        return redirect(url_for('batch.picker_batch_list'))
-    
-    # Get the current item
-    current_item = items[batch_session.current_item_index]
+        # Legacy + cooler path: fixed cookie list with server-side index
+        fixed_batch_key = 'batch_items_' + str(batch_id)
+
+        if fixed_batch_key in session:
+            items = session[fixed_batch_key]
+            current_app.logger.info(f"Complete confirm using fixed list: {len(items)} items, current index: {batch_session.current_item_index}")
+        else:
+            # Fallback to database query if session data is missing
+            items = batch_session.get_grouped_items()
+            current_app.logger.info(f"Fallback in complete confirm: Using database query, found {len(items if items else [])} items")
+
+        if not items or batch_session.current_item_index >= len(items):
+            flash('No more items to pick in this batch session.', 'info')
+            return redirect(url_for('batch.picker_batch_list'))
+
+        # Get the current item
+        current_item = items[batch_session.current_item_index]
 
     # ── Cooler box-first: read box-transition flags ───────────────────────────
     _cooler_is_last_in_box = (
@@ -2861,7 +2913,11 @@ def complete_batch_confirm(batch_id):
     # Get the source items for this batch item
     source_items = current_item['source_items']
     total_required = current_item['total_qty']
-    
+
+    # Per-source allocation map. Populated in Consolidated mode; used later
+    # by record_pick_to_queue so the queue shows real picked quantities.
+    allocated_map = {}
+
     try:
         # Process the picked items
         if batch_session.picking_mode == 'Sequential':
@@ -3087,13 +3143,34 @@ def complete_batch_confirm(batch_id):
         else:
             from services.batch_picking import record_pick_to_queue as _record_pick_to_queue
             for _src in source_items:
-                _record_pick_to_queue(
+                _claimed = _record_pick_to_queue(
                     batch_id=batch_id,
                     invoice_no=_src['invoice_no'],
                     item_code=_src['item_code'],
                     picker=current_user.username,
-                    qty_picked=_src.get('qty', picked_qty),
+                    # Consolidated mode: record the actually allocated qty
+                    # (short picks show real numbers in the quick-view modal);
+                    # Sequential falls back to the required/picked qty.
+                    qty_picked=allocated_map.get(
+                        (_src['invoice_no'], _src['item_code']),
+                        _src.get('qty', picked_qty),
+                    ),
                 )
+                # CAS guard: on the queue-primary path the UPDATE above is
+                # the atomic claim (row lock serialises concurrent posts;
+                # the loser matches 0 rows because status is already
+                # 'picked'). If the claim failed, roll back EVERY side
+                # effect of this request — otherwise a double-submit would
+                # double-count picked quantities and duplicate logs.
+                if _queue_primary and _claimed == 0:
+                    db.session.rollback()
+                    current_app.logger.warning(
+                        f"Confirm lost the queue claim for "
+                        f"{_src['invoice_no']}/{_src['item_code']} in batch "
+                        f"{batch_id} — likely a double submit; no changes saved."
+                    )
+                    flash('This item was already recorded — showing the next item.', 'info')
+                    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
 
             # ── Mirror into cooler_box_items ──────────────────────────────────
             # For cooler-route batches the close-box guard checks
@@ -3303,8 +3380,9 @@ def complete_batch_confirm(batch_id):
                 next_index = find_next_incomplete_invoice_index(batch_session, all_batch_invoices)
                 
                 if next_index is not None:
-                    batch_session.current_invoice_index = next_index
-                    batch_session.current_item_index = 0  # Reset item index for new order
+                    if not _queue_primary:
+                        batch_session.current_invoice_index = next_index
+                        batch_session.current_item_index = 0  # Reset item index for new order
                     next_invoice_no = all_batch_invoices[next_index].invoice_no
                     current_app.logger.info(f"🔄 SEQUENTIAL: Advanced to invoice index {next_index} (invoice {next_invoice_no})")
                 else:
@@ -3315,13 +3393,18 @@ def complete_batch_confirm(batch_id):
                 clear_batch_cache(batch_id)
             else:
                 # More items in current order, continue normally
-                batch_session.current_item_index += 1
+                if not _queue_primary:
+                    batch_session.current_item_index += 1
         else:
             # Consolidated mode - continue normally
-            batch_session.current_item_index += 1
+            if not _queue_primary:
+                batch_session.current_item_index += 1
         
-        # Check if entire batch is complete
-        if batch_session.current_item_index >= len(items):
+        # Check if entire batch is complete.
+        # Queue-primary batches never use the index — the queue row leaving
+        # 'pending' advances the list, and batch_picking_item's empty-queue
+        # check handles the skip recycle and batch completion.
+        if not _queue_primary and batch_session.current_item_index >= len(items):
             # ── Cooler box-first: never auto-complete while skipped (collect-later)
             # items are still outstanding. The final pick action would otherwise
             # mark the batch Completed and redirect away, bypassing the end-of-run
@@ -3928,24 +4011,56 @@ def skip_batch_item(batch_id):
         flash('You are not assigned to this batch picking session.', 'danger')
         return redirect(url_for('batch.picker_batch_list'))
     
-    # CRUCIAL FIX: Use our fixed item list from the session
-    fixed_batch_key = 'batch_items_' + str(batch_id)
-    
-    if fixed_batch_key in session:
-        items = session[fixed_batch_key]
-        # Log the state
-        current_app.logger.warning(f"🔄 SKIP: Using fixed list with {len(items)} items, current index: {batch_session.current_item_index}")
+    # FIX-007: for DB-backed non-cooler batches the queue is the work-list.
+    # Resolve the current item from the queue head — same list the screen shows.
+    from services.batch_picking import (
+        is_db_backed_batch as _is_db_backed_skiphead,
+        rebuild_items_from_queue as _rebuild_from_queue_skip,
+    )
+    _queue_primary = (
+        _is_db_backed_skiphead(batch_id)
+        and getattr(batch_session, 'session_type', None) != 'cooler_route'
+    )
+    if _queue_primary:
+        items = _rebuild_from_queue_skip(batch_id)
+        if not items:
+            return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        current_item = items[0]  # queue head == what the screen showed
+        # Stale-form guard: only write if the posted identity matches the head.
+        _posted_code = (request.form.get('item_code') or '').strip()
+        _posted_inv = (request.form.get('current_invoice') or '').strip()
+        _stale = False
+        if not _posted_code or _posted_code != current_item['item_code']:
+            _stale = True
+        if (not _stale
+                and batch_session.picking_mode == 'Sequential'
+                and _posted_inv != str(current_item.get('current_invoice') or '')):
+            _stale = True
+        if _stale:
+            flash('The picking list was refreshed — please re-check the current item.', 'warning')
+            return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        current_app.logger.warning(
+            f"🔄 SKIP (queue-primary): head item {current_item['item_code']} of {len(items)} pending"
+        )
     else:
-        # Fallback to database query if session data is missing
-        items = batch_session.get_grouped_items()
-        current_app.logger.warning(f"⚠️ FALLBACK IN SKIP: Using database query, found {len(items if items else [])} items")
-    
-    if not items or batch_session.current_item_index >= len(items):
-        flash('No more items to pick in this batch session.', 'info')
-        return redirect(url_for('batch.picker_batch_list'))
-    
-    # Get the current item
-    current_item = items[batch_session.current_item_index]
+        # Legacy + cooler path: fixed cookie list with server-side index
+        fixed_batch_key = 'batch_items_' + str(batch_id)
+
+        if fixed_batch_key in session:
+            items = session[fixed_batch_key]
+            # Log the state
+            current_app.logger.warning(f"🔄 SKIP: Using fixed list with {len(items)} items, current index: {batch_session.current_item_index}")
+        else:
+            # Fallback to database query if session data is missing
+            items = batch_session.get_grouped_items()
+            current_app.logger.warning(f"⚠️ FALLBACK IN SKIP: Using database query, found {len(items if items else [])} items")
+
+        if not items or batch_session.current_item_index >= len(items):
+            flash('No more items to pick in this batch session.', 'info')
+            return redirect(url_for('batch.picker_batch_list'))
+
+        # Get the current item
+        current_item = items[batch_session.current_item_index]
     
     # Get the skip reason, if provided
     skip_reason = request.form.get('skip_reason', 'Item skipped')
@@ -3982,7 +4097,7 @@ def skip_batch_item(batch_id):
             # the end-of-run recycle brings it back until the picker resolves.
             if is_cooler_batch or _is_queue_backed:
                 from sqlalchemy import text as _text
-                db.session.execute(
+                _skip_res = db.session.execute(
                     _text(
                         "UPDATE batch_pick_queue "
                         "SET status = 'skipped_pending', updated_at = NOW() "
@@ -3993,9 +4108,24 @@ def skip_batch_item(batch_id):
                     ),
                     {"bid": batch_id, "inv": invoice_no, "ic": item_code},
                 )
+                # CAS guard: this UPDATE is the atomic claim on the
+                # queue-primary path. A double submit (or a pick that
+                # landed first from another device) leaves 0 matching
+                # rows — roll back so skip_count isn't double-incremented
+                # and the pick isn't silently overwritten.
+                if _queue_primary and (_skip_res.rowcount or 0) == 0:
+                    db.session.rollback()
+                    current_app.logger.warning(
+                        f"🔄 SKIP lost the queue claim for {invoice_no}/{item_code} "
+                        f"in batch {batch_id} — already skipped or picked; no changes saved."
+                    )
+                    flash('This item was already handled — showing the next item.', 'info')
+                    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
         
-        # Move to the next item
-        batch_session.current_item_index += 1
+        # Move to the next item (legacy/cooler index path only — for
+        # queue-primary batches the row leaving 'pending' advances the queue)
+        if not _queue_primary:
+            batch_session.current_item_index += 1
         
         # Save changes to database
         db.session.commit()

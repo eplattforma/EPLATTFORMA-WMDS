@@ -54,7 +54,7 @@ PHASE1_DEFAULTS = {
     "legacy_replenishment_enabled": "false",
 
     # Batch Picking (defaults from brief Section 14)
-    "use_db_backed_picking_queue": "false",
+    "use_db_backed_picking_queue": "true",
     "allow_legacy_session_picking_fallback": "true",
     "enable_consolidated_batch_picking": "false",
     "batch_claim_required": "false",

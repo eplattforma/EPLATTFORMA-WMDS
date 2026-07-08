@@ -37,7 +37,7 @@ inserted if the key is missing.
 | `forecast_max_duration_seconds` | `3600` | GREEN | Warning threshold for healthy long-running forecasts. | N/A — numeric. | Admin |
 | `legacy_replenishment_enabled` | `false` | GREEN | Re-enable `/replenishment-mvp` route + menu. | Route shows disabled message / redirects. Tables untouched. | Admin |
 | `enable_consolidated_batch_picking` | `false` | YELLOW | Show Consolidated picking mode UI. | Sequential picking only. | Admin |
-| `use_db_backed_picking_queue` | `false` | RED | Phase-4 DB-backed picking queue. | New batches use legacy session path. Existing DB-backed batches remain manageable. | Warehouse manager + Admin |
+| `use_db_backed_picking_queue` | `true` (since FIX-007, 2026-07-08; was `false`) | RED | Phase-4 DB-backed picking queue. | New batches use legacy session path. Existing DB-backed batches remain manageable. | Warehouse manager + Admin |
 | `allow_legacy_session_picking_fallback` | `true` | YELLOW | Keep legacy session path available. | DB-backed only. Do not disable until Phase 4 stable. | Warehouse manager + Admin |
 | `batch_claim_required` | `false` | YELLOW | Force admin/warehouse to click "Pick as myself" before picking. | Picking proceeds; audit logs still capture real username. | Admin |
 | `summer_cooler_mode_enabled` | `false` | RED | Separate `wms_zone='SENSITIVE'` items into cooler queue. | Sensitive items remain in normal picking. | Warehouse manager + Admin |
@@ -305,3 +305,25 @@ Ticket 2 is **service + template only**. All data is computed on read from alrea
 1. Set `cockpit_enabled = false` — the entire `/cockpit/...` URL space (including `/advice`) returns 404.
 2. To remove the panel without disabling the cockpit, revoke the `customers.ask_claude` permission for all users — the panel and all Ask Claude buttons disappear server-side.
 3. Full revert: delete the four files above, revert the `app.py` / `blueprints/cockpit.py` / `cockpit.html` / `cockpit.js` patches, run `uv remove anthropic`. No schema changes were made; the shared `ai_feedback_cache` rows can be cleaned with `DELETE FROM ai_feedback_cache WHERE payload_hash LIKE 'cockpit_%';`.
+
+---
+
+## FIX-007 — Complete Queue Cutover (added 2026-07-08)
+
+### Flag default change
+
+- `use_db_backed_picking_queue` code default flipped `false` → `true` in `services/settings_defaults.py`. Dev DB settings row was updated to `'true'`.
+- **PRODUCTION ACTION REQUIRED after deploy**: the code default only applies when no row exists. Prod already has a row, so run:
+  `UPDATE settings SET value = 'true' WHERE key = 'use_db_backed_picking_queue';`
+
+### Behavior changes (no schema changes)
+
+- Confirm/skip now use the queue head (`rebuild_items_from_queue`) as the source of truth for DB-backed non-cooler batches — no more cookie/index drift.
+- Forms post the displayed `item_code` + `current_invoice`; a mismatched or missing identity is rejected as stale (page re-shown, nothing written).
+- The queue-row UPDATE is an atomic claim: a concurrent double-submit loses the claim, everything rolls back, and the picker is shown the next item. No duplicate quantities or logs.
+- Queue insert order now follows the walking order (`sort_items_for_picking`) via `sequence_no`.
+
+### Rollback
+
+1. Set the flag row back: `UPDATE settings SET value = 'false' WHERE key = 'use_db_backed_picking_queue';` — new batches use the legacy session path again. Existing DB-backed batches remain manageable.
+2. Full revert: revert the FIX-007 patches in `routes_batch.py`, `services/batch_picking.py`, `services/settings_defaults.py`, `templates/batch_picking_item.html`, `templates/batch_report.html`, `blueprints/cooler_picking.py`. No schema migrations to undo.

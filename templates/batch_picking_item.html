@@ -368,6 +368,8 @@
                 {% endif %}
                 
                 <form id="pickForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
+                    <input type="hidden" name="item_code" value="{{ item.item_code }}">
+                    <input type="hidden" name="current_invoice" value="{{ item.current_invoice or '' }}">
                     <input type="hidden" name="picked_qty" id="picked_qty" value="{{ item.total_qty|int }}">
                     <input type="hidden" name="quantity_adjusted" id="quantity_adjusted" value="false">
                     {% if cooler_current_box %}
@@ -423,6 +425,8 @@
             </div>
             <div class="modal-body">
                 <form id="issueForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
+                    <input type="hidden" name="item_code" value="{{ item.item_code }}">
+                    <input type="hidden" name="current_invoice" value="{{ item.current_invoice or '' }}">
                     <input type="hidden" name="confirm" value="true">
                     {% if cooler_current_box %}
                     <input type="hidden" name="cooler_box_id" value="{{ cooler_current_box.box_id }}">
@@ -474,6 +478,8 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="post" action="{{ url_for('batch.skip_batch_item', batch_id=batch_session.id) }}" id="skipForm">
+                <input type="hidden" name="item_code" value="{{ item.item_code }}">
+                <input type="hidden" name="current_invoice" value="{{ item.current_invoice or '' }}">
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle-fill me-2"></i>
