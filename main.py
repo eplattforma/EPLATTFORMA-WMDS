@@ -397,6 +397,9 @@ app.register_blueprint(crm_dashboard_bp)
 from routes_erp_bot import erp_bot_bp
 app.register_blueprint(erp_bot_bp)
 
+from blueprints.new_arrivals_sync import new_arrivals_bp
+app.register_blueprint(new_arrivals_bp)
+
 from routes_admin_scheduler import admin_scheduler_bp
 app.register_blueprint(admin_scheduler_bp)
 

@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}New Arrivals → e-shop{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3><i class="fas fa-box-open me-2"></i>New Arrivals → e-shop (ΝΕΑ ΠΑΡΑΛΑΒΗ, cat {{ category_id }})</h3>
+    <button class="btn btn-outline-secondary btn-sm" id="btnCurrent">
+      <i class="fas fa-eye me-1"></i>Show current e-shop contents
+    </button>
+  </div>
+
+  <div id="currentBox" class="alert alert-secondary d-none small"></div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <label class="form-label">Paste your new-arrivals list (one item per line — names or item codes, numbering is OK)</label>
+      <textarea id="pasteBox" class="form-control font-monospace" rows="10"
+        placeholder="1.HELL ENERGY COFFEE LATTE 250ML 1X24&#10;2.PAPADOPOULOU CAPRICE 250GR&#10;ICC-0014"></textarea>
+      <button class="btn btn-primary mt-3" id="btnMatch">
+        <i class="fas fa-magnifying-glass me-1"></i>Match items
+      </button>
+    </div>
+  </div>
+
+  <div id="resultsCard" class="card mb-3 d-none">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span id="matchSummary"></span>
+      <button class="btn btn-danger" id="btnSync" disabled>
+        <i class="fas fa-rotate me-1"></i>Sync to e-shop (replace all)
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead><tr>
+          <th style="width:40%">Pasted line</th><th>Item code</th><th>Matched item</th><th>Status</th>
+        </tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="syncResult" class="d-none"></div>
+</div>
+
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+let rows = [];
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
+
+function badge(r){
+  if (r.status==='matched'){
+    const warn = r.active===false ? ' <span class="badge bg-warning text-dark">inactive</span>' : '';
+    return '<span class="badge bg-success">'+r.match_type+'</span>'+warn;
+  }
+  if (r.status==='ambiguous') return '<span class="badge bg-warning text-dark">pick one</span>';
+  return '<span class="badge bg-danger">not found</span>';
+}
+
+function render(){
+  const tb = document.getElementById('resultsBody');
+  tb.innerHTML = rows.map((r,i)=>{
+    let codeCell;
+    if (r.status==='matched'){
+      codeCell = '<code>'+esc(r.item_code)+'</code>';
+    } else if (r.status==='ambiguous'){
+      codeCell = '<select class="form-select form-select-sm" onchange="pick('+i+',this.value)">'
+        + '<option value="">— choose —</option>'
+        + r.candidates.map(c=>'<option value="'+esc(c.item_code)+'">'+esc(c.item_code)+' — '+esc(c.item_name)+'</option>').join('')
+        + '</select>';
+    } else {
+      codeCell = '<input class="form-control form-control-sm" placeholder="type code or search…" '
+        + 'oninput="manualSearch('+i+',this)" list="dl'+i+'">'
+        + '<datalist id="dl'+i+'"></datalist>';
+    }
+    return '<tr class="'+(r.status==='matched'?'':'table-warning')+'">'
+      + '<td class="small">'+esc(r.input)+'</td>'
+      + '<td>'+codeCell+'</td>'
+      + '<td class="small">'+esc(r.item_name||'')+'</td>'
+      + '<td>'+badge(r)+'</td></tr>';
+  }).join('');
+
+  const matched = rows.filter(r=>r.status==='matched').length;
+  document.getElementById('matchSummary').textContent =
+    matched+' of '+rows.length+' items matched';
+  document.getElementById('btnSync').disabled = matched===0;
+}
+
+window.pick = (i, code) => {
+  if(!code) return;
+  const r = rows[i];
+  const c = r.candidates.find(x=>x.item_code===code);
+  r.status='matched'; r.match_type='manual'; r.item_code=code;
+  r.item_name=c?c.item_name:''; r.active=c?c.active:true;
+  render();
+};
+
+let searchTimer=null;
+window.manualSearch = (i, input) => {
+  const q = input.value.trim();
+  const codeRe = /^[A-Za-z]{2,4}-\d{3,5}$/;
+  if (codeRe.test(q)){ rows[i].status='matched'; rows[i].match_type='manual';
+    rows[i].item_code=q.toUpperCase(); rows[i].item_name='(code entered manually)'; render(); return; }
+  clearTimeout(searchTimer);
+  if(q.length<3) return;
+  searchTimer=setTimeout(async ()=>{
+    const res = await fetch('/new-arrivals-sync/api/search?q='+encodeURIComponent(q));
+    const js = await res.json();
+    const dl = document.getElementById('dl'+i);
+    if(dl && js.ok){
+      rows[i].candidates = js.items;
+      if(js.items.length){ rows[i].status='ambiguous'; render(); }
+    }
+  }, 350);
+};
+
+document.getElementById('btnMatch').addEventListener('click', async ()=>{
+  const text = document.getElementById('pasteBox').value;
+  if(!text.trim()) return;
+  const res = await fetch('/new-arrivals-sync/api/resolve', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body: JSON.stringify({text})
+  });
+  const js = await res.json();
+  if(!js.ok){ alert(js.error||'Error'); return; }
+  rows = js.results;
+  document.getElementById('resultsCard').classList.remove('d-none');
+  document.getElementById('syncResult').classList.add('d-none');
+  render();
+});
+
+document.getElementById('btnSync').addEventListener('click', async ()=>{
+  const skus = rows.filter(r=>r.status==='matched').map(r=>r.item_code);
+  const skipped = rows.length - skus.length;
+  let msg = 'Replace ALL products in category {{ category_id }} with these '+skus.length+' items?';
+  if (skipped>0) msg += '\n('+skipped+' unmatched line(s) will be skipped.)';
+  if(!confirm(msg)) return;
+
+  const btn = document.getElementById('btnSync');
+  btn.disabled = true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Syncing…';
+  const res = await fetch('/new-arrivals-sync/api/sync', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body: JSON.stringify({skus})
+  });
+  const js = await res.json();
+  btn.disabled = false; btn.innerHTML='<i class="fas fa-rotate me-1"></i>Sync to e-shop (replace all)';
+
+  const box = document.getElementById('syncResult');
+  box.classList.remove('d-none');
+  if(js.ok){
+    box.innerHTML = '<div class="alert alert-success"><i class="fas fa-check me-1"></i>'
+      + 'Done — added '+js.added.length+', removed '+js.removed.length
+      + ', kept '+ (js.kept?js.kept.length:0) +'. Category now has '
+      + (js.added.length + (js.kept?js.kept.length:0)) +' items.</div>';
+  } else {
+    const errs = (js.errors||[]).map(e=>'<li><code>'+esc(e.sku)+'</code>: '+esc(e.error)+'</li>').join('');
+    box.innerHTML = '<div class="alert alert-danger"><b>Completed with errors.</b>'
+      + ' Added '+ (js.added?js.added.length:0) +', removed '+ (js.removed?js.removed.length:0)
+      + '.<ul class="mb-0">'+errs+'</ul>'
+      + (js.error ? '<div>'+esc(js.error)+'</div>' : '') + '</div>';
+  }
+});
+
+document.getElementById('btnCurrent').addEventListener('click', async ()=>{
+  const box = document.getElementById('currentBox');
+  box.classList.remove('d-none'); box.textContent='Loading…';
+  const res = await fetch('/new-arrivals-sync/api/current');
+  const js = await res.json();
+  box.innerHTML = js.ok
+    ? '<b>'+js.skus.length+' items currently in category '+js.category_id+':</b> '+js.skus.map(esc).join(', ')
+    : 'Error: '+esc(js.error);
+});
+</script>
+{% endblock %}

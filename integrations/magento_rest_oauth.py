@@ -1,5 +1,12 @@
+"""Magento REST client (OAuth1) — GET/POST/PUT/DELETE with retries.
+
+Drop-in replacement for integrations/magento_rest_oauth.py:
+keeps magento_rest_get() exactly as before, adds write methods
+needed by the New Arrivals sync (category product links).
+"""
 import os
 import time
+import json
 import logging
 import urllib.parse
 from requests_oauthlib import OAuth1Session
@@ -36,17 +43,16 @@ def _build_query_string(params: dict) -> str:
     return "&".join(parts)
 
 
-def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple[int, str]:
+def _base_url() -> str:
     base_url = os.getenv('MAGENTO_BASE_URL', '').rstrip('/')
     if base_url.endswith('/graphql'):
         base_url = base_url[:-len('/graphql')]
     if not base_url:
         raise ValueError("MAGENTO_BASE_URL environment variable not set")
+    return base_url
 
-    url = f"{base_url}{path}"
-    if params:
-        url = f"{url}?{_build_query_string(params)}"
 
+def _default_headers() -> dict:
     headers = {
         "Accept": "application/json",
         "Accept-Language": "en-US,en;q=0.9",
@@ -56,23 +62,36 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
             "Chrome/124.0.0.0 Safari/537.36"
         ),
     }
-
     cf_header_name = os.getenv('MAGENTO_CF_BYPASS_HEADER_NAME')
     cf_header_value = os.getenv('MAGENTO_CF_BYPASS_HEADER_VALUE')
     if cf_header_name and cf_header_value:
         headers[cf_header_name] = cf_header_value
+    return headers
+
+
+def _request_with_retries(method: str, path: str, params: dict = None,
+                          body: dict = None, timeout: int = 30) -> tuple[int, str]:
+    url = f"{_base_url()}{path}"
+    if params:
+        url = f"{url}?{_build_query_string(params)}"
+
+    headers = _default_headers()
+    kwargs = {"headers": headers, "timeout": timeout}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        kwargs["data"] = json.dumps(body)
 
     last_status = 0
     last_text = ""
 
     for attempt in range(1, MAX_RETRIES + 1):
         oauth = _build_session()
-        logger.debug(f"Magento GET {path} (attempt {attempt})")
-        resp = oauth.get(url, headers=headers, timeout=timeout)
+        logger.debug(f"Magento {method} {path} (attempt {attempt})")
+        resp = getattr(oauth, method.lower())(url, **kwargs)
         last_status = resp.status_code
         last_text = resp.text
 
-        if resp.status_code == 200:
+        if 200 <= resp.status_code < 300:
             return resp.status_code, resp.text
 
         if resp.status_code in (401, 403, 429, 502, 503, 504):
@@ -87,3 +106,19 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
         return resp.status_code, resp.text
 
     return last_status, last_text
+
+
+def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple[int, str]:
+    return _request_with_retries("GET", path, params=params, timeout=timeout)
+
+
+def magento_rest_post(path: str, body: dict = None, timeout: int = 30) -> tuple[int, str]:
+    return _request_with_retries("POST", path, body=body, timeout=timeout)
+
+
+def magento_rest_put(path: str, body: dict = None, timeout: int = 30) -> tuple[int, str]:
+    return _request_with_retries("PUT", path, body=body, timeout=timeout)
+
+
+def magento_rest_delete(path: str, timeout: int = 30) -> tuple[int, str]:
+    return _request_with_retries("DELETE", path, timeout=timeout)
