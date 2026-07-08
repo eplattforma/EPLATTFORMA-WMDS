@@ -578,24 +578,23 @@
         if (pickedQuantityInput) {
             // Enable confirm button when quantity is entered and valid
             pickedQuantityInput.addEventListener('input', function() {
-                const enteredQty = parseInt(this.value) || 0;
+                const enteredQty = parseInt(this.value);
                 
-                if (enteredQty > 0 && enteredQty <= expectedQuantity) {
+                // Same rule as normal picking: Confirm only accepts the exact
+                // expected quantity. Any mismatch must go through the
+                // "Report Exception" flow (quantity + reason pop-up).
+                if (enteredQty === expectedQuantity) {
                     confirmBtn.disabled = false;
                     warningMessage.style.display = 'none';
                     pickedQtyHidden.value = enteredQty;
-                    
-                    if (enteredQty !== expectedQuantity) {
-                        document.getElementById('quantity_adjusted').value = 'true';
-                    } else {
-                        document.getElementById('quantity_adjusted').value = 'false';
-                    }
-                } else if (enteredQty > expectedQuantity) {
-                    confirmBtn.disabled = true;
-                    warningMessage.style.display = 'block';
+                    document.getElementById('quantity_adjusted').value = 'false';
                 } else {
                     confirmBtn.disabled = true;
-                    warningMessage.style.display = 'none';
+                    if (!isNaN(enteredQty) && enteredQty !== expectedQuantity) {
+                        warningMessage.style.display = 'block';
+                    } else {
+                        warningMessage.style.display = 'none';
+                    }
                 }
             });
             
