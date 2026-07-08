@@ -66,7 +66,12 @@
 
         <div class="row mb-3">
             <div class="col-6">
-                <div class="routing-large">{{ inv.routing_label or inv.invoice.routing or 'NO-ROUTING' }}</div>
+                {% if inv.stop_seq is defined and inv.stop_seq is not none %}
+                <div class="routing-large">STOP {{ inv.stop_seq|int }}</div>
+                {% if inv.route_name %}<div style="font-size:20px;font-weight:bold;">{{ inv.route_name }}</div>{% endif %}
+                {% else %}
+                <div class="routing-large">{{ inv.routing_label or 'NO-ROUTING' }}</div>
+                {% endif %}
             </div>
             <div class="col-6 text-end">
                 <div class="print-header">

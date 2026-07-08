@@ -20,41 +20,52 @@ batch_bp = Blueprint('batch', __name__)
 
 
 def _build_stop_seq_lookup(batch_session):
-    """For cooler/route-based batches, return {invoice_no: float(seq_no)}.
+    """FIX-008: return ``{invoice_no: {'seq': float|None, 'route_name': str}}``.
 
-    For standard batches (no route_id), returns an empty dict so callers
-    fall back to Invoice.routing-based ordering.
+    Route-bound batches (cooler/route) read stops from their own route.
+    Standard batches fall back to each invoice's ACTIVE route link (the
+    Routes module is now the single source of truth — the legacy
+    ``Invoice.routing`` import field is dead).
     """
+    from models import Shipment
     route_id = getattr(batch_session, 'route_id', None)
-    if not route_id:
-        return {}
-    rows = db.session.query(
-        RouteStopInvoice.invoice_no, RouteStop.seq_no
-    ).join(
-        RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
-    ).filter(
-        RouteStop.shipment_id == route_id,
-        RouteStopInvoice.is_active.is_(True),
-        RouteStop.deleted_at.is_(None),
-    ).all()
-    out = {}
-    for inv_no, seq in rows:
-        try:
-            out[inv_no] = float(seq) if seq is not None else None
-        except (TypeError, ValueError):
-            out[inv_no] = None
-    return out
+    if route_id:
+        rows = db.session.query(
+            RouteStopInvoice.invoice_no, RouteStop.seq_no, Shipment.route_name,
+        ).join(
+            RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
+        ).join(
+            Shipment, Shipment.id == RouteStop.shipment_id
+        ).filter(
+            RouteStop.shipment_id == route_id,
+            RouteStopInvoice.is_active.is_(True),
+            RouteStop.deleted_at.is_(None),
+        ).all()
+        out = {}
+        for inv_no, seq, rname in rows:
+            try:
+                fseq = float(seq) if seq is not None else None
+            except (TypeError, ValueError):
+                fseq = None
+            out[inv_no] = {'seq': fseq, 'route_name': rname or ''}
+        return out
+    # Fallback: standard batch — invoices may still be on routes
+    from services.route_links import route_links_for_invoices
+    inv_nos = [bi.invoice_no for bi in batch_session.invoices]
+    return route_links_for_invoices(inv_nos)
 
 
 def _routing_label_for_invoice(invoice, stop_seq_lookup):
     """Return the routing label printed in the batch report header.
 
-    Priority: stop sequence (if cooler/route batch) → invoice.routing → 'NO-ROUTING'.
+    Priority: active route link ("ROUTE · STOP n") → legacy
+    ``invoice.routing`` (old data) → 'NO-ROUTING'.
     """
-    seq = stop_seq_lookup.get(invoice.invoice_no) if stop_seq_lookup else None
-    if seq is not None:
-        # Numeric seq displayed without trailing .0 when integral
-        return f"STOP {int(seq)}" if float(seq).is_integer() else f"STOP {seq}"
+    from services.route_links import stop_label
+    entry = stop_seq_lookup.get(invoice.invoice_no) if stop_seq_lookup else None
+    label = stop_label(entry)
+    if label:
+        return label
     routing = getattr(invoice, 'routing', None)
     if routing not in (None, ''):
         return str(routing)
@@ -63,10 +74,30 @@ def _routing_label_for_invoice(invoice, stop_seq_lookup):
 
 # Helper functions for sequential batch picking
 def get_sorted_batch_invoices(batch_session):
-    """Get all invoices in a batch sorted by routing number descending"""
-    return db.session.query(BatchSessionInvoice).join(Invoice).filter(
+    """Get all invoices in a batch in picking order.
+
+    FIX-008: invoices with an active route link order by
+    (route_name, stop_seq) ascending; unrouted invoices keep the legacy
+    routing-number-descending order after them.
+    """
+    from services.route_links import route_links_for_invoices, stop_sort_key, UNROUTED_SORT_KEY
+    batch_invoices = db.session.query(BatchSessionInvoice).join(Invoice).filter(
         BatchSessionInvoice.batch_session_id == batch_session.id
-    ).order_by(func.cast(Invoice.routing, db.Numeric).desc().nulls_last()).all()
+    ).all()
+    links = route_links_for_invoices([bi.invoice_no for bi in batch_invoices])
+
+    def _key(bi):
+        entry = links.get(bi.invoice_no)
+        if entry:
+            rname, seq = stop_sort_key(entry)
+            return (0, rname, seq)
+        try:
+            legacy = -float(bi.invoice.routing)
+        except (TypeError, ValueError):
+            legacy = float('inf')
+        return (1, UNROUTED_SORT_KEY[0], legacy)
+
+    return sorted(batch_invoices, key=_key)
 
 def get_remaining_locked_items_count(batch_session, invoice_no):
     """Get count of remaining locked items for a specific invoice in this batch"""
@@ -3824,6 +3855,10 @@ def batch_picking_summary(batch_id):
     # Preload invoice data to avoid N+1 queries
     invoice_nos = list(set(item.invoice_no for item in filtered_items))
     invoices_dict = {inv.invoice_no: inv for inv in Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos)).all()}
+
+    # FIX-008: routing label/grouping comes from the Routes module
+    from services.route_links import route_links_for_invoices, stop_label, stop_sort_key
+    route_links = route_links_for_invoices(invoice_nos)
     
     items = []
     picked_count = 0
@@ -3834,7 +3869,9 @@ def batch_picking_summary(batch_id):
     for item in filtered_items:
         # Get invoice details for routing and customer name from preloaded data
         invoice = invoices_dict.get(item.invoice_no)
-        routing = invoice.routing if invoice else None
+        # FIX-008: prefer the active route link label ("ROUTE · STOP n");
+        # fall back to legacy Invoice.routing for old data.
+        routing = stop_label(route_links.get(item.invoice_no)) or (invoice.routing if invoice else None)
         customer_name = invoice.customer_name if invoice else 'Unknown Customer'
         
         # Check if this item has been picked via batch
@@ -3956,18 +3993,20 @@ def batch_picking_summary(batch_id):
     if current_group is not None:
         grouped_items.append(current_group)
     
-    # Sort groups by routing number numerically (same logic as batch creation)
+    # FIX-008: route-linked groups first, ordered (route_name, stop_seq)
+    # ascending; legacy routing-number groups after them, descending.
     def get_routing_sort_key(group):
+        entry = route_links.get(group.get('invoice_no'))
+        if entry:
+            rname, seq = stop_sort_key(entry)
+            return (0, rname, seq)
         routing = group.get('routing')
-        if routing is None:
-            return -1
         try:
-            return float(routing)
+            return (1, '', -float(routing))
         except (ValueError, TypeError):
-            return -1
-    
-    # Sort in descending order (highest routing first, like delivery routes)
-    grouped_items.sort(key=get_routing_sort_key, reverse=True)
+            return (1, '', float('inf'))
+
+    grouped_items.sort(key=get_routing_sort_key)
     
     # Update groups to be the grouped structure
     groups = grouped_items
@@ -4293,10 +4332,14 @@ def batch_print_reports(batch_id):
     use_stop_seq = bool(stop_seq_lookup)
 
     def get_routing_key(bi):
+        from services.route_links import stop_sort_key, UNROUTED_SORT_KEY
         if use_stop_seq:
-            seq = stop_seq_lookup.get(bi.invoice_no)
-            # Unsequenced invoices go to the end (large sentinel)
-            return seq if seq is not None else float('inf')
+            entry = stop_seq_lookup.get(bi.invoice_no)
+            if entry:
+                # Group pages per route, stop order within each route
+                return stop_sort_key(entry)
+            # Unrouted invoices go to the end
+            return UNROUTED_SORT_KEY
         routing = bi.invoice.routing
         if routing is None or routing == '':
             return -1
@@ -4417,9 +4460,12 @@ def batch_print_reports(batch_id):
             })
 
         completion_pct = (picked_count / total_lines * 100) if total_lines > 0 else 0
+        _entry = stop_seq_lookup.get(invoice.invoice_no) or {}
         invoices_out.append({
             'invoice': invoice,
             'routing_label': inv_data['routing_label'],
+            'stop_seq': _entry.get('seq'),
+            'route_name': _entry.get('route_name') or '',
             'picked': picked,
             'problems': problems,
             'total_lines': total_lines,
@@ -4457,9 +4503,13 @@ def batch_admin_print_report(batch_id):
     use_stop_seq = bool(stop_seq_lookup)
 
     def get_routing_key(bi):
+        from services.route_links import stop_sort_key, UNROUTED_SORT_KEY
         if use_stop_seq:
-            seq = stop_seq_lookup.get(bi.invoice_no)
-            return seq if seq is not None else float('inf')
+            entry = stop_seq_lookup.get(bi.invoice_no)
+            if entry:
+                # Group pages per route, stop order within each route
+                return stop_sort_key(entry)
+            return UNROUTED_SORT_KEY  # Unrouted invoices at the end
         routing = bi.invoice.routing
         if routing is None or routing == '':
             return -1  # Put empty routing at the end
@@ -4632,9 +4682,12 @@ def batch_admin_print_report(batch_id):
                     'status': item.get('pick_status') or 'exception',
                     'reason': item.get('reason') or '',
                 })
+            _entry = stop_seq_lookup.get(invoice.invoice_no) or {}
             invoices.append({
                 'invoice': invoice,
                 'routing_label': _routing_label_for_invoice(invoice, stop_seq_lookup),
+                'stop_seq': _entry.get('seq'),
+                'route_name': _entry.get('route_name') or '',
                 'picked': picked_out,
                 'problems': problems_out,
                 'total_lines': total_lines,

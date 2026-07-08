@@ -18,7 +18,7 @@ Preferred communication style: Simple, everyday language.
 - **Authentication**: Flask-Login provides role-based access control for `admin`, `picker`, `warehouse_manager`, and `driver` roles.
 - **Deployment**: Gunicorn is used for serving the application.
 - **Core Features**:
-    - **Picking System**: Supports individual and batch picking, skip/collect later functionality, real-time updates, and exception handling. Includes a refactored batch picking system with DB-backed queues, and cooler picking capabilities for temperature-sensitive items.
+    - **Picking System**: Batch reports and Sequential picking order read route/stop from the Routes module (active `route_stop_invoice` links via `services/route_links.py`) — legacy `Invoice.routing` is mostly dead (~7% populated) and only used as a fallback label. Supports individual and batch picking, skip/collect later functionality, real-time updates, and exception handling. Includes a refactored batch picking system with DB-backed queues, and cooler picking capabilities for temperature-sensitive items.
     - **Time Tracking & Analytics**: Implements phase-based per-item time tracking, shift management, and KPI calculation.
     - **Delivery Management**: Includes issue tracking, route planning, driver assignment, progress tracking, and a mobile-optimized driver app with Proof of Delivery (POD) and discrepancy integration.
     - **Return & Discrepancy Workflows**: Provides structured processes for handling failed deliveries and verifying discrepancies.

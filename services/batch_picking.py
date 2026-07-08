@@ -177,6 +177,10 @@ def rebuild_items_from_queue(batch_id):
         ),
         {"bid": batch_id},
     ).fetchall()
+    # FIX-008: routing display/order comes from the Routes module (active
+    # route link → "ROUTE · STOP n"), falling back to legacy Invoice.routing.
+    from services.route_links import route_links_for_invoices, stop_label, stop_sort_key
+    route_links = route_links_for_invoices({r.invoice_no for r in rows})
     rebuilt, seen = [], {}
     for r in rows:
         ii = InvoiceItem.query.filter_by(invoice_no=r.invoice_no, item_code=r.item_code).first()
@@ -201,7 +205,11 @@ def rebuild_items_from_queue(batch_id):
                 'total_qty': 0,
                 'current_invoice': r.invoice_no,
                 'customer_name': (getattr(inv, 'customer_name', None) if inv else None),
-                'routing': (getattr(inv, 'routing', None) if inv else None),
+                'routing': (
+                    stop_label(route_links.get(r.invoice_no))
+                    or (getattr(inv, 'routing', None) if inv else None)
+                ),
+                'legacy_routing': (getattr(inv, 'routing', None) if inv else None),
                 'order_total_items': (getattr(inv, 'total_items', None) if inv else None),
                 'order_total_weight': (getattr(inv, 'total_weight', None) if inv else None),
                 'sequence_no': _seq_no,
@@ -218,18 +226,23 @@ def rebuild_items_from_queue(batch_id):
         })
     if is_sequential:
         # Order like a normal Sequential batch: one customer/invoice at a
-        # time, invoices by routing number descending, items within an
-        # invoice by location.
-        def _routing_key(e):
+        # time. FIX-008: route-linked invoices first, by (route_name,
+        # stop_seq) ascending; unrouted invoices after them by legacy
+        # routing number descending.
+        def _invoice_key(e):
+            entry = route_links.get(e.get('current_invoice'))
+            if entry:
+                rname, seq = stop_sort_key(entry)
+                return (0, rname, seq)
             try:
-                return float(e.get('routing') or -1)
+                return (1, '', -float(e.get('legacy_routing') or 'x'))
             except (TypeError, ValueError):
-                return -1
+                return (1, '', float('inf'))
         # Within an invoice, follow the walking order captured at enqueue
         # time (sequence_no) rather than the raw location string, so the
         # admin-configured route survives the Sequential re-sort.
         rebuilt.sort(key=lambda e: (
-            -_routing_key(e),
+            _invoice_key(e),
             e.get('current_invoice') or '',
             e.get('sequence_no') if e.get('sequence_no') is not None else 10**9,
             e.get('item_code') or '',

@@ -52,7 +52,10 @@ def test_label_uses_stop_seq_for_cooler_batch(app):
         db.session.commit()
 
         lookup = _build_stop_seq_lookup(bps)
-        assert lookup == {"INV-RPTA": 2.0, "INV-RPTB": 5.0}
+        assert lookup == {
+            "INV-RPTA": {"seq": 2.0, "route_name": ""},
+            "INV-RPTB": {"seq": 5.0, "route_name": ""},
+        }
 
         inv_a = db.session.get(Invoice, "INV-RPTA")
         inv_b = db.session.get(Invoice, "INV-RPTB")
