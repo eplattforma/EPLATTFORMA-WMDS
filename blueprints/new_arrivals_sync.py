@@ -163,6 +163,50 @@ def api_current():
                     "skus": [l.get("sku") for l in links]})
 
 
+@new_arrivals_bp.route("/api/notify", methods=["POST"])
+@login_required
+def api_notify():
+    """Broadcast a OneSignal push listing the new-arrival items, deep-linking
+    to the ΝΕΑ ΠΑΡΑΛΑΒΗ category in the mobile app."""
+    if not _role_ok():
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    names = [n.strip() for n in (payload.get("item_names") or []) if n and n.strip()]
+    if not names:
+        return jsonify({"ok": False, "error": "No items provided"}), 400
+
+    cat = _category_id()
+    title = "Νέα Παραλαβή 📦"
+
+    max_list = 6
+    listed = names[:max_list]
+    body = "Μόλις παραλάβαμε: " + ", ".join(listed)
+    if len(names) > max_list:
+        body += f" και άλλα {len(names) - max_list} προϊόντα"
+    body += ". Δείτε τα στην κατηγορία Νέα Παραλαβή!"
+
+    from services.onesignal_service import send_broadcast_push
+    result = send_broadcast_push(
+        title=title,
+        body=body,
+        push_target_type="category",
+        category_id=cat,
+        source_screen="new_arrivals_sync",
+        username=getattr(current_user, "username", None),
+    )
+
+    logger.info("New-arrivals push broadcast by %s: ok=%s recipients=%s",
+                getattr(current_user, "username", "?"),
+                result.get("ok"), result.get("recipients"))
+
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error") or "Push failed"}), 502
+    return jsonify({"ok": True, "message_id": result.get("message_id"),
+                    "recipients": result.get("recipients"),
+                    "title": title, "body": body})
+
+
 @new_arrivals_bp.route("/api/sync", methods=["POST"])
 @login_required
 def api_sync():

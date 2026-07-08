@@ -392,6 +392,88 @@ def send_push_to_customer(customer_code_365, title, body, url=None,
     }
 
 
+def send_broadcast_push(title, body, url=None, push_target_type=None,
+                        category_id=None, product_id=None, deep_link=None,
+                        source_screen=None, username=None):
+    """Send a push notification to ALL subscribed users (broadcast)."""
+    app_id = _app_id()
+    if not app_id:
+        return {"ok": False, "error": "ONESIGNAL_APP_ID not configured"}
+
+    push_data = _build_push_data(push_target_type, category_id, product_id, deep_link)
+
+    payload = {
+        "app_id": app_id,
+        "included_segments": ["Subscribed Users"],
+        "headings": {"en": title or "Notification"},
+        "contents": {"en": body or ""},
+    }
+    if push_data:
+        payload["data"] = push_data
+    if push_target_type == "custom_deeplink" and deep_link:
+        payload["url"] = deep_link
+    elif url:
+        payload["url"] = url
+
+    log_id = create_comm_log(
+        channel='onesignal_push',
+        customer_code_365=None,
+        customer_name='(broadcast)',
+        source_screen=source_screen,
+        context_type='broadcast',
+        context_id=None,
+        message_text=body,
+        username=username,
+        push_target_type=push_target_type or None,
+        push_target_id=str(category_id) if category_id else None,
+        push_deep_link=deep_link or None,
+        push_data_json=json.dumps(push_data, default=str) if push_data else None,
+        status='initiated',
+        extra_json=json.dumps({"push_title": title, "broadcast": True}, default=str),
+    )
+
+    raw_response = ""
+    provider_msg_id = None
+    recipients = None
+    status = "failed"
+    try:
+        r = req_lib.post(
+            f"{ONESIGNAL_API_BASE}/notifications",
+            headers=_headers(),
+            json=payload,
+            timeout=20,
+        )
+        raw_response = r.text
+        data = r.json()
+        if r.status_code in (200, 201) and data.get("id"):
+            status = "sent"
+            provider_msg_id = data.get("id")
+            recipients = data.get("recipients")
+        else:
+            errors = data.get("errors", [])
+            if errors:
+                raw_response = json.dumps(errors)
+    except req_lib.exceptions.Timeout:
+        raw_response = "timeout"
+    except Exception as e:
+        raw_response = f"EXCEPTION: {type(e).__name__}: {e}"
+
+    update_comm_log_status(log_id, status, provider_fields={
+        "provider_name": "onesignal",
+        "provider_message_id": provider_msg_id,
+        "provider_raw_response": raw_response[:2000],
+    })
+
+    return {
+        "ok": status == "sent",
+        "log_id": log_id,
+        "status": status,
+        "message_id": provider_msg_id,
+        "recipients": recipients,
+        "error": raw_response if status == "failed" else None,
+    }
+
+
 def bulk_send_push(customer_codes, title, body, template_code=None,
                    source_screen='order_review', username=None,
                    push_target_type=None, category_id=None,

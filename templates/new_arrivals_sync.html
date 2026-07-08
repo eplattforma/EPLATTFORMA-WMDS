@@ -26,9 +26,14 @@
   <div id="resultsCard" class="card mb-3 d-none">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span id="matchSummary"></span>
-      <button class="btn btn-danger" id="btnSync" disabled>
-        <i class="fas fa-rotate me-1"></i>Sync to e-shop (replace all)
-      </button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-warning" id="btnNotify" disabled>
+          <i class="fas fa-bell me-1"></i>Send push (Νέα Παραλαβή)
+        </button>
+        <button class="btn btn-danger" id="btnSync" disabled>
+          <i class="fas fa-rotate me-1"></i>Sync to e-shop (replace all)
+        </button>
+      </div>
     </div>
     <div class="card-body p-0">
       <table class="table table-sm table-hover mb-0 align-middle">
@@ -85,6 +90,7 @@ function render(){
   document.getElementById('matchSummary').textContent =
     matched+' of '+rows.length+' items matched';
   document.getElementById('btnSync').disabled = matched===0;
+  document.getElementById('btnNotify').disabled = matched===0;
 }
 
 window.pick = (i, code) => {
@@ -161,6 +167,33 @@ document.getElementById('btnSync').addEventListener('click', async ()=>{
       + ' Added '+ (js.added?js.added.length:0) +', removed '+ (js.removed?js.removed.length:0)
       + '.<ul class="mb-0">'+errs+'</ul>'
       + (js.error ? '<div>'+esc(js.error)+'</div>' : '') + '</div>';
+  }
+});
+
+document.getElementById('btnNotify').addEventListener('click', async ()=>{
+  const names = rows.filter(r=>r.status==='matched').map(r=>r.item_name||r.item_code);
+  if(!names.length) return;
+  if(!confirm('Send a OneSignal push to ALL app subscribers announcing '+names.length
+      +' new-arrival item(s), linking to category {{ category_id }}?')) return;
+
+  const btn = document.getElementById('btnNotify');
+  btn.disabled = true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
+  const res = await fetch('/new-arrivals-sync/api/notify', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body: JSON.stringify({item_names: names})
+  });
+  const js = await res.json();
+  btn.disabled = false; btn.innerHTML='<i class="fas fa-bell me-1"></i>Send push (Νέα Παραλαβή)';
+
+  const box = document.getElementById('syncResult');
+  box.classList.remove('d-none');
+  if(js.ok){
+    box.innerHTML = '<div class="alert alert-success"><i class="fas fa-bell me-1"></i>'
+      + 'Push sent'+(js.recipients!=null?' to '+js.recipients+' subscriber(s)':'')
+      + '.<br><b>'+esc(js.title)+'</b> — '+esc(js.body)+'</div>';
+  } else {
+    box.innerHTML = '<div class="alert alert-danger"><b>Push failed.</b> '+esc(js.error||'')+'</div>';
   }
 });
 
