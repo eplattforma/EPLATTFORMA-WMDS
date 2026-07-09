@@ -182,52 +182,6 @@
     </div>
   </div>
 
-  <!-- ── Top 10 customers ───────────────────────────────────────────── -->
-  {% if top_customers %}
-  <div class="row mb-4">
-    <div class="col-12">
-      <div class="chart-card bg-dark border border-secondary">
-        <h6 class="mb-3">Top 10 Customers by Net Sales</h6>
-        <div class="table-responsive">
-          <table class="table table-sm table-hover mb-0">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Customer</th>
-                <th class="text-end">Net Sales</th>
-                <th class="text-end">Orders</th>
-                <th class="text-end">vs Prior Year</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for c in top_customers %}
-              <tr>
-                <td class="text-muted">{{ loop.index }}</td>
-                <td>{{ c.name }}</td>
-                <td class="text-end fw-semibold">€{{ "{:,.0f}".format(c.net_sales) }}</td>
-                <td class="text-end">{{ c.orders }}</td>
-                <td class="text-end">
-                  {% if c.pct_change is not none %}
-                    {% if c.pct_change > 0 %}
-                      <span class="delta-up"><i class="fas fa-arrow-up me-1"></i>{{ c.pct_change }}%</span>
-                    {% elif c.pct_change < 0 %}
-                      <span class="delta-down"><i class="fas fa-arrow-down me-1"></i>{{ c.pct_change|abs }}%</span>
-                    {% else %}
-                      <span class="delta-flat">flat</span>
-                    {% endif %}
-                  {% else %}
-                    <span class="text-muted">new</span>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
 
 </div><!-- /container-fluid -->
 {% endblock %}

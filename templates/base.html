@@ -255,13 +255,6 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="adminDropdown">
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'kpi_dashboard.index' %}active{% endif %}"
-                                   href="{{ url_for('kpi_dashboard.index') }}">
-                                    <i class="fas fa-tachometer-alt me-2"></i>KPI Dashboard
-                                </a>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'manage_users' %}active{% endif %}" 
                                    href="{{ url_for('manage_users') }}">
                                     <i class="fas fa-users me-2"></i>Users
@@ -346,6 +339,13 @@
                                    target="_blank" rel="noopener"
                                    title="Open eppromo (signed in automatically)">
                                     <i class="fas fa-bullhorn me-2"></i>Promotions
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'kpi_dashboard.index' %}active{% endif %}"
+                                   href="{{ url_for('kpi_dashboard.index') }}">
+                                    <i class="fas fa-tachometer-alt me-2"></i>KPI Dashboard
                                 </a>
                             </li>
                         </ul>
