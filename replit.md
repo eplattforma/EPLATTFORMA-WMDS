@@ -1,7 +1,7 @@
-# Warehouse Picking Management System
+# EPIQ — intelligent B2B logistics (formerly WMDS)
 
 ## Overview
-This project is a comprehensive warehouse picking management system built with Flask and PostgreSQL. Its primary goal is to optimize warehouse operations by streamlining order picking, batch processing, and time tracking. The system aims to significantly enhance efficiency, reduce operational errors, and provide actionable analytics for warehouse managers. Key capabilities include real-time status updates, AI-powered insights, and robust delivery issue management, contributing to a more efficient and data-driven warehouse environment. The system also includes advanced forecasting and ordering capabilities, customer relationship management (CRM) tools, and offer intelligence to support sales and financial operations.
+EPIQ — intelligent B2B logistics (formerly WMDS). This project is a comprehensive warehouse picking management system built with Flask and PostgreSQL. Its primary goal is to optimize warehouse operations by streamlining order picking, batch processing, and time tracking. The system aims to significantly enhance efficiency, reduce operational errors, and provide actionable analytics for warehouse managers. Key capabilities include real-time status updates, AI-powered insights, and robust delivery issue management, contributing to a more efficient and data-driven warehouse environment. The system also includes advanced forecasting and ordering capabilities, customer relationship management (CRM) tools, and offer intelligence to support sales and financial operations.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
