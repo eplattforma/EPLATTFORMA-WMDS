@@ -4,7 +4,16 @@
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-.kpi-card { border-radius: 10px; padding: 1.25rem 1.5rem; }
+.kpi-card {
+  border-radius: 10px; padding: 1.25rem 1.5rem;
+  cursor: pointer; transition: border-color .18s, box-shadow .18s;
+  border: 2px solid transparent !important;
+}
+.kpi-card:hover { border-color: rgba(255,255,255,0.25) !important; }
+.kpi-card.metric-active {
+  box-shadow: 0 0 0 2px var(--metric-color, #3b82f6);
+  border-color: var(--metric-color, #3b82f6) !important;
+}
 .kpi-card .kpi-value { font-size: 2rem; font-weight: 700; line-height: 1.1; }
 .kpi-card .kpi-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
 .kpi-card .kpi-sub { font-size: 0.78rem; opacity: .65; margin-top: .2rem; }
@@ -62,7 +71,7 @@
       </select>
     </div>
     <div class="col-auto ms-auto">
-      <div class="btn-group btn-group-sm" role="group" id="toggleGroup">
+      <div class="btn-group btn-group-sm" role="group">
         <button type="button" class="btn btn-outline-secondary active" id="btnMonths" onclick="setGranularity('months')">Monthly</button>
         <button type="button" class="btn btn-outline-secondary" id="btnYears" onclick="setGranularity('years')">Yearly</button>
       </div>
@@ -84,14 +93,18 @@
 
   <div class="row g-3 mb-3">
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary metric-active"
+           data-metric="net_sales" style="--metric-color:#3b82f6;"
+           onclick="selectMetric('net_sales')">
         <div class="kpi-label">Total Net Sales</div>
         <div class="kpi-value text-primary">€{{ "{:,.0f}".format(kpis.net_sales) }}</div>
         {{ delta_badge(net_sales_pct) }}
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="orders" style="--metric-color:#22c55e;"
+           onclick="selectMetric('orders')">
         <div class="kpi-label">Total Orders</div>
         <div class="kpi-value text-success">{{ "{:,}".format(kpis.orders) }}</div>
         <div class="kpi-sub"><i class="fas fa-truck me-1"></i>{{ "{:,}".format(kpis.delivered) }} delivered</div>
@@ -99,14 +112,18 @@
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="active_customers" style="--metric-color:#f59e0b;"
+           onclick="selectMetric('active_customers')">
         <div class="kpi-label">Active Customers</div>
         <div class="kpi-value text-warning">{{ "{:,}".format(kpis.active_customers) }}</div>
         <div class="kpi-sub"><i class="fas fa-calendar-week me-1"></i>{{ "{:,}".format(kpis.buyers_12w) }} buyers last 12 weeks</div>
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="avg_invoice" style="--metric-color:#06b6d4;"
+           onclick="selectMetric('avg_invoice')">
         <div class="kpi-label">Average Invoice</div>
         <div class="kpi-value text-info">€{{ "{:,.0f}".format(kpis.avg_invoice) }}</div>
         <div class="kpi-sub">Net sales ÷ orders</div>
@@ -117,14 +134,18 @@
   <!-- ── KPI Row 2 ──────────────────────────────────────────────────── -->
   <div class="row g-3 mb-4">
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="products_sold" style="--metric-color:#8b5cf6;"
+           onclick="selectMetric('products_sold')">
         <div class="kpi-label">Products Sold</div>
-        <div class="kpi-value">{{ "{:,}".format(kpis.products_sold) }}</div>
+        <div class="kpi-value" style="color:#8b5cf6;">{{ "{:,}".format(kpis.products_sold) }}</div>
         <div class="kpi-sub">Distinct SKUs in period</div>
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="gross_margin_pct" style="--metric-color:#10b981;"
+           onclick="selectMetric('gross_margin_pct')">
         <div class="kpi-label">Gross Margin</div>
         {% if kpis.gross_margin_pct %}
         <div class="kpi-value {% if kpis.gross_margin_pct >= 15 %}text-success{% elif kpis.gross_margin_pct >= 10 %}text-warning{% else %}text-danger{% endif %}">
@@ -137,7 +158,9 @@
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="return_rate" style="--metric-color:#f87171;"
+           onclick="selectMetric('return_rate')">
         <div class="kpi-label">Return Rate</div>
         <div class="kpi-value {% if kpis.return_rate <= 2 %}text-success{% elif kpis.return_rate <= 5 %}text-warning{% else %}text-danger{% endif %}">
           {{ kpis.return_rate }}%
@@ -146,20 +169,22 @@
       </div>
     </div>
     <div class="col-sm-6 col-xl-3">
-      <div class="kpi-card bg-dark border border-secondary">
+      <div class="kpi-card bg-dark border border-secondary"
+           data-metric="new_customers" style="--metric-color:#a78bfa;"
+           onclick="selectMetric('new_customers')">
         <div class="kpi-label">New Customers</div>
-        <div class="kpi-value text-primary">{{ "{:,}".format(kpis.new_customers) }}</div>
+        <div class="kpi-value" style="color:#a78bfa;">{{ "{:,}".format(kpis.new_customers) }}</div>
         <div class="kpi-sub">First purchase in period</div>
       </div>
     </div>
   </div>
 
-  <!-- ── Main chart: Net Sales by Month/Year ────────────────────────── -->
+  <!-- ── Main chart ─────────────────────────────────────────────────── -->
   <div class="row mb-3">
     <div class="col-12">
       <div class="chart-card bg-dark border border-secondary">
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <h6 class="mb-0">Net Sales</h6>
+          <h6 class="mb-0" id="mainChartTitle">Total Net Sales</h6>
         </div>
         <canvas id="mainChart" style="max-height:320px;"></canvas>
       </div>
@@ -182,22 +207,72 @@
     </div>
   </div>
 
-
 </div><!-- /container-fluid -->
 {% endblock %}
 
 {% block scripts %}
 <script>
 // ── Chart data from server ────────────────────────────────────────────
-const monthLabels   = {{ charts.months      | tojson }};
-const monthlySales  = {{ charts.monthly_sales | tojson }};
-const monthlyAvg    = {{ charts.monthly_avg  | tojson }};
-const yearLabels    = {{ charts.years        | tojson }};
-const yearlySales   = {{ charts.yearly_sales | tojson }};
-const agentLabels   = {{ charts.agent_labels | tojson }};
-const agentSales    = {{ charts.agent_sales  | tojson }};
+const monthLabels       = {{ charts.months             | tojson }};
+const yearLabels        = {{ charts.years              | tojson }};
 
-// ── Toggle custom dates ────────────────────────────────────────────────
+const SERIES = {
+  months: {
+    net_sales:        {{ charts.monthly_sales       | tojson }},
+    orders:           {{ charts.monthly_orders      | tojson }},
+    active_customers: {{ charts.monthly_active_cust | tojson }},
+    avg_invoice:      {{ charts.monthly_avg         | tojson }},
+    products_sold:    {{ charts.monthly_skus        | tojson }},
+    gross_margin_pct: {{ charts.monthly_margin      | tojson }},
+    return_rate:      {{ charts.monthly_return_rate | tojson }},
+    new_customers:    {{ charts.monthly_new_cust    | tojson }},
+  },
+  years: {
+    net_sales:        {{ charts.yearly_sales        | tojson }},
+    orders:           {{ charts.yearly_orders       | tojson }},
+    active_customers: {{ charts.yearly_active_cust  | tojson }},
+    avg_invoice:      {{ charts.yearly_avg          | tojson }},
+    products_sold:    {{ charts.yearly_skus         | tojson }},
+    gross_margin_pct: {{ charts.yearly_margin       | tojson }},
+    return_rate:      {{ charts.yearly_return_rate  | tojson }},
+    new_customers:    {{ charts.yearly_new_cust     | tojson }},
+  }
+};
+
+const agentLabels = {{ charts.agent_labels | tojson }};
+const agentSales  = {{ charts.agent_sales  | tojson }};
+
+// ── Metric registry ───────────────────────────────────────────────────
+const METRICS = {
+  net_sales:        { label: 'Total Net Sales',       type: 'bar',  color: '#3b82f6', fmt: 'eur'   },
+  orders:           { label: 'Total Orders',          type: 'bar',  color: '#22c55e', fmt: 'count' },
+  active_customers: { label: 'Active Customers',      type: 'bar',  color: '#f59e0b', fmt: 'count' },
+  avg_invoice:      { label: 'Average Invoice',       type: 'line', color: '#06b6d4', fmt: 'eur'   },
+  products_sold:    { label: 'Products Sold (SKUs)',  type: 'bar',  color: '#8b5cf6', fmt: 'count' },
+  gross_margin_pct: { label: 'Gross Margin %',        type: 'line', color: '#10b981', fmt: 'pct'   },
+  return_rate:      { label: 'Return Rate %',         type: 'line', color: '#f87171', fmt: 'pct'   },
+  new_customers:    { label: 'New Customers',         type: 'bar',  color: '#a78bfa', fmt: 'count' },
+};
+
+// ── Formatters ────────────────────────────────────────────────────────
+function fmtEur(v)   { return '€' + Number(v).toLocaleString('en-IE', {minimumFractionDigits: 0, maximumFractionDigits: 0}); }
+function fmtPct(v)   { return (v === null || v === undefined) ? '' : Number(v).toFixed(1) + '%'; }
+function fmtCount(v) { return Number(v).toLocaleString('en-IE'); }
+
+function labelFmt(fmt, v) {
+  if (v === null || v === undefined) return '';
+  return fmt === 'eur' ? fmtEur(v) : fmt === 'pct' ? fmtPct(v) : fmtCount(v);
+}
+function axisFmt(fmt, v) {
+  return fmt === 'eur' ? fmtEur(v) : fmt === 'pct' ? v + '%' : fmtCount(v);
+}
+
+// ── State ─────────────────────────────────────────────────────────────
+let activeMetric = 'net_sales';
+let granularity  = 'months';
+let mainChart;
+
+// ── Toggle custom dates ───────────────────────────────────────────────
 function toggleCustom(val) {
   document.getElementById('customDates').style.display = (val === 'custom') ? 'flex' : 'none';
 }
@@ -206,52 +281,85 @@ function toggleCustom(val) {
 Chart.defaults.color = '#94a3b8';
 Chart.defaults.borderColor = 'rgba(255,255,255,0.08)';
 
-function eur(v) {
-  return '€' + v.toLocaleString('en-IE', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-}
+// ── Build / rebuild main chart ────────────────────────────────────────
+function buildMainChart() {
+  const m   = METRICS[activeMetric];
+  const g   = granularity;
+  const labels = g === 'months' ? monthLabels : yearLabels;
+  const data   = (SERIES[g][activeMetric] || []).map(v => v === null ? NaN : v);
+  const rgba   = m.color + 'b3';  // ~70% opacity
 
-// ── Main chart ────────────────────────────────────────────────────────
-let granularity = 'months';
-let mainChart;
+  document.getElementById('mainChartTitle').textContent = m.label;
 
-function buildMainChart(gran) {
-  const labels = gran === 'months' ? monthLabels : yearLabels;
-  const data   = gran === 'months' ? monthlySales : yearlySales;
   if (mainChart) mainChart.destroy();
+
+  const isLine = m.type === 'line';
   mainChart = new Chart(document.getElementById('mainChart'), {
-    type: 'bar',
+    type: m.type,
     data: {
       labels,
       datasets: [{
-        label: 'Net Sales (€)',
+        label: m.label,
         data,
-        backgroundColor: 'rgba(59,130,246,0.7)',
-        borderColor: 'rgba(59,130,246,1)',
-        borderWidth: 1,
-        borderRadius: 4,
+        ...(isLine ? {
+          borderColor: m.color,
+          backgroundColor: m.color + '1e',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        } : {
+          backgroundColor: rgba,
+          borderColor: m.color,
+          borderWidth: 1,
+          borderRadius: 4,
+        })
       }]
     },
     options: {
       responsive: true,
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => eur(ctx.parsed.y) } }
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed[isLine ? 'y' : 'y'];
+              return ' ' + labelFmt(m.fmt, v);
+            }
+          }
+        }
       },
       scales: {
-        y: { ticks: { callback: v => eur(v) } }
+        y: { ticks: { callback: v => axisFmt(m.fmt, v) } }
       }
     }
   });
 }
 
+// ── Select a metric ───────────────────────────────────────────────────
+function selectMetric(key) {
+  if (!(key in METRICS)) return;
+  activeMetric = key;
+
+  document.querySelectorAll('.kpi-card').forEach(el => {
+    const isActive = el.dataset.metric === key;
+    el.classList.toggle('metric-active', isActive);
+  });
+
+  buildMainChart();
+}
+
+// ── Granularity toggle ────────────────────────────────────────────────
 function setGranularity(g) {
   granularity = g;
   document.getElementById('btnMonths').classList.toggle('active', g === 'months');
   document.getElementById('btnYears').classList.toggle('active', g === 'years');
-  buildMainChart(g);
+  buildMainChart();
 }
 
-buildMainChart('months');
+// ── Initial render ────────────────────────────────────────────────────
+buildMainChart();
 
 // ── Agent chart ───────────────────────────────────────────────────────
 new Chart(document.getElementById('agentChart'), {
@@ -272,11 +380,9 @@ new Chart(document.getElementById('agentChart'), {
     responsive: true,
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: ctx => eur(ctx.parsed.x) } }
+      tooltip: { callbacks: { label: ctx => fmtEur(ctx.parsed.x) } }
     },
-    scales: {
-      x: { ticks: { callback: v => eur(v) } }
-    }
+    scales: { x: { ticks: { callback: v => fmtEur(v) } } }
   }
 });
 
@@ -287,7 +393,7 @@ new Chart(document.getElementById('avgChart'), {
     labels: monthLabels,
     datasets: [{
       label: 'Avg Invoice (€)',
-      data: monthlyAvg,
+      data: SERIES.months.avg_invoice,
       borderColor: 'rgba(251,191,36,1)',
       backgroundColor: 'rgba(251,191,36,0.12)',
       borderWidth: 2,
@@ -300,11 +406,9 @@ new Chart(document.getElementById('avgChart'), {
     responsive: true,
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: ctx => eur(ctx.parsed.y) } }
+      tooltip: { callbacks: { label: ctx => fmtEur(ctx.parsed.y) } }
     },
-    scales: {
-      y: { ticks: { callback: v => eur(v) } }
-    }
+    scales: { y: { ticks: { callback: v => fmtEur(v) } } }
   }
 });
 </script>

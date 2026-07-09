@@ -203,12 +203,21 @@ def _fetch_charts(d_from, d_to, agent):
     ac = _agent_clause(agent)
     params = {"d_from": d_from, "d_to": d_to, "agent": agent or "ALL"}
 
-    # ── Net sales by month ──────────────────────────────────────────────
+    # ── All core metrics by month (single pass over pbi_fact_sales) ─────
     month_sql = text(f"""
-        SELECT s.year_month,
-               SUM(COALESCE(s.line_total_excl, 0))                      AS net_sales,
-               COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
-                                   THEN s.invoice_no END)                AS orders
+        SELECT
+            s.year_month,
+            SUM(COALESCE(s.line_total_excl, 0))                                    AS net_sales,
+            COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
+                                THEN s.invoice_no END)                             AS orders,
+            COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
+                                THEN s.customer_code END)                          AS active_customers,
+            COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
+                                THEN s.item_code END)                              AS products_sold,
+            SUM(CASE WHEN s.invoice_type != 'SALE'
+                     THEN ABS(COALESCE(s.line_total_excl, 0)) ELSE 0 END)         AS return_value,
+            SUM(CASE WHEN s.invoice_type = 'SALE'
+                     THEN COALESCE(s.line_total_excl, 0) ELSE 0 END)              AS gross_sales
         FROM pbi_fact_sales s
         LEFT JOIN pbi_dim_customers d ON d.customer_code = s.customer_code
         WHERE s.invoice_date BETWEEN :d_from AND :d_to
@@ -220,15 +229,81 @@ def _fetch_charts(d_from, d_to, agent):
     months = [r.year_month for r in month_rows]
     monthly_sales = [float(r.net_sales) for r in month_rows]
     monthly_orders = [int(r.orders) for r in month_rows]
+    monthly_active_cust = [int(r.active_customers) for r in month_rows]
+    monthly_skus = [int(r.products_sold) for r in month_rows]
     monthly_avg = [
         round(float(r.net_sales) / r.orders, 2) if r.orders else 0
         for r in month_rows
     ]
+    monthly_return_rate = [
+        round(float(r.return_value) / float(r.gross_sales) * 100, 2)
+        if r.gross_sales else 0
+        for r in month_rows
+    ]
 
-    # ── Net sales by year ───────────────────────────────────────────────
+    # ── Gross margin % by month (dw_invoice_line, cost-enriched only) ──
+    monthly_margin: list = []
+    try:
+        gm_month_sql = text(f"""
+            SELECT
+                TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS ym,
+                ROUND(SUM(l.gross_profit)::numeric /
+                      NULLIF(SUM(l.line_total_excl), 0) * 100, 1) AS margin_pct
+            FROM dw_invoice_line l
+            JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+            LEFT JOIN pbi_dim_customers d ON d.customer_code = h.customer_code_365
+            WHERE l.gross_profit IS NOT NULL
+              AND h.invoice_type = 'SALE'
+              AND h.invoice_date_utc0 BETWEEN :d_from AND :d_to
+              {ac}
+            GROUP BY ym
+            ORDER BY ym
+        """)
+        gm_rows = db.session.execute(gm_month_sql, params).fetchall()
+        gm_map = {r.ym: float(r.margin_pct) if r.margin_pct is not None else None
+                  for r in gm_rows}
+        monthly_margin = [gm_map.get(m) for m in months]
+    except Exception:
+        monthly_margin = [None] * len(months)
+
+    # ── New customers by month ──────────────────────────────────────────
+    monthly_new_cust: list = []
+    try:
+        nc_month_sql = text("""
+            SELECT
+                TO_CHAR(fc.first_sale, 'YYYY-MM') AS ym,
+                COUNT(DISTINCT fc.customer_code)   AS new_cust
+            FROM (
+                SELECT customer_code, MIN(invoice_date) AS first_sale
+                FROM pbi_fact_sales
+                WHERE invoice_type = 'SALE'
+                GROUP BY customer_code
+            ) fc
+            WHERE fc.first_sale BETWEEN :d_from AND :d_to
+            GROUP BY ym
+            ORDER BY ym
+        """)
+        nc_rows = db.session.execute(nc_month_sql, {"d_from": d_from, "d_to": d_to}).fetchall()
+        nc_map = {r.ym: int(r.new_cust) for r in nc_rows}
+        monthly_new_cust = [nc_map.get(m, 0) for m in months]
+    except Exception:
+        monthly_new_cust = [0] * len(months)
+
+    # ── All core metrics by year ────────────────────────────────────────
     year_sql = text(f"""
-        SELECT s.year::int AS yr,
-               SUM(COALESCE(s.line_total_excl, 0))                      AS net_sales
+        SELECT
+            s.year::int                                                            AS yr,
+            SUM(COALESCE(s.line_total_excl, 0))                                    AS net_sales,
+            COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
+                                THEN s.invoice_no END)                             AS orders,
+            COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
+                                THEN s.customer_code END)                          AS active_customers,
+            COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
+                                THEN s.item_code END)                              AS products_sold,
+            SUM(CASE WHEN s.invoice_type != 'SALE'
+                     THEN ABS(COALESCE(s.line_total_excl, 0)) ELSE 0 END)         AS return_value,
+            SUM(CASE WHEN s.invoice_type = 'SALE'
+                     THEN COALESCE(s.line_total_excl, 0) ELSE 0 END)              AS gross_sales
         FROM pbi_fact_sales s
         LEFT JOIN pbi_dim_customers d ON d.customer_code = s.customer_code
         WHERE s.invoice_date BETWEEN :d_from AND :d_to
@@ -239,6 +314,66 @@ def _fetch_charts(d_from, d_to, agent):
     year_rows = db.session.execute(year_sql, params).fetchall()
     years = [str(r.yr) for r in year_rows]
     yearly_sales = [float(r.net_sales) for r in year_rows]
+    yearly_orders = [int(r.orders) for r in year_rows]
+    yearly_active_cust = [int(r.active_customers) for r in year_rows]
+    yearly_skus = [int(r.products_sold) for r in year_rows]
+    yearly_avg = [
+        round(float(r.net_sales) / r.orders, 2) if r.orders else 0
+        for r in year_rows
+    ]
+    yearly_return_rate = [
+        round(float(r.return_value) / float(r.gross_sales) * 100, 2)
+        if r.gross_sales else 0
+        for r in year_rows
+    ]
+
+    # ── Gross margin % by year ──────────────────────────────────────────
+    yearly_margin: list = []
+    try:
+        gm_year_sql = text(f"""
+            SELECT
+                EXTRACT(YEAR FROM h.invoice_date_utc0)::int                     AS yr,
+                ROUND(SUM(l.gross_profit)::numeric /
+                      NULLIF(SUM(l.line_total_excl), 0) * 100, 1)              AS margin_pct
+            FROM dw_invoice_line l
+            JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+            LEFT JOIN pbi_dim_customers d ON d.customer_code = h.customer_code_365
+            WHERE l.gross_profit IS NOT NULL
+              AND h.invoice_type = 'SALE'
+              AND h.invoice_date_utc0 BETWEEN :d_from AND :d_to
+              {ac}
+            GROUP BY yr
+            ORDER BY yr
+        """)
+        gm_y_rows = db.session.execute(gm_year_sql, params).fetchall()
+        gm_y_map = {str(r.yr): float(r.margin_pct) if r.margin_pct is not None else None
+                    for r in gm_y_rows}
+        yearly_margin = [gm_y_map.get(y) for y in years]
+    except Exception:
+        yearly_margin = [None] * len(years)
+
+    # ── New customers by year ───────────────────────────────────────────
+    yearly_new_cust: list = []
+    try:
+        nc_year_sql = text("""
+            SELECT
+                EXTRACT(YEAR FROM fc.first_sale)::int AS yr,
+                COUNT(DISTINCT fc.customer_code)       AS new_cust
+            FROM (
+                SELECT customer_code, MIN(invoice_date) AS first_sale
+                FROM pbi_fact_sales
+                WHERE invoice_type = 'SALE'
+                GROUP BY customer_code
+            ) fc
+            WHERE fc.first_sale BETWEEN :d_from AND :d_to
+            GROUP BY yr
+            ORDER BY yr
+        """)
+        nc_y_rows = db.session.execute(nc_year_sql, {"d_from": d_from, "d_to": d_to}).fetchall()
+        nc_y_map = {str(r.yr): int(r.new_cust) for r in nc_y_rows}
+        yearly_new_cust = [nc_y_map.get(y, 0) for y in years]
+    except Exception:
+        yearly_new_cust = [0] * len(years)
 
     # ── Net sales by agent ──────────────────────────────────────────────
     agent_sql = text("""
@@ -255,11 +390,27 @@ def _fetch_charts(d_from, d_to, agent):
     agent_sales = [float(r.net_sales) for r in agent_rows]
 
     return {
+        # month series
         "months": months,
         "monthly_sales": monthly_sales,
+        "monthly_orders": monthly_orders,
+        "monthly_active_cust": monthly_active_cust,
+        "monthly_skus": monthly_skus,
         "monthly_avg": monthly_avg,
+        "monthly_margin": monthly_margin,
+        "monthly_return_rate": monthly_return_rate,
+        "monthly_new_cust": monthly_new_cust,
+        # year series
         "years": years,
         "yearly_sales": yearly_sales,
+        "yearly_orders": yearly_orders,
+        "yearly_active_cust": yearly_active_cust,
+        "yearly_skus": yearly_skus,
+        "yearly_avg": yearly_avg,
+        "yearly_margin": yearly_margin,
+        "yearly_return_rate": yearly_return_rate,
+        "yearly_new_cust": yearly_new_cust,
+        # agent chart
         "agent_labels": agent_labels,
         "agent_sales": agent_sales,
     }
