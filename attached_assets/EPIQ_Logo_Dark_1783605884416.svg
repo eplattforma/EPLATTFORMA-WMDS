@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 420" width="1400" height="420">
+  <defs>
+    <linearGradient id="arrowGradD" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E93E30"/>
+      <stop offset="100%" stop-color="#F7941D"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1400" height="420" rx="24" fill="#161210"/>
+
+  
+  <g>
+    <polygon points="70,300 180,255 290,300 180,345" fill="#7A3A35"/>
+    <polygon points="70,300 180,345 180,361 70,316" fill="#5E2C28"/>
+    <polygon points="290,300 180,345 180,361 290,316" fill="#8A4640"/>
+  </g>
+  <g>
+    <polygon points="70,245 180,200 290,245 180,290" fill="#C24A40"/>
+    <polygon points="70,245 180,290 180,306 70,261" fill="#A03A31"/>
+    <polygon points="290,245 180,290 180,306 290,261" fill="#D2645A"/>
+  </g>
+  <g>
+    <polygon points="70,190 180,145 290,190 180,235" fill="#E93E30"/>
+    <polygon points="70,190 180,235 180,251 70,206" fill="#C92E22"/>
+    <polygon points="290,190 180,235 180,251 290,206" fill="#F06A5E"/>
+  </g>
+  <path d="M 128,238 C 170,205 205,172 268,112" fill="none" stroke="url(#arrowGradD)" stroke-width="17" stroke-linecap="round"/>
+  <polygon points="304,78 288,132 250,94" fill="#F7941D"/>
+  <circle cx="171" cy="203" r="9.5" fill="#161210" stroke="#E93E30" stroke-width="5"/>
+  <circle cx="222" cy="158" r="9.5" fill="#161210" stroke="#F7941D" stroke-width="5"/>
+
+  
+  <text x="360" y="252" font-family="Impact, 'Arial Narrow', 'DejaVu Sans Condensed', 'DejaVu Sans', sans-serif" font-weight="bold" font-size="185" letter-spacing="4">
+    <tspan fill="#E93E30">EP</tspan><tspan fill="#FFFFFF">IQ</tspan>
+  </text>
+  <text x="366" y="320" font-family="Georgia, 'DejaVu Serif', serif" font-style="italic" font-size="46" fill="#E93E30">intelligent b2b logistics</text>
+</svg>
