@@ -344,6 +344,8 @@ def api_monthly_validation():
             r['net_value'] = float(r['net_value'])
             r['vat'] = float(r['vat'])
             r['total_incl'] = float(r['total_incl'])
+            r['invoices'] = int(r['invoices'])
+            r['lines'] = int(r['lines'])
         return jsonify({'success': True, 'data': data})
     except Exception as e:
         logger.error(f"Monthly validation error: {e}", exc_info=True)
