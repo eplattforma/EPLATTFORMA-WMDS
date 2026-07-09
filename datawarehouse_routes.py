@@ -314,19 +314,27 @@ def api_monthly_validation():
         return jsonify({'success': False, 'message': 'Admin only'}), 403
     try:
         from sqlalchemy import text
+        # NOTE: months are grouped by the PS365 "value date" (invoice_date_local,
+        # falling back to invoice_date_utc0) and money columns come from HEADER
+        # totals, not line sums — a few invoices have lines that don't tie to
+        # their header, and PS365's own reports are header/value-date based.
         rows = db.session.execute(text("""
             SELECT
-                TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS month,
-                ROUND(COALESCE(SUM(l.line_total_excl), 0)::numeric, 2) AS before_discount,
-                ROUND(COALESCE(SUM(l.line_total_discount), 0)::numeric, 2) AS discount,
-                ROUND(COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0)::numeric, 2) AS net_value,
-                ROUND(COALESCE(SUM(l.line_total_vat), 0)::numeric, 2) AS vat,
-                ROUND(COALESCE(SUM(l.line_total_incl), 0)::numeric, 2) AS total_incl,
+                TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'YYYY-MM') AS month,
+                ROUND(COALESCE(SUM(h.total_sub), 0)::numeric, 2) AS before_discount,
+                ROUND(COALESCE(SUM(h.total_discount), 0)::numeric, 2) AS discount,
+                ROUND(COALESCE(SUM(COALESCE(h.total_sub, 0) - COALESCE(h.total_discount, 0)), 0)::numeric, 2) AS net_value,
+                ROUND(COALESCE(SUM(h.total_vat), 0)::numeric, 2) AS vat,
+                ROUND(COALESCE(SUM(h.total_grand), 0)::numeric, 2) AS total_incl,
                 COUNT(DISTINCT h.invoice_no_365) AS invoices,
-                COUNT(l.id) AS lines
+                COALESCE(SUM(lc.n_lines), 0) AS lines
             FROM dw_invoice_header h
-            JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-            GROUP BY TO_CHAR(h.invoice_date_utc0, 'YYYY-MM')
+            LEFT JOIN (
+                SELECT invoice_no_365, COUNT(*) AS n_lines
+                FROM dw_invoice_line
+                GROUP BY invoice_no_365
+            ) lc ON lc.invoice_no_365 = h.invoice_no_365
+            GROUP BY TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'YYYY-MM')
             ORDER BY month DESC
         """)).mappings().all()
         data = [dict(r) for r in rows]
