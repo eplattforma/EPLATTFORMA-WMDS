@@ -87,10 +87,11 @@ def _fetch_kpis(d_from, d_to, agent):
     params = {"d_from": d_from, "d_to": d_to, "agent": agent or "ALL"}
 
     # ── Main KPIs from pbi_fact_sales ──────────────────────────────────
+    # net_sales = plain SUM(line_total_excl): returns carry negative values so
+    # they net out automatically — matches pbi_fact_sales spec.
     sales_sql = text(f"""
         SELECT
-            SUM(CASE WHEN s.invoice_type = 'SALE'
-                     THEN COALESCE(s.line_total_excl, 0) ELSE 0 END)            AS net_sales,
+            SUM(COALESCE(s.line_total_excl, 0))                                 AS net_sales,
             COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
                                 THEN s.invoice_no END)                           AS orders,
             COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
@@ -205,8 +206,7 @@ def _fetch_charts(d_from, d_to, agent):
     # ── Net sales by month ──────────────────────────────────────────────
     month_sql = text(f"""
         SELECT s.year_month,
-               SUM(CASE WHEN s.invoice_type = 'SALE'
-                        THEN COALESCE(s.line_total_excl, 0) ELSE 0 END) AS net_sales,
+               SUM(COALESCE(s.line_total_excl, 0))                      AS net_sales,
                COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
                                    THEN s.invoice_no END)                AS orders
         FROM pbi_fact_sales s
@@ -228,8 +228,7 @@ def _fetch_charts(d_from, d_to, agent):
     # ── Net sales by year ───────────────────────────────────────────────
     year_sql = text(f"""
         SELECT s.year::int AS yr,
-               SUM(CASE WHEN s.invoice_type = 'SALE'
-                        THEN COALESCE(s.line_total_excl, 0) ELSE 0 END) AS net_sales
+               SUM(COALESCE(s.line_total_excl, 0))                      AS net_sales
         FROM pbi_fact_sales s
         LEFT JOIN pbi_dim_customers d ON d.customer_code = s.customer_code
         WHERE s.invoice_date BETWEEN :d_from AND :d_to
@@ -244,12 +243,10 @@ def _fetch_charts(d_from, d_to, agent):
     # ── Net sales by agent ──────────────────────────────────────────────
     agent_sql = text("""
         SELECT COALESCE(NULLIF(d.sales_agent, ''), 'Unassigned') AS agent,
-               SUM(CASE WHEN s.invoice_type = 'SALE'
-                        THEN COALESCE(s.line_total_excl, 0) ELSE 0 END) AS net_sales
+               SUM(COALESCE(s.line_total_excl, 0))               AS net_sales
         FROM pbi_fact_sales s
         LEFT JOIN pbi_dim_customers d ON d.customer_code = s.customer_code
         WHERE s.invoice_date BETWEEN :d_from AND :d_to
-          AND s.invoice_type = 'SALE'
         GROUP BY agent
         ORDER BY net_sales DESC
     """)
@@ -275,8 +272,7 @@ def _fetch_top_customers(d_from, d_to, agent, d_from_prev, d_to_prev):
     top_sql = text(f"""
         SELECT s.customer_code,
                MAX(d.customer_name) AS customer_name,
-               SUM(CASE WHEN s.invoice_type = 'SALE'
-                        THEN COALESCE(s.line_total_excl, 0) ELSE 0 END) AS net_sales,
+               SUM(COALESCE(s.line_total_excl, 0))                      AS net_sales,
                COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
                                    THEN s.invoice_no END)                AS orders
         FROM pbi_fact_sales s
