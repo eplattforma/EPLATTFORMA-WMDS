@@ -1272,6 +1272,7 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 break
             
             new_headers = []
+            local_date_updates = []
             for inv in invoices:
                 invoice_no = inv.get("invoice_no_365")
                 if not invoice_no:
@@ -1297,6 +1298,14 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 all_headers.append(invoice_no)
 
                 if invoice_no in existing_header_nos:
+                    # Header already in DW — still stamp the PS365 value date
+                    # if it's missing (rows imported before invoice_date_local
+                    # existed, e.g. the production DB).
+                    _ldate = _parse_ps365_date(inv.get("invoice_date_local"))
+                    if _ldate:
+                        local_date_updates.append(
+                            {"no": invoice_no, "ldate": _ldate}
+                        )
                     continue
                 
                 # Extract date only (no time)
@@ -1342,6 +1351,18 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 )
                 session.execute(stmt)
                 inserted += len(new_headers)
+
+            if local_date_updates:
+                # Only fill in a missing value date — never overwrite one.
+                session.execute(
+                    sa_text(
+                        "UPDATE dw_invoice_header "
+                        "SET invoice_date_local = CAST(:ldate AS date) "
+                        "WHERE invoice_no_365 = :no "
+                        "AND invoice_date_local IS NULL"
+                    ),
+                    local_date_updates,
+                )
 
             session.commit()
             page += 1
