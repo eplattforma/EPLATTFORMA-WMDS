@@ -2469,6 +2469,35 @@ class DwCashier(db.Model):
         return f"<DwCashier {self.user_code_365}>"
 
 
+class DwCreditNote(db.Model):
+    """
+    Credit notes (πιστωτικά τιμολόγια) from PS365 accounting module.
+    Not returned by the loyalty invoice endpoint — imported separately via
+    CSV upload or a dedicated PS365 endpoint.
+    Amounts are stored POSITIVE; pbi_fact_sales view negates them so they
+    reduce net_sales in plain SUM(line_total_excl).
+    """
+    __tablename__ = "dw_credit_note"
+    __table_args__ = (
+        db.Index('ix_dw_credit_note_date_customer', 'cn_date', 'customer_code'),
+    )
+
+    id             = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    cn_no          = db.Column(db.String(64), unique=True, nullable=False)
+    cn_date        = db.Column(db.Date, nullable=False, index=True)
+    customer_code  = db.Column(db.String(64), nullable=True, index=True)
+    store_code     = db.Column(db.String(64), nullable=True)
+    amount_excl    = db.Column(db.Numeric(18, 4), nullable=False)   # positive; view negates
+    amount_vat     = db.Column(db.Numeric(18, 4), nullable=True, default=0)
+    related_invoice_no = db.Column(db.String(64), nullable=True)
+    notes          = db.Column(db.Text, nullable=True)
+    source         = db.Column(db.String(20), nullable=False, default='csv')  # csv | ps365
+    last_sync_at   = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+
+    def __repr__(self):
+        return f"<DwCreditNote {self.cn_no} {self.cn_date} €{self.amount_excl}>"
+
+
 # ============================================================================
 # WMS OPERATIONAL INTELLIGENCE MODELS
 # ============================================================================

@@ -278,6 +278,13 @@ def dw_menu():
                 </a>
             </div>
 
+            <div class="menu-option">
+                <a href="{{ url_for('datawarehouse.credit_notes') }}">
+                    <h3>Credit Notes (πιστωτικά τιμολόγια)</h3>
+                    <p>Import accounting-side credit notes from CSV/XLSX so that pbi_fact_sales correctly nets them out of net_sales on the KPI dashboard.</p>
+                </a>
+            </div>
+
             <div class="menu-option" style="display:flex; align-items:center; justify-content:space-between;">
                 <div style="flex:1;">
                     <h3>Load OOS Items (Store 777)</h3>
@@ -1181,6 +1188,182 @@ def import_suppliers():
     return render_template(
         'datawarehouse/import_suppliers.html',
         suppliers=suppliers,
+        summary=summary,
+    )
+
+
+@dw_bp.route('/credit-notes', methods=['GET', 'POST'])
+@login_required
+@require_permission('sync.run_manual')
+def credit_notes():
+    """
+    Import credit notes (πιστωτικά τιμολόγια) into dw_credit_note.
+    Accepts an XLSX/CSV with columns:
+      cn_no | cn_date | customer_code | amount_excl | amount_vat (optional)
+    amount_excl must be entered as a POSITIVE number — the view negates it.
+    """
+    from models import DwCreditNote
+    import io, csv
+    from datetime import date as dt_date, datetime
+
+    if current_user.role not in ('admin', 'warehouse_manager'):
+        flash('Access denied.', 'error')
+        return redirect(url_for('index'))
+
+    summary = None
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'upload')
+
+        # ── Manual single-entry ────────────────────────────────────────────
+        if action == 'manual':
+            try:
+                cn_no         = request.form['cn_no'].strip()
+                cn_date_str   = request.form['cn_date'].strip()
+                customer_code = request.form['customer_code'].strip() or None
+                amount_excl   = abs(float(request.form['amount_excl']))
+                amount_vat    = abs(float(request.form.get('amount_vat') or 0))
+                related_inv   = request.form.get('related_invoice_no', '').strip() or None
+                notes_txt     = request.form.get('notes', '').strip() or None
+
+                cn_date = datetime.strptime(cn_date_str, '%Y-%m-%d').date()
+
+                existing = DwCreditNote.query.filter_by(cn_no=cn_no).first()
+                if existing:
+                    existing.cn_date        = cn_date
+                    existing.customer_code  = customer_code
+                    existing.amount_excl    = amount_excl
+                    existing.amount_vat     = amount_vat
+                    existing.related_invoice_no = related_inv
+                    existing.notes          = notes_txt
+                    existing.source         = 'manual'
+                    action_word = 'updated'
+                else:
+                    db.session.add(DwCreditNote(
+                        cn_no=cn_no, cn_date=cn_date,
+                        customer_code=customer_code,
+                        amount_excl=amount_excl, amount_vat=amount_vat,
+                        related_invoice_no=related_inv,
+                        notes=notes_txt, source='manual',
+                    ))
+                    action_word = 'created'
+
+                db.session.commit()
+                flash(f'Credit note {cn_no} {action_word} successfully.', 'success')
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f'CN manual entry error: {e}', exc_info=True)
+                flash(f'Error: {e}', 'error')
+
+        # ── File upload (XLSX or CSV) ──────────────────────────────────────
+        elif action == 'upload':
+            file = request.files.get('file')
+            if not file or not file.filename:
+                flash('Please choose a file.', 'error')
+            else:
+                fname = file.filename.lower()
+                try:
+                    raw = file.read()
+                    rows = []
+
+                    if fname.endswith('.xlsx'):
+                        import openpyxl
+                        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+                        ws = wb.active
+                        headers = [str(c.value).strip().lower() if c.value else '' for c in next(ws.iter_rows())]
+                        for row in ws.iter_rows(min_row=2, values_only=True):
+                            rows.append(dict(zip(headers, row)))
+
+                    elif fname.endswith('.csv'):
+                        text = raw.decode('utf-8-sig')
+                        reader = csv.DictReader(io.StringIO(text))
+                        reader.fieldnames = [f.strip().lower() for f in (reader.fieldnames or [])]
+                        for r in reader:
+                            rows.append({k.strip().lower(): v for k, v in r.items()})
+                    else:
+                        flash('Only .xlsx or .csv files are supported.', 'error')
+                        rows = None
+
+                    if rows is not None:
+                        created = updated = skipped = 0
+                        for r in rows:
+                            try:
+                                cn_no = str(r.get('cn_no') or '').strip()
+                                if not cn_no:
+                                    skipped += 1
+                                    continue
+
+                                raw_date = r.get('cn_date')
+                                if isinstance(raw_date, dt_date):
+                                    cn_date = raw_date
+                                elif raw_date:
+                                    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+                                        try:
+                                            cn_date = datetime.strptime(str(raw_date).strip(), fmt).date()
+                                            break
+                                        except ValueError:
+                                            continue
+                                    else:
+                                        skipped += 1
+                                        continue
+                                else:
+                                    skipped += 1
+                                    continue
+
+                                amount_excl = abs(float(r.get('amount_excl') or 0))
+                                amount_vat  = abs(float(r.get('amount_vat') or 0))
+                                customer_code = str(r.get('customer_code') or '').strip() or None
+
+                                existing = DwCreditNote.query.filter_by(cn_no=cn_no).first()
+                                if existing:
+                                    existing.cn_date       = cn_date
+                                    existing.customer_code = customer_code
+                                    existing.amount_excl   = amount_excl
+                                    existing.amount_vat    = amount_vat
+                                    existing.source        = 'csv'
+                                    updated += 1
+                                else:
+                                    db.session.add(DwCreditNote(
+                                        cn_no=cn_no, cn_date=cn_date,
+                                        customer_code=customer_code,
+                                        amount_excl=amount_excl,
+                                        amount_vat=amount_vat,
+                                        source='csv',
+                                    ))
+                                    created += 1
+                            except Exception as row_err:
+                                logger.warning(f'CN import row skip: {row_err}')
+                                skipped += 1
+
+                        db.session.commit()
+                        summary = {'created': created, 'updated': updated, 'skipped': skipped}
+                        flash(
+                            f'Import complete: {created} created, {updated} updated, {skipped} skipped.',
+                            'success',
+                        )
+
+                except Exception as e:
+                    db.session.rollback()
+                    logger.error(f'CN upload error: {e}', exc_info=True)
+                    flash(f'Upload failed: {e}', 'error')
+
+        # ── Delete a single CN ─────────────────────────────────────────────
+        elif action == 'delete':
+            cn_id = request.form.get('cn_id')
+            if cn_id:
+                rec = DwCreditNote.query.get(int(cn_id))
+                if rec:
+                    db.session.delete(rec)
+                    db.session.commit()
+                    flash(f'Credit note {rec.cn_no} deleted.', 'success')
+
+    # Fetch recent rows for display
+    from models import DwCreditNote as _CN
+    recent = _CN.query.order_by(_CN.cn_date.desc(), _CN.id.desc()).limit(200).all()
+
+    return render_template(
+        'datawarehouse/import_credit_notes.html',
+        recent=recent,
         summary=summary,
     )
 

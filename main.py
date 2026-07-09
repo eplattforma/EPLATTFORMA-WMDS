@@ -828,6 +828,13 @@ if _db_available:
     db.create_all()
 
     try:
+        from migrations.dw_credit_note_schema import ensure_dw_credit_note_schema
+        ensure_dw_credit_note_schema()
+        logging.info("DW credit note schema + pbi_fact_sales view ensured")
+    except Exception as e:
+        logging.error(f"Error ensuring dw_credit_note schema/view: {e}")
+
+    try:
         from update_order_status_system import update_order_status_system
         update_order_status_system()
     except Exception as e:

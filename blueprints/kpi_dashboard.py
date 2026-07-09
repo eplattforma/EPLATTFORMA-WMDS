@@ -98,7 +98,7 @@ def _fetch_kpis(d_from, d_to, agent):
                                 THEN s.customer_code END)                        AS active_customers,
             COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
                                 THEN s.item_code END)                            AS products_sold,
-            SUM(CASE WHEN s.invoice_type != 'SALE'
+            SUM(CASE WHEN s.invoice_type = 'SALE RETURN'
                      THEN ABS(COALESCE(s.line_total_excl, 0)) ELSE 0 END)       AS return_value,
             SUM(CASE WHEN s.invoice_type = 'SALE'
                      THEN COALESCE(s.line_total_excl, 0) ELSE 0 END)            AS gross_sales
@@ -214,7 +214,7 @@ def _fetch_charts(d_from, d_to, agent):
                                 THEN s.customer_code END)                          AS active_customers,
             COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
                                 THEN s.item_code END)                              AS products_sold,
-            SUM(CASE WHEN s.invoice_type != 'SALE'
+            SUM(CASE WHEN s.invoice_type = 'SALE RETURN'
                      THEN ABS(COALESCE(s.line_total_excl, 0)) ELSE 0 END)         AS return_value,
             SUM(CASE WHEN s.invoice_type = 'SALE'
                      THEN COALESCE(s.line_total_excl, 0) ELSE 0 END)              AS gross_sales
@@ -300,7 +300,7 @@ def _fetch_charts(d_from, d_to, agent):
                                 THEN s.customer_code END)                          AS active_customers,
             COUNT(DISTINCT CASE WHEN s.invoice_type = 'SALE'
                                 THEN s.item_code END)                              AS products_sold,
-            SUM(CASE WHEN s.invoice_type != 'SALE'
+            SUM(CASE WHEN s.invoice_type = 'SALE RETURN'
                      THEN ABS(COALESCE(s.line_total_excl, 0)) ELSE 0 END)         AS return_value,
             SUM(CASE WHEN s.invoice_type = 'SALE'
                      THEN COALESCE(s.line_total_excl, 0) ELSE 0 END)              AS gross_sales

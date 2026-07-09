@@ -82,6 +82,7 @@ FROM generate_series('2023-01-01'::date, '2027-12-31'::date, '1 day'::interval) 
 
 -- ===== FACT: Sales (line level) =====
 CREATE OR REPLACE VIEW pbi_fact_sales AS
+-- ── Regular sale / return lines from the loyalty POS ─────────────────
 SELECT
     l.id AS line_id,
     h.invoice_no_365 AS invoice_no,
@@ -109,7 +110,40 @@ SELECT
     TO_CHAR(h.invoice_date_utc0, 'Day') AS day_of_week,
     EXTRACT(DOW FROM h.invoice_date_utc0) AS day_of_week_no
 FROM dw_invoice_line l
-JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365;
+JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+
+UNION ALL
+
+-- ── Credit notes from the accounting module (imported separately) ─────
+-- Amounts are stored positive in dw_credit_note; negated here so that
+-- plain SUM(line_total_excl) = true net sales ex-VAT.
+SELECT
+    -cn.id                                  AS line_id,
+    cn.cn_no                                AS invoice_no,
+    'CREDIT NOTE'                           AS invoice_type,
+    cn.cn_date                              AS invoice_date,
+    cn.customer_code                        AS customer_code,
+    cn.store_code                           AS store_code,
+    NULL                                    AS salesperson_code,
+    'CREDIT_NOTE_ADJ'                       AS item_code,
+    1                                       AS line_number,
+    -1                                      AS quantity,
+    NULL                                    AS price_excl,
+    NULL                                    AS price_incl,
+    NULL                                    AS discount_percent,
+    NULL                                    AS vat_percent,
+    -cn.amount_excl                         AS line_total_excl,
+    NULL                                    AS line_total_discount,
+    -COALESCE(cn.amount_vat, 0)             AS line_total_vat,
+    -(cn.amount_excl + COALESCE(cn.amount_vat, 0)) AS line_total_incl,
+    -cn.amount_excl                         AS line_net_value,
+    EXTRACT(YEAR  FROM cn.cn_date)          AS year,
+    EXTRACT(MONTH FROM cn.cn_date)          AS month,
+    EXTRACT(QUARTER FROM cn.cn_date)        AS quarter,
+    TO_CHAR(cn.cn_date, 'YYYY-MM')          AS year_month,
+    TO_CHAR(cn.cn_date, 'Day')              AS day_of_week,
+    EXTRACT(DOW  FROM cn.cn_date)           AS day_of_week_no
+FROM dw_credit_note cn;
 
 -- ===== FACT: Invoices (header level) =====
 CREATE OR REPLACE VIEW pbi_fact_invoices AS
