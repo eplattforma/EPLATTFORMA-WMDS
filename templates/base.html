@@ -249,11 +249,18 @@
                     {% endif %}
                     {% if has_permission('settings.manage_users') %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['manage_users', 'admin_settings', 'admin_sorting_settings', 'datawarehouse.dw_menu'] or request.path == '/crm/admin/offers' or (request.endpoint and request.endpoint.startswith('dropbox_integration.')) %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['manage_users', 'admin_settings', 'admin_sorting_settings', 'datawarehouse.dw_menu', 'kpi_dashboard.index'] or request.path == '/crm/admin/offers' or (request.endpoint and request.endpoint.startswith('dropbox_integration.')) %}active{% endif %}" 
                            href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-cogs me-1"></i>Admin
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="adminDropdown">
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'kpi_dashboard.index' %}active{% endif %}"
+                                   href="{{ url_for('kpi_dashboard.index') }}">
+                                    <i class="fas fa-tachometer-alt me-2"></i>KPI Dashboard
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'manage_users' %}active{% endif %}" 
                                    href="{{ url_for('manage_users') }}">

@@ -412,6 +412,9 @@ app.register_blueprint(admin_batch_phase4_bp)
 from routes_admin_suppliers import admin_suppliers_bp
 app.register_blueprint(admin_suppliers_bp)
 
+from blueprints.kpi_dashboard import kpi_dashboard_bp
+app.register_blueprint(kpi_dashboard_bp)
+
 # ── Cockpit (Ticket 1 scaffold) ──────────────────────────────────────
 # Master flag ``cockpit_enabled`` (default false in services/settings_defaults.py)
 # hides every /cockpit/... route with HTTP 404 until the operator flips it on.

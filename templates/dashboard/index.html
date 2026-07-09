@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}KPI Dashboard{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.kpi-card { border-radius: 10px; padding: 1.25rem 1.5rem; }
+.kpi-card .kpi-value { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+.kpi-card .kpi-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+.kpi-card .kpi-sub { font-size: 0.78rem; opacity: .65; margin-top: .2rem; }
+.kpi-card .kpi-delta { font-size: 0.82rem; margin-top: .35rem; }
+.delta-up   { color: #4ade80; }
+.delta-down { color: #f87171; }
+.delta-flat { color: #94a3b8; }
+.chart-card { border-radius: 10px; padding: 1.25rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h4 class="mb-0"><i class="fas fa-tachometer-alt me-2 text-primary"></i>KPI Dashboard</h4>
+    <small class="text-muted">
+      {{ d_from.strftime('%d %b %Y') }} – {{ d_to.strftime('%d %b %Y') }}
+      &nbsp;·&nbsp; Data cached ~5 min
+    </small>
+  </div>
+
+  <!-- ── Filters ────────────────────────────────────────────────────── -->
+  <form method="get" class="row g-2 align-items-end mb-4" id="filterForm">
+    <div class="col-auto">
+      <label class="form-label small mb-1">Date range</label>
+      <select name="range" class="form-select form-select-sm" onchange="toggleCustom(this.value); this.form.submit()">
+        <option value="this_year"  {% if range_preset=='this_year'  %}selected{% endif %}>This year</option>
+        <option value="last_12m"   {% if range_preset=='last_12m'   %}selected{% endif %}>Last 12 months</option>
+        <option value="all_time"   {% if range_preset=='all_time'   %}selected{% endif %}>All time</option>
+        <option value="custom"     {% if range_preset=='custom'     %}selected{% endif %}>Custom range</option>
+      </select>
+    </div>
+    <div class="col-auto" id="customDates" style="display:{% if range_preset=='custom' %}flex{% else %}none{% endif %}; gap:.5rem;">
+      <div>
+        <label class="form-label small mb-1">From</label>
+        <input type="date" name="from" class="form-control form-control-sm" value="{{ custom_from }}">
+      </div>
+      <div>
+        <label class="form-label small mb-1">To</label>
+        <input type="date" name="to" class="form-control form-control-sm" value="{{ custom_to }}">
+      </div>
+      <div class="align-self-end">
+        <button class="btn btn-sm btn-primary">Apply</button>
+      </div>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-1">Agent</label>
+      <select name="agent" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="ALL" {% if selected_agent=='ALL' %}selected{% endif %}>All agents</option>
+        {% for ag in agents %}
+        <option value="{{ ag }}" {% if selected_agent==ag %}selected{% endif %}>{{ ag }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto ms-auto">
+      <div class="btn-group btn-group-sm" role="group" id="toggleGroup">
+        <button type="button" class="btn btn-outline-secondary active" id="btnMonths" onclick="setGranularity('months')">Monthly</button>
+        <button type="button" class="btn btn-outline-secondary" id="btnYears" onclick="setGranularity('years')">Yearly</button>
+      </div>
+    </div>
+  </form>
+
+  <!-- ── KPI Row 1 ──────────────────────────────────────────────────── -->
+  {% macro delta_badge(pct) %}
+    {% if pct is not none %}
+      {% if pct > 0 %}
+        <span class="kpi-delta delta-up"><i class="fas fa-arrow-up me-1"></i>{{ pct }}% vs prior year</span>
+      {% elif pct < 0 %}
+        <span class="kpi-delta delta-down"><i class="fas fa-arrow-down me-1"></i>{{ pct|abs }}% vs prior year</span>
+      {% else %}
+        <span class="kpi-delta delta-flat">— flat vs prior year</span>
+      {% endif %}
+    {% endif %}
+  {% endmacro %}
+
+  <div class="row g-3 mb-3">
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Total Net Sales</div>
+        <div class="kpi-value text-primary">€{{ "{:,.0f}".format(kpis.net_sales) }}</div>
+        {{ delta_badge(net_sales_pct) }}
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Total Orders</div>
+        <div class="kpi-value text-success">{{ "{:,}".format(kpis.orders) }}</div>
+        <div class="kpi-sub"><i class="fas fa-truck me-1"></i>{{ "{:,}".format(kpis.delivered) }} delivered</div>
+        {{ delta_badge(orders_pct) }}
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Active Customers</div>
+        <div class="kpi-value text-warning">{{ "{:,}".format(kpis.active_customers) }}</div>
+        <div class="kpi-sub"><i class="fas fa-calendar-week me-1"></i>{{ "{:,}".format(kpis.buyers_12w) }} buyers last 12 weeks</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Average Invoice</div>
+        <div class="kpi-value text-info">€{{ "{:,.0f}".format(kpis.avg_invoice) }}</div>
+        <div class="kpi-sub">Net sales ÷ orders</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── KPI Row 2 ──────────────────────────────────────────────────── -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Products Sold</div>
+        <div class="kpi-value">{{ "{:,}".format(kpis.products_sold) }}</div>
+        <div class="kpi-sub">Distinct SKUs in period</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Gross Margin</div>
+        {% if kpis.gross_margin_pct %}
+        <div class="kpi-value {% if kpis.gross_margin_pct >= 15 %}text-success{% elif kpis.gross_margin_pct >= 10 %}text-warning{% else %}text-danger{% endif %}">
+          {{ kpis.gross_margin_pct }}%
+        </div>
+        {% else %}
+        <div class="kpi-value text-muted">—</div>
+        {% endif %}
+        <div class="kpi-sub">GP ÷ revenue (cost-enriched lines)</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">Return Rate</div>
+        <div class="kpi-value {% if kpis.return_rate <= 2 %}text-success{% elif kpis.return_rate <= 5 %}text-warning{% else %}text-danger{% endif %}">
+          {{ kpis.return_rate }}%
+        </div>
+        <div class="kpi-sub">Return value ÷ gross sales</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="kpi-card bg-dark border border-secondary">
+        <div class="kpi-label">New Customers</div>
+        <div class="kpi-value text-primary">{{ "{:,}".format(kpis.new_customers) }}</div>
+        <div class="kpi-sub">First purchase in period</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main chart: Net Sales by Month/Year ────────────────────────── -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="chart-card bg-dark border border-secondary">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Net Sales</h6>
+        </div>
+        <canvas id="mainChart" style="max-height:320px;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Two side-by-side charts ────────────────────────────────────── -->
+  <div class="row g-3 mb-4">
+    <div class="col-lg-6">
+      <div class="chart-card bg-dark border border-secondary h-100">
+        <h6 class="mb-3">Net Sales by Agent</h6>
+        <canvas id="agentChart" style="max-height:280px;"></canvas>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="chart-card bg-dark border border-secondary h-100">
+        <h6 class="mb-3">Average Invoice by Month</h6>
+        <canvas id="avgChart" style="max-height:280px;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Top 10 customers ───────────────────────────────────────────── -->
+  {% if top_customers %}
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="chart-card bg-dark border border-secondary">
+        <h6 class="mb-3">Top 10 Customers by Net Sales</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Customer</th>
+                <th class="text-end">Net Sales</th>
+                <th class="text-end">Orders</th>
+                <th class="text-end">vs Prior Year</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in top_customers %}
+              <tr>
+                <td class="text-muted">{{ loop.index }}</td>
+                <td>{{ c.name }}</td>
+                <td class="text-end fw-semibold">€{{ "{:,.0f}".format(c.net_sales) }}</td>
+                <td class="text-end">{{ c.orders }}</td>
+                <td class="text-end">
+                  {% if c.pct_change is not none %}
+                    {% if c.pct_change > 0 %}
+                      <span class="delta-up"><i class="fas fa-arrow-up me-1"></i>{{ c.pct_change }}%</span>
+                    {% elif c.pct_change < 0 %}
+                      <span class="delta-down"><i class="fas fa-arrow-down me-1"></i>{{ c.pct_change|abs }}%</span>
+                    {% else %}
+                      <span class="delta-flat">flat</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-muted">new</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div><!-- /container-fluid -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Chart data from server ────────────────────────────────────────────
+const monthLabels   = {{ charts.months      | tojson }};
+const monthlySales  = {{ charts.monthly_sales | tojson }};
+const monthlyAvg    = {{ charts.monthly_avg  | tojson }};
+const yearLabels    = {{ charts.years        | tojson }};
+const yearlySales   = {{ charts.yearly_sales | tojson }};
+const agentLabels   = {{ charts.agent_labels | tojson }};
+const agentSales    = {{ charts.agent_sales  | tojson }};
+
+// ── Toggle custom dates ────────────────────────────────────────────────
+function toggleCustom(val) {
+  document.getElementById('customDates').style.display = (val === 'custom') ? 'flex' : 'none';
+}
+
+// ── Chart defaults ────────────────────────────────────────────────────
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.08)';
+
+function eur(v) {
+  return '€' + v.toLocaleString('en-IE', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+}
+
+// ── Main chart ────────────────────────────────────────────────────────
+let granularity = 'months';
+let mainChart;
+
+function buildMainChart(gran) {
+  const labels = gran === 'months' ? monthLabels : yearLabels;
+  const data   = gran === 'months' ? monthlySales : yearlySales;
+  if (mainChart) mainChart.destroy();
+  mainChart = new Chart(document.getElementById('mainChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Net Sales (€)',
+        data,
+        backgroundColor: 'rgba(59,130,246,0.7)',
+        borderColor: 'rgba(59,130,246,1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => eur(ctx.parsed.y) } }
+      },
+      scales: {
+        y: { ticks: { callback: v => eur(v) } }
+      }
+    }
+  });
+}
+
+function setGranularity(g) {
+  granularity = g;
+  document.getElementById('btnMonths').classList.toggle('active', g === 'months');
+  document.getElementById('btnYears').classList.toggle('active', g === 'years');
+  buildMainChart(g);
+}
+
+buildMainChart('months');
+
+// ── Agent chart ───────────────────────────────────────────────────────
+new Chart(document.getElementById('agentChart'), {
+  type: 'bar',
+  data: {
+    labels: agentLabels,
+    datasets: [{
+      label: 'Net Sales (€)',
+      data: agentSales,
+      backgroundColor: 'rgba(16,185,129,0.7)',
+      borderColor: 'rgba(16,185,129,1)',
+      borderWidth: 1,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => eur(ctx.parsed.x) } }
+    },
+    scales: {
+      x: { ticks: { callback: v => eur(v) } }
+    }
+  }
+});
+
+// ── Avg invoice line chart ────────────────────────────────────────────
+new Chart(document.getElementById('avgChart'), {
+  type: 'line',
+  data: {
+    labels: monthLabels,
+    datasets: [{
+      label: 'Avg Invoice (€)',
+      data: monthlyAvg,
+      borderColor: 'rgba(251,191,36,1)',
+      backgroundColor: 'rgba(251,191,36,0.12)',
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: 0.3,
+      fill: true,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => eur(ctx.parsed.y) } }
+    },
+    scales: {
+      y: { ticks: { callback: v => eur(v) } }
+    }
+  }
+});
+</script>
+{% endblock %}
