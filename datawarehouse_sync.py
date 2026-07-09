@@ -1346,8 +1346,17 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 existing_header_nos.add(invoice_no)
 
             if new_headers:
-                stmt = pg_insert(DwInvoiceHeader).values(new_headers).on_conflict_do_nothing(
-                    index_elements=["invoice_no_365"]
+                # On conflict (header already in DW, e.g. under a different
+                # utc0 month), fill in a missing value date — never overwrite.
+                stmt = pg_insert(DwInvoiceHeader).values(new_headers)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["invoice_no_365"],
+                    set_={
+                        "invoice_date_local": func.coalesce(
+                            DwInvoiceHeader.invoice_date_local,
+                            stmt.excluded.invoice_date_local,
+                        )
+                    },
                 )
                 session.execute(stmt)
                 inserted += len(new_headers)
