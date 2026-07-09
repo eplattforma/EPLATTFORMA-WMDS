@@ -87,7 +87,7 @@ SELECT
     l.id AS line_id,
     h.invoice_no_365 AS invoice_no,
     h.invoice_type,
-    h.invoice_date_utc0 AS invoice_date,
+    COALESCE(h.invoice_date_local, h.invoice_date_utc0) AS invoice_date,
     h.customer_code_365 AS customer_code,
     h.store_code_365 AS store_code,
     h.user_code_365 AS salesperson_code,
@@ -103,14 +103,55 @@ SELECT
     l.line_total_vat,
     l.line_total_incl,
     (COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)) AS line_net_value,
-    EXTRACT(YEAR FROM h.invoice_date_utc0) AS year,
-    EXTRACT(MONTH FROM h.invoice_date_utc0) AS month,
-    EXTRACT(QUARTER FROM h.invoice_date_utc0) AS quarter,
-    TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS year_month,
-    TO_CHAR(h.invoice_date_utc0, 'Day') AS day_of_week,
-    EXTRACT(DOW FROM h.invoice_date_utc0) AS day_of_week_no
+    EXTRACT(YEAR  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS year,
+    EXTRACT(MONTH FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS month,
+    EXTRACT(QUARTER FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS quarter,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'YYYY-MM') AS year_month,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'Day') AS day_of_week,
+    EXTRACT(DOW  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS day_of_week_no
 FROM dw_invoice_line l
 JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+
+UNION ALL
+
+-- ── Header/line reconciliation adjustments ───────────────────────────
+-- Some invoices have missing lines or line totals that do not include the
+-- invoice-level discount. This arm adds one pseudo-line per invoice with the
+-- difference (header net − sum of lines) so SUM(line_total_excl) always ties
+-- out to Powersoft's header figures.
+SELECT
+    NULL                                             AS line_id,
+    h.invoice_no_365                                 AS invoice_no,
+    h.invoice_type,
+    COALESCE(h.invoice_date_local, h.invoice_date_utc0) AS invoice_date,
+    h.customer_code_365                              AS customer_code,
+    h.store_code_365                                 AS store_code,
+    h.user_code_365                                  AS salesperson_code,
+    NULL                                             AS item_code,
+    0                                                AS line_number,
+    0                                                AS quantity,
+    NULL                                             AS price_excl,
+    NULL                                             AS price_incl,
+    NULL                                             AS discount_percent,
+    NULL                                             AS vat_percent,
+    (COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0) AS line_total_excl,
+    NULL                                             AS line_total_discount,
+    0                                                AS line_total_vat,
+    (COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0) AS line_total_incl,
+    (COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0) AS line_net_value,
+    EXTRACT(YEAR  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS year,
+    EXTRACT(MONTH FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS month,
+    EXTRACT(QUARTER FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS quarter,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'YYYY-MM') AS year_month,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'Day') AS day_of_week,
+    EXTRACT(DOW  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS day_of_week_no
+FROM dw_invoice_header h
+LEFT JOIN (
+    SELECT invoice_no_365, SUM(line_total_excl) AS lines_excl
+    FROM dw_invoice_line
+    GROUP BY invoice_no_365
+) la ON la.invoice_no_365 = h.invoice_no_365
+WHERE ABS((COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0)) > 0.005
 
 UNION ALL
 
@@ -118,31 +159,31 @@ UNION ALL
 -- Amounts are stored positive in dw_credit_note; negated here so that
 -- plain SUM(line_total_excl) = true net sales ex-VAT.
 SELECT
-    -cn.id                                  AS line_id,
-    cn.cn_no                                AS invoice_no,
-    'CREDIT NOTE'                           AS invoice_type,
-    cn.cn_date                              AS invoice_date,
-    cn.customer_code                        AS customer_code,
-    cn.store_code                           AS store_code,
-    NULL                                    AS salesperson_code,
-    'CREDIT_NOTE_ADJ'                       AS item_code,
-    1                                       AS line_number,
-    -1                                      AS quantity,
-    NULL                                    AS price_excl,
-    NULL                                    AS price_incl,
-    NULL                                    AS discount_percent,
-    NULL                                    AS vat_percent,
-    -cn.amount_excl                         AS line_total_excl,
-    NULL                                    AS line_total_discount,
-    -COALESCE(cn.amount_vat, 0)             AS line_total_vat,
-    -(cn.amount_excl + COALESCE(cn.amount_vat, 0)) AS line_total_incl,
-    -cn.amount_excl                         AS line_net_value,
-    EXTRACT(YEAR  FROM cn.cn_date)          AS year,
-    EXTRACT(MONTH FROM cn.cn_date)          AS month,
-    EXTRACT(QUARTER FROM cn.cn_date)        AS quarter,
-    TO_CHAR(cn.cn_date, 'YYYY-MM')          AS year_month,
-    TO_CHAR(cn.cn_date, 'Day')              AS day_of_week,
-    EXTRACT(DOW  FROM cn.cn_date)           AS day_of_week_no
+    -cn.id                                           AS line_id,
+    cn.cn_no                                         AS invoice_no,
+    'CREDIT NOTE'                                    AS invoice_type,
+    cn.cn_date                                       AS invoice_date,
+    cn.customer_code                                 AS customer_code,
+    cn.store_code                                    AS store_code,
+    NULL                                             AS salesperson_code,
+    'CREDIT_NOTE_ADJ'                                AS item_code,
+    1                                                AS line_number,
+    -1                                               AS quantity,
+    NULL                                             AS price_excl,
+    NULL                                             AS price_incl,
+    NULL                                             AS discount_percent,
+    NULL                                             AS vat_percent,
+    -cn.amount_excl                                  AS line_total_excl,
+    NULL                                             AS line_total_discount,
+    -COALESCE(cn.amount_vat, 0)                      AS line_total_vat,
+    -(cn.amount_excl + COALESCE(cn.amount_vat, 0))   AS line_total_incl,
+    -cn.amount_excl                                  AS line_net_value,
+    EXTRACT(YEAR  FROM cn.cn_date)                   AS year,
+    EXTRACT(MONTH FROM cn.cn_date)                   AS month,
+    EXTRACT(QUARTER FROM cn.cn_date)                 AS quarter,
+    TO_CHAR(cn.cn_date, 'YYYY-MM')                   AS year_month,
+    TO_CHAR(cn.cn_date, 'Day')                       AS day_of_week,
+    EXTRACT(DOW  FROM cn.cn_date)                    AS day_of_week_no
 FROM dw_credit_note cn;
 
 -- ===== FACT: Invoices (header level) =====

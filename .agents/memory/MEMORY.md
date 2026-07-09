@@ -1,5 +1,6 @@
 - [Cooler planner test mock pattern](cooler-planner-test-mock.md) — auto mode uses fetchall(); manual mode uses fetchone(); test helper must set both correctly.
 - [SMTP Brevo relay setup](smtp-brevo-setup.md) — Brevo needs separate SMTP_FROM secret for the visible From address; SMTP_EMAIL is the auth key only.
+- [PS365 value date vs utc0](ps365-value-date.md) — sales reporting must use invoice_date_local; utc0 can differ by months and skews monthly net sales.
 - [VPACK pieces convention](vpack-pieces-convention.md) — virtual packs are always picked in pieces (live DwItem multiplier); never trust snapshot pack units in queues.
 - [Deferred batch item filters](deferred-batch-filters.md) — deferred sessions use sentinel zone 'DEFERRED' + status 'sent_to_batch'; zone-based or whitelist filters silently return 0 rows and picking falls back to a customer-merging rebuild.
 - [New batch_pick_queue status fan-out](cooler-queue-status-surfaces.md) — a new non-terminal queue status must also be added to cancel_batch + route-extraction DELETEs, or rows park invoices forever.

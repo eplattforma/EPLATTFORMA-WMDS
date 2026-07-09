@@ -4,6 +4,7 @@ import os
 from datetime import date, datetime, timedelta, timezone
 import time
 from logging.handlers import RotatingFileHandler
+from sqlalchemy import func
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -1153,9 +1154,12 @@ def _load_existing_invoice_headers_map(session: Session, invoice_nos=None, date_
     if invoice_nos is not None:
         q = q.filter(DwInvoiceHeader.invoice_no_365.in_(invoice_nos))
     elif date_from is not None:
-        q = q.filter(DwInvoiceHeader.invoice_date_utc0 >= _coerce_to_date(date_from))
+        # PS365 API from/to filters work on the value date (invoice_date_local),
+        # so scope preloads the same way (utc0 fallback for unstamped rows).
+        eff_date = func.coalesce(DwInvoiceHeader.invoice_date_local, DwInvoiceHeader.invoice_date_utc0)
+        q = q.filter(eff_date >= _coerce_to_date(date_from))
         if date_to is not None:
-            q = q.filter(DwInvoiceHeader.invoice_date_utc0 <= _coerce_to_date(date_to))
+            q = q.filter(eff_date <= _coerce_to_date(date_to))
 
     for row in q.all():
         existing_headers_set.add(row[0])
@@ -1179,11 +1183,12 @@ def _load_existing_invoice_line_keys(session: Session, invoice_nos=None, date_fr
     if invoice_nos is not None:
         q = q.filter(DwInvoiceLine.invoice_no_365.in_(invoice_nos))
     elif date_from is not None:
+        eff_date = func.coalesce(DwInvoiceHeader.invoice_date_local, DwInvoiceHeader.invoice_date_utc0)
         hdr_nos = session.query(DwInvoiceHeader.invoice_no_365).filter(
-            DwInvoiceHeader.invoice_date_utc0 >= _coerce_to_date(date_from)
+            eff_date >= _coerce_to_date(date_from)
         )
         if date_to is not None:
-            hdr_nos = hdr_nos.filter(DwInvoiceHeader.invoice_date_utc0 <= _coerce_to_date(date_to))
+            hdr_nos = hdr_nos.filter(eff_date <= _coerce_to_date(date_to))
         q = q.filter(DwInvoiceLine.invoice_no_365.in_(hdr_nos))
 
     for row in q.all():
@@ -1223,10 +1228,11 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
     logger.info(f"Syncing invoice headers from {date_from} to {date_to if date_to else 'today'}")
     logger.info(f"API invoice date filter: {from_date} to {to_date}")
 
+    _eff_date = func.coalesce(DwInvoiceHeader.invoice_date_local, DwInvoiceHeader.invoice_date_utc0)
     existing_header_nos = set(
         row[0] for row in session.query(DwInvoiceHeader.invoice_no_365).filter(
-            DwInvoiceHeader.invoice_date_utc0 >= _coerce_to_date(date_from),
-            DwInvoiceHeader.invoice_date_utc0 <= _coerce_to_date(date_to or datetime.now().strftime("%Y-%m-%d"))
+            _eff_date >= _coerce_to_date(date_from),
+            _eff_date <= _coerce_to_date(date_to or datetime.now().strftime("%Y-%m-%d"))
         ).all()
     )
     logger.info(f"Pre-loaded {len(existing_header_nos)} existing header invoice numbers for date range")
@@ -1303,6 +1309,9 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 else:
                     inv_date = None
                 
+                # PS365 value date — what Powersoft's own reports use
+                inv_date_local = _parse_ps365_date(inv.get("invoice_date_local"))
+
                 # Apply negation for return invoices
                 invoice_type = inv.get("invoice_type")
                 sign = _get_invoice_type_sign(invoice_type)
@@ -1311,6 +1320,7 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                     "invoice_no_365": invoice_no,
                     "invoice_type": invoice_type,
                     "invoice_date_utc0": inv_date,
+                    "invoice_date_local": inv_date_local,
                     "customer_code_365": inv.get("customer_code_365"),
                     "store_code_365": inv.get("store_code_365"),
                     "user_code_365": inv.get("user_code_365"),
@@ -1343,6 +1353,18 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
     
     logger.info(f"Invoice headers synced: {inserted} inserted, total {len(all_headers)}")
     return inserted, 0
+
+
+def _parse_ps365_date(value):
+    """Parse a PS365 date/datetime string (or datetime) into a date, or None."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00')).date()
+        except ValueError:
+            return None
+    return value.date() if hasattr(value, 'date') else value
 
 
 def _get_invoice_type_sign(invoice_type: str) -> int:
@@ -1918,6 +1940,7 @@ def _sync_single_invoice_header(session: Session, invoice_no_365: str) -> int:
             invoice_no_365=inv_no,
             invoice_type=invoice_type,
             invoice_date_utc0=inv_date,
+            invoice_date_local=_parse_ps365_date(inv.get("invoice_date_local")),
             customer_code_365=inv.get("customer_code_365"),
             store_code_365=inv.get("store_code_365"),
             user_code_365=inv.get("user_code_365"),

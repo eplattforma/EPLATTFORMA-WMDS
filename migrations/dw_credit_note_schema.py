@@ -16,7 +16,7 @@ SELECT
     l.id AS line_id,
     h.invoice_no_365 AS invoice_no,
     h.invoice_type,
-    h.invoice_date_utc0 AS invoice_date,
+    COALESCE(h.invoice_date_local, h.invoice_date_utc0) AS invoice_date,
     h.customer_code_365 AS customer_code,
     h.store_code_365 AS store_code,
     h.user_code_365 AS salesperson_code,
@@ -32,14 +32,55 @@ SELECT
     l.line_total_vat,
     l.line_total_incl,
     (COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)) AS line_net_value,
-    EXTRACT(YEAR  FROM h.invoice_date_utc0) AS year,
-    EXTRACT(MONTH FROM h.invoice_date_utc0) AS month,
-    EXTRACT(QUARTER FROM h.invoice_date_utc0) AS quarter,
-    TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS year_month,
-    TO_CHAR(h.invoice_date_utc0, 'Day') AS day_of_week,
-    EXTRACT(DOW  FROM h.invoice_date_utc0) AS day_of_week_no
+    EXTRACT(YEAR  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS year,
+    EXTRACT(MONTH FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS month,
+    EXTRACT(QUARTER FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS quarter,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'YYYY-MM') AS year_month,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'Day') AS day_of_week,
+    EXTRACT(DOW  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS day_of_week_no
 FROM dw_invoice_line l
 JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+
+UNION ALL
+
+-- ── Header/line reconciliation adjustments ───────────────────────────
+-- Some invoices have missing lines or line totals that do not include the
+-- invoice-level discount. This arm adds one pseudo-line per invoice with the
+-- difference (header net − sum of lines) so SUM(line_total_excl) always ties
+-- out to Powersoft's header figures.
+SELECT
+    NULL                                             AS line_id,
+    h.invoice_no_365                                 AS invoice_no,
+    h.invoice_type,
+    COALESCE(h.invoice_date_local, h.invoice_date_utc0) AS invoice_date,
+    h.customer_code_365                              AS customer_code,
+    h.store_code_365                                 AS store_code,
+    h.user_code_365                                  AS salesperson_code,
+    NULL                                             AS item_code,
+    0                                                AS line_number,
+    0                                                AS quantity,
+    NULL                                             AS price_excl,
+    NULL                                             AS price_incl,
+    NULL                                             AS discount_percent,
+    NULL                                             AS vat_percent,
+    (COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0) AS line_total_excl,
+    NULL                                             AS line_total_discount,
+    0                                                AS line_total_vat,
+    (COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0) AS line_total_incl,
+    (COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0) AS line_net_value,
+    EXTRACT(YEAR  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS year,
+    EXTRACT(MONTH FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS month,
+    EXTRACT(QUARTER FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS quarter,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'YYYY-MM') AS year_month,
+    TO_CHAR(COALESCE(h.invoice_date_local, h.invoice_date_utc0), 'Day') AS day_of_week,
+    EXTRACT(DOW  FROM COALESCE(h.invoice_date_local, h.invoice_date_utc0)) AS day_of_week_no
+FROM dw_invoice_header h
+LEFT JOIN (
+    SELECT invoice_no_365, SUM(line_total_excl) AS lines_excl
+    FROM dw_invoice_line
+    GROUP BY invoice_no_365
+) la ON la.invoice_no_365 = h.invoice_no_365
+WHERE ABS((COALESCE(h.total_sub,0) - COALESCE(h.total_discount,0)) - COALESCE(la.lines_excl, 0)) > 0.005
 
 UNION ALL
 
@@ -82,6 +123,17 @@ def ensure_dw_credit_note_schema():
     from sqlalchemy import text
 
     with db.engine.begin() as conn:
+        # 0. invoice_date_local on dw_invoice_header (PS365 value date used by
+        #    Powersoft's own reports; utc0 can differ by days or even months).
+        conn.execute(text("""
+            ALTER TABLE dw_invoice_header
+            ADD COLUMN IF NOT EXISTS invoice_date_local DATE
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_dw_invoice_header_date_local
+            ON dw_invoice_header (invoice_date_local)
+        """))
+
         # 1. Table
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS dw_credit_note (

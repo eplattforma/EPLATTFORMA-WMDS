@@ -2378,6 +2378,9 @@ class DwInvoiceHeader(db.Model):
     invoice_no_365 = db.Column(db.String(64), primary_key=True)  # Primary key instead of id
     invoice_type = db.Column(db.String(64), nullable=False)
     invoice_date_utc0 = db.Column(db.Date, nullable=False, index=True)
+    # PS365 "value date" (invoice_date_local) — what Powersoft reports use.
+    # Can differ from utc0 by days or even months; reporting should prefer this.
+    invoice_date_local = db.Column(db.Date, nullable=True, index=True)
     
     customer_code_365 = db.Column(db.String(64), nullable=True, index=True)
     store_code_365 = db.Column(db.String(64), nullable=True, index=True)
