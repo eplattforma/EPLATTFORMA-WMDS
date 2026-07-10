@@ -688,6 +688,18 @@ def api_item_detail(item_code):
         'risk_level': expiry_risk_level,
     }
 
+    shelf_locations = []
+    try:
+        from shelves_service import fetch_item_shelves
+        shelves_data = fetch_item_shelves('777', [item_code])
+        for shelf_info in shelves_data.get(item_code, []) or []:
+            code = (shelf_info.get('shelf_code_365') or '').strip()
+            if code and code not in shelf_locations:
+                shelf_locations.append(code)
+    except Exception as e:
+        logging.warning("Shelf lookup failed for %s: %s", item_code, e)
+    result['shelf_locations'] = shelf_locations
+
     latest_snap = (
         db.session.query(SkuOrderingSnapshot)
         .filter_by(item_code_365=item_code)
