@@ -244,6 +244,12 @@
                                     <i class="fas fa-stopwatch me-2"></i>Time Analysis
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'reports.picking_performance' %}active{% endif %}" 
+                                   href="{{ url_for('reports.picking_performance') }}">
+                                    <i class="fas fa-person-walking me-2"></i>Picking Performance
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     {% endif %}

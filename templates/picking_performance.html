@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Picking Performance - EPIQ{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <h4 class="mb-0"><i class="fas fa-person-walking me-2"></i>Picking Performance</h4>
+        <span class="text-muted small">
+            Based on real per-pick timings (median, not wall-clock averages)
+        </span>
+    </div>
+
+    {% if view_error %}
+    <div class="alert alert-warning">
+        Could not load the picking report views. They may not be created yet on this database.
+        <div class="small text-muted mt-1">{{ view_error }}</div>
+    </div>
+    {% endif %}
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+            <label class="form-label small mb-1">From</label>
+            <input type="date" class="form-control form-control-sm" name="start_date" value="{{ start_date.isoformat() }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1">To</label>
+            <input type="date" class="form-control form-control-sm" name="end_date" value="{{ end_date.isoformat() }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1">Picker</label>
+            <select name="picker" class="form-select form-select-sm">
+                <option value="">All pickers</option>
+                {% for p in pickers %}
+                <option value="{{ p }}" {% if p == picker_filter %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
+        </div>
+    </form>
+
+    <div class="card mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Daily summary per picker</strong>
+            <span class="text-muted small">{{ daily_rows|length }} row(s)</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Picker</th>
+                        <th class="text-end">Items picked</th>
+                        <th class="text-end">Units</th>
+                        <th class="text-end">Median time per pick</th>
+                        <th class="text-end">% meeting target</th>
+                        <th class="text-end">Walking share</th>
+                        <th class="text-end">Long gaps (to watch)</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in daily_rows %}
+                    <tr>
+                        <td>{{ r.pick_date }}</td>
+                        <td>{{ r.picker }}</td>
+                        <td class="text-end">{{ r.items_picked }}</td>
+                        <td class="text-end">{{ r.units_picked }}</td>
+                        <td class="text-end">
+                            {% if r.median_seconds_per_pick is not none %}
+                                {{ r.median_seconds_per_pick }}s
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if r.pct_meeting_target is not none %}
+                                <span class="badge {% if r.pct_meeting_target >= 80 %}bg-success{% elif r.pct_meeting_target >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ r.pct_meeting_target|int }}%
+                                </span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">{% if r.walking_share_pct is not none %}{{ r.walking_share_pct|int }}%{% else %}-{% endif %}</td>
+                        <td class="text-end">{{ r.long_gaps_to_watch }}</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ url_for('reports.picking_performance',
+                                                start_date=start_date.isoformat(),
+                                                end_date=end_date.isoformat(),
+                                                picker=picker_filter,
+                                                detail_picker=r.picker,
+                                                detail_date=r.pick_date) }}#detail">
+                                <i class="fas fa-magnifying-glass me-1"></i>Picks
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="text-center text-muted py-3">No picks in this date range.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if detail_picker and detail_date %}
+    <div class="card mb-4" id="detail">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Pick detail — {{ detail_picker }} on {{ detail_date }}</strong>
+            <span class="text-muted small">{{ detail_rows|length }} pick(s), slowest first</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Corridor</th>
+                        <th>Level</th>
+                        <th>Unit</th>
+                        <th class="text-end">Units</th>
+                        <th class="text-end">Walking</th>
+                        <th class="text-end">Picking</th>
+                        <th class="text-end">Total</th>
+                        <th class="text-end">Expected</th>
+                        <th class="text-center">Target</th>
+                        <th class="text-center">Long gap</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in detail_rows %}
+                    <tr>
+                        <td>{{ d.invoice_no }}</td>
+                        <td>{{ d.corridor or '-' }}</td>
+                        <td>{{ d.level or '-' }}</td>
+                        <td>{{ d.unit_type or '-' }}</td>
+                        <td class="text-end">{{ d.units }}</td>
+                        <td class="text-end">{{ d.walking_seconds }}s</td>
+                        <td class="text-end">{{ d.picking_seconds }}s</td>
+                        <td class="text-end">{{ d.total_seconds }}s</td>
+                        <td class="text-end">{{ d.expected_seconds }}s</td>
+                        <td class="text-center">
+                            {% if d.met_target %}<span class="badge bg-success">Met</span>
+                            {% else %}<span class="badge bg-secondary">Over</span>{% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if d.long_gap %}<span class="badge bg-warning text-dark">&gt;60s walk</span>{% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="11" class="text-center text-muted py-3">No picks for this picker on this day.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="text-muted small mb-4">
+        <i class="fas fa-info-circle me-1"></i>
+        Skipped picks, the administrator test user, and picks with no recorded time are excluded.
+        "Long gaps" is a monitor number, not a score — nobody has to explain anything.
+    </div>
+</div>
+{% endblock %}

@@ -966,3 +966,87 @@ def reserved_stock_777_email_order():
         logger.error(f"Email error: {e}")
     
     return redirect(url_for("reports.reserved_stock_777"))
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Picking Performance — reads the accurate per-pick views
+# (vw_picker_daily / vw_pick_detail) built on item_time_tracking.
+# Medians, not wall-clock averages. See migrations/picking_report_views.py.
+# ─────────────────────────────────────────────────────────────────────
+@reports_bp.route("/picking-performance")
+@login_required
+def picking_performance():
+    if current_user.role not in ["admin", "warehouse_manager"]:
+        flash("Access denied. Admin privileges required.", "danger")
+        return redirect(url_for("index"))
+
+    from app import db
+    from sqlalchemy import text
+
+    today = datetime.utcnow().date()
+    default_start = today - timedelta(days=13)
+
+    def _parse_date(value, fallback):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return fallback
+
+    start_date = _parse_date(request.args.get("start_date"), default_start)
+    end_date = _parse_date(request.args.get("end_date"), today)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    picker_filter = (request.args.get("picker") or "").strip()
+
+    daily_sql = """
+        SELECT pick_date, picker, items_picked, units_picked,
+               median_seconds_per_pick, pct_meeting_target,
+               walking_share_pct, long_gaps_to_watch
+        FROM vw_picker_daily
+        WHERE pick_date BETWEEN :start_date AND :end_date
+    """
+    params = {"start_date": start_date, "end_date": end_date}
+    if picker_filter:
+        daily_sql += " AND picker = :picker"
+        params["picker"] = picker_filter
+    daily_sql += " ORDER BY pick_date DESC, items_picked DESC"
+
+    daily_rows = []
+    pickers = []
+    detail_rows = []
+    detail_picker = (request.args.get("detail_picker") or "").strip()
+    detail_date = _parse_date(request.args.get("detail_date"), None)
+    view_error = None
+    try:
+        daily_rows = db.session.execute(text(daily_sql), params).mappings().all()
+        pickers = [
+            r[0] for r in db.session.execute(text(
+                "SELECT DISTINCT picker FROM vw_picker_daily ORDER BY picker"
+            )).fetchall()
+        ]
+        if detail_picker and detail_date:
+            detail_rows = db.session.execute(text("""
+                SELECT pick_date, picker, invoice_no, corridor, level,
+                       unit_type, units, walking_seconds, picking_seconds,
+                       total_seconds, expected_seconds, met_target, long_gap
+                FROM vw_pick_detail
+                WHERE picker = :picker AND pick_date = :pick_date
+                ORDER BY total_seconds DESC
+            """), {"picker": detail_picker, "pick_date": detail_date}).mappings().all()
+    except Exception as e:
+        logger.exception("Picking performance report query failed")
+        view_error = str(e)
+
+    return render_template(
+        "picking_performance.html",
+        daily_rows=daily_rows,
+        pickers=pickers,
+        start_date=start_date,
+        end_date=end_date,
+        picker_filter=picker_filter,
+        detail_rows=detail_rows,
+        detail_picker=detail_picker,
+        detail_date=detail_date,
+        view_error=view_error,
+    )

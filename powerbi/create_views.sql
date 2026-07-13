@@ -357,3 +357,48 @@ CREATE INDEX IF NOT EXISTS idx_sales_mv_item_date
   ON dw_sales_lines_mv (item_code_365, sale_date);
 CREATE INDEX IF NOT EXISTS idx_sales_mv_customer_item_date
   ON dw_sales_lines_mv (customer_code_365, item_code_365, sale_date);
+
+-- ===== VIEW: Pick Detail (accurate per-pick data) =====
+-- One clean row per pick from item_time_tracking. Use this (not
+-- pbi_fact_picking) for picker speed: pbi_fact_picking measures order
+-- wall-clock (picking_complete_time - status_updated_at) which includes
+-- breaks and interruptions. pbi_fact_picking stays as-is for order
+-- status / shipping / delivery reporting.
+CREATE OR REPLACE VIEW vw_pick_detail AS
+SELECT
+  item_started::date                                  AS pick_date,
+  picker_username                                     AS picker,
+  invoice_no,
+  corridor,
+  substring(location from '\d{2}-\d{2}-([A-Z])')      AS level,
+  unit_type,
+  quantity_picked                                     AS units,
+  round(walking_time::numeric, 1)                     AS walking_seconds,
+  round(picking_time::numeric, 1)                     AS picking_seconds,
+  round(total_item_time::numeric, 1)                  AS total_seconds,
+  round(expected_time::numeric, 1)                    AS expected_seconds,
+  (total_item_time <= expected_time)                  AS met_target,
+  (walking_time > 60)                                 AS long_gap
+FROM item_time_tracking
+WHERE picker_username <> 'administrator'
+  AND was_skipped = false
+  AND total_item_time > 0
+  AND expected_time  > 0;
+
+-- ===== VIEW: Picker Daily Summary (what the report shows) =====
+-- Medians, not averages: averages get wrecked by a few interrupted picks.
+CREATE OR REPLACE VIEW vw_picker_daily AS
+SELECT
+  pick_date,
+  picker,
+  count(*)                                            AS items_picked,
+  sum(units)                                          AS units_picked,
+  round(percentile_cont(0.5) WITHIN GROUP (ORDER BY total_seconds)::numeric, 1)
+                                                      AS median_seconds_per_pick,
+  round(100.0 * avg(met_target::int), 0)              AS pct_meeting_target,
+  round(100.0 * sum(walking_seconds) / nullif(sum(total_seconds), 0), 0)
+                                                      AS walking_share_pct,
+  sum(long_gap::int)                                  AS long_gaps_to_watch
+FROM vw_pick_detail
+GROUP BY pick_date, picker
+ORDER BY pick_date DESC, items_picked DESC;

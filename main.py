@@ -415,6 +415,16 @@ app.register_blueprint(admin_suppliers_bp)
 from blueprints.kpi_dashboard import kpi_dashboard_bp
 app.register_blueprint(kpi_dashboard_bp)
 
+# ── Picking report views (vw_pick_detail / vw_picker_daily) ─────────
+# Runs in dev AND production (like the cockpit schema): two idempotent
+# CREATE OR REPLACE VIEW statements plus a WHERE level IS NULL backfill.
+try:
+    with app.app_context():
+        from migrations.picking_report_views import ensure_picking_report_views
+        ensure_picking_report_views()
+except Exception:
+    logging.exception("Picking report views migration failed (non-fatal)")
+
 # ── Cockpit (Ticket 1 scaffold) ──────────────────────────────────────
 # Master flag ``cockpit_enabled`` (default false in services/settings_defaults.py)
 # hides every /cockpit/... route with HTTP 404 until the operator flips it on.

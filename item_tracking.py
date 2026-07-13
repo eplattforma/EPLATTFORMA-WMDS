@@ -62,6 +62,20 @@ def parse_location_components(location):
             else:
                 result['bin_location'] = part
     
+    # Standard warehouse format fallback: '30-07-C02' → corridor 30,
+    # shelf 07, level C, bin 02. The generic loop above cannot extract
+    # the level letter from this format, so parse it explicitly to make
+    # sure every new row saves the shelf level (used by vw_pick_detail).
+    # Note: without this, 'C02' matches the C-prefix corridor pattern above
+    # and overwrites the real corridor ('30'), and level is never set.
+    std = re.search(r'(\d{2})-(\d{2})-([A-Z])(\d*)', location.upper())
+    if std:
+        result['corridor'] = std.group(1)
+        result['shelf'] = std.group(2)
+        result['level'] = std.group(3)
+        if std.group(4):
+            result['bin_location'] = std.group(4)
+    
     return result
 
 

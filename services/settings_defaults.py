@@ -71,6 +71,11 @@ PHASE1_DEFAULTS = {
     # the menu entry is hidden; permission keys are registered but unassigned.
     "cockpit_enabled": "false",
 
+    # Picking performance reporting — idle/gap monitoring only applies to
+    # dedicated pickers (others do mixed jobs, so their gaps aren't idle).
+    # JSON list of usernames, e.g. ["Arslan","picker1"]. Empty = nobody.
+    "dedicated_pickers": "[]",
+
     # Forecast Week Rollover (Task #29 — Configurable Week Cutoff).
     # Weekday 0=Mon … 6=Sun; default Friday. Time is Athens wall-clock (HH:MM).
     # When Athens local time reaches this weekday+time, the in-progress week is
