@@ -582,22 +582,84 @@ def check_for_missed_checkouts():
                 today = now.date()
                 
                 if shift_date == today:
-                    # Auto check out the picker
-                    # Convert eod_datetime to UTC for storage
+                    # Auto check out the picker at their LAST REAL ACTIVITY,
+                    # not the fixed end-of-day clock time. Stamping the EOD
+                    # time padded shifts with phantom hours (e.g. last pick
+                    # 12:41 but shift closed at 15:00) and inflated idle.
                     eod_utc = to_utc(eod_datetime)
-                    
-                    shift.check_out_time = eod_utc
+                    if eod_utc is not None and eod_utc.tzinfo is not None:
+                        eod_utc = eod_utc.replace(tzinfo=None)
+
+                    checkout_time = None
+                    try:
+                        from sqlalchemy import text as _text
+                        row = db.session.execute(_text("""
+                            SELECT MAX(item_completed) FROM item_time_tracking
+                            WHERE picker_username = :picker
+                              AND item_completed >= :check_in
+                              AND item_completed <= :eod
+                        """), {'picker': shift.picker_username,
+                               'check_in': shift.check_in_time,
+                               'eod': eod_utc}).fetchone()
+                        if row and row[0]:
+                            checkout_time = row[0]
+                    except Exception:
+                        logging.exception("EOD auto-close: last pick lookup failed")
+
+                    if checkout_time is None:
+                        # Fallback: last activity log entry in the window
+                        last_act = ActivityLog.query.filter(
+                            ActivityLog.picker_username == shift.picker_username,
+                            ActivityLog.timestamp >= shift.check_in_time,
+                            ActivityLog.timestamp <= eod_utc,
+                            ActivityLog.activity_type.notin_(
+                                ['auto_checkout', 'auto_checkout_10h',
+                                 'auto_checkout_12h', 'check_out'])
+                        ).order_by(ActivityLog.timestamp.desc()).first()
+                        if last_act:
+                            checkout_time = last_act.timestamp
+
+                    # Normalise tz-awareness: raw SQL rows come back naive
+                    # while ORM UTCDateTime values may be aware (both UTC).
+                    def _match_tz(dt, like):
+                        import pytz as _pytz
+                        if dt is None or like is None:
+                            return dt
+                        if like.tzinfo is not None and dt.tzinfo is None:
+                            return _pytz.UTC.localize(dt)
+                        if like.tzinfo is None and dt.tzinfo is not None:
+                            return dt.replace(tzinfo=None)
+                        return dt
+
+                    checkout_time = _match_tz(checkout_time, shift.check_in_time)
+                    eod_cmp = _match_tz(eod_utc, shift.check_in_time)
+                    if checkout_time is None or checkout_time < shift.check_in_time:
+                        # No recorded activity at all — fall back to EOD time
+                        checkout_time = eod_cmp
+                    if checkout_time is None or checkout_time < shift.check_in_time:
+                        # Never close a shift before it started
+                        checkout_time = shift.check_in_time
+
+                    shift.check_out_time = checkout_time
                     shift.status = 'auto_closed'
                     shift.total_duration_minutes = shift.calculate_duration()
                     
-                    # End any active idle periods
-                    end_idle_period(shift.id)
+                    # End any active idle periods at the checkout time so
+                    # idle never extends into the padded tail
+                    active_idles = IdlePeriod.query.filter_by(
+                        shift_id=shift.id, end_time=None).all()
+                    for idle in active_idles:
+                        if idle.start_time and idle.start_time > checkout_time:
+                            idle.end_time = idle.start_time
+                        else:
+                            idle.end_time = checkout_time
+                        idle.duration_minutes = idle.calculate_duration()
                     
                     # Log the activity
                     activity = ActivityLog(
                         picker_username=shift.picker_username,
                         activity_type='auto_checkout',
-                        details=f"Automatic end-of-day checkout at {eod_time_str}"
+                        details=f"Automatic end-of-day checkout at last recorded activity ({checkout_time.strftime('%Y-%m-%d %H:%M:%S')} UTC)"
                     )
                     db.session.add(activity)
                     checked_out_users.append(shift.picker_username)

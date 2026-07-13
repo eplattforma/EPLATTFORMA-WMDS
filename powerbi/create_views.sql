@@ -387,7 +387,8 @@ WHERE picker_username <> 'administrator'
 
 -- ===== VIEW: Picker Daily Summary (what the report shows) =====
 -- Medians, not averages: averages get wrecked by a few interrupted picks.
-CREATE OR REPLACE VIEW vw_picker_daily AS
+DROP VIEW IF EXISTS vw_picker_daily;
+CREATE VIEW vw_picker_daily AS
 SELECT
   pick_date,
   picker,
@@ -396,6 +397,7 @@ SELECT
   round(percentile_cont(0.5) WITHIN GROUP (ORDER BY total_seconds)::numeric, 1)
                                                       AS median_seconds_per_pick,
   round(100.0 * avg(met_target::int), 0)              AS pct_meeting_target,
+  round(sum(total_seconds) / 3600.0, 2)               AS active_pick_hours,
   round(100.0 * sum(walking_seconds) / nullif(sum(total_seconds), 0), 0)
                                                       AS walking_share_pct,
   sum(long_gap::int)                                  AS long_gaps_to_watch

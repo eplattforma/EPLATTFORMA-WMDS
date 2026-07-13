@@ -165,7 +165,7 @@
                             <th>Check-In</th>
                             <th>Check-Out</th>
                             <th>Duration</th>
-                            <th>Idle Time</th>
+                            <th title="Time between picks within the worked window (check-in to last pick). Shown only for dedicated pickers.">Gaps between picks</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -193,14 +193,14 @@
                             </td>
                             <td>
                                 {% if shift.picker_username in dedicated_pickers %}
-                                    {% set idle_time = shift.total_idle_time() %}
-                                    {% if idle_time > 0 %}
+                                    {% set idle_time = idle_by_shift.get(shift.id, 0) %}
+                                    {% if idle_time and idle_time > 0 %}
                                         <span class="badge bg-secondary">{{ idle_time }}min</span>
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 {% else %}
-                                    <span class="text-muted" title="Idle is only tracked for dedicated pickers">n/a</span>
+                                    <span class="text-muted" title="Gaps are only tracked for dedicated pickers — other roles do mixed work">mixed role</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -249,9 +249,7 @@
                         <li><i class="fas fa-star text-warning me-2"></i>Top performer: <strong>{{ top_performer.username }}</strong> ({{ "%.1f"|format(top_performer.items_per_hour) }} items/hour)</li>
                         {% set total_items = picker_stats|sum(attribute='items_picked') %}
                         <li><i class="fas fa-boxes text-info me-2"></i>Total items processed: <strong>{{ total_items }}</strong></li>
-                        {% if total_hours > 0 %}
-                        <li><i class="fas fa-clock text-success me-2"></i>Overall efficiency: <strong>{{ "%.1f"|format(total_items / total_hours) }}</strong> items/hour</li>
-                        {% endif %}
+                        <li><i class="fas fa-clock text-success me-2"></i>Overall efficiency: <strong>{{ items_per_hour }}</strong> items/hour (active picking time)</li>
                     {% endif %}
                 </ul>
             </div>

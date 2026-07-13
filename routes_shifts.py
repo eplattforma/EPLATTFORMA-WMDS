@@ -314,34 +314,38 @@ def shift_reports():
     total_hours = sum([shift.total_duration_minutes or 0 for shift in shifts]) / 60
     avg_shift_duration = (total_hours / total_shifts) if total_shifts > 0 else 0
     
-    # Real pick data from item_time_tracking (ActivityLog 'item_pick'
-    # rows were never written, which is why Items Picked showed 0).
+    # Real pick data from vw_picker_daily (built on item_time_tracking —
+    # ActivityLog 'item_pick' rows were never written, which is why Items
+    # Picked showed 0). Items/Hour uses ACTIVE pick hours, not padded
+    # shift hours.
     from sqlalchemy import text as _text
     pick_sql = """
-        SELECT picker_username,
-               count(*)                                   AS items_picked,
-               round(100.0 * avg((total_item_time <= expected_time)::int)
-                     FILTER (WHERE expected_time > 0), 0) AS pct_meeting_target
-        FROM item_time_tracking
-        WHERE item_started >= :start_dt AND item_started <= :end_dt
-          AND picker_username <> 'administrator'
-          AND was_skipped = false
-          AND total_item_time > 0
+        SELECT picker,
+               sum(items_picked)                        AS items_picked,
+               round(100.0 * sum(pct_meeting_target * items_picked)
+                     / nullif(sum(items_picked), 0) / 100.0, 0) AS pct_meeting_target,
+               sum(active_pick_hours)                   AS active_pick_hours
+        FROM vw_picker_daily
+        WHERE pick_date >= :start_d AND pick_date <= :end_d
     """
-    pick_params = {'start_dt': start_datetime, 'end_dt': end_datetime}
+    pick_params = {'start_d': start_date, 'end_d': end_date}
     if picker_filter:
-        pick_sql += " AND picker_username = :picker"
+        pick_sql += " AND picker = :picker"
         pick_params['picker'] = picker_filter
-    pick_sql += " GROUP BY picker_username"
+    pick_sql += " GROUP BY picker"
     try:
-        pick_rows = {r[0]: {'items': r[1], 'pct_target': r[2]}
+        pick_rows = {r[0]: {'items': int(r[1] or 0),
+                            'pct_target': r[2],
+                            'active_hours': float(r[3] or 0)}
                      for r in db.session.execute(_text(pick_sql), pick_params).fetchall()}
     except Exception:
-        logging.exception("shift_reports: item_time_tracking query failed")
+        logging.exception("shift_reports: vw_picker_daily query failed")
+        db.session.rollback()
         pick_rows = {}
 
     activity_count = sum(v['items'] for v in pick_rows.values())
-    items_per_hour = (activity_count / total_hours) if total_hours > 0 else 0
+    total_active_hours = sum(v['active_hours'] for v in pick_rows.values())
+    items_per_hour = (activity_count / total_active_hours) if total_active_hours > 0 else 0
     
     # Get picker performance breakdown
     picker_stats = []
@@ -353,8 +357,10 @@ def shift_reports():
         picker_hours = sum([s.total_duration_minutes or 0 for s in picker_shifts]) / 60
         picker_picks = pick_rows.get(picker, {})
         picker_items = picker_picks.get('items', 0)
+        picker_active_hours = picker_picks.get('active_hours', 0)
         
-        picker_productivity = (picker_items / picker_hours) if picker_hours > 0 else 0
+        # Productivity per ACTIVE picking hour (not padded shift hours)
+        picker_productivity = (picker_items / picker_active_hours) if picker_active_hours > 0 else 0
         
         picker_stats.append({
             'username': picker,
@@ -379,6 +385,7 @@ def shift_reports():
         """)).fetchall()]
     except Exception:
         logging.exception("shift_reports: picker list query failed")
+        db.session.rollback()
         all_pickers = sorted({u.username for u in get_picking_eligible_users()})
     
     # Idle is only meaningful for dedicated pickers (others do mixed jobs)
@@ -388,6 +395,42 @@ def shift_reports():
             Setting.get(db.session, 'dedicated_pickers', '[]')))
     except (ValueError, TypeError):
         dedicated_pickers = set()
+
+    # Gaps between picks, clamped to the WORKED window (check-in -> last
+    # pick of the shift). Historic shifts auto-closed at a fixed EOD time
+    # carry idle periods extending into the padded tail; never show that.
+    idle_by_shift = {}
+    shift_ids = [s.id for s in shifts if s.picker_username in dedicated_pickers]
+    if shift_ids:
+        try:
+            idle_rows = db.session.execute(_text("""
+                WITH la AS (
+                    SELECT s.id AS shift_id,
+                           MAX(itt.item_completed) AS last_pick
+                    FROM shifts s
+                    JOIN item_time_tracking itt
+                      ON itt.picker_username = s.picker_username
+                     AND itt.item_completed >= s.check_in_time
+                     AND itt.item_completed <= COALESCE(s.check_out_time, now())
+                    WHERE s.id = ANY(:ids)
+                    GROUP BY s.id
+                )
+                SELECT ip.shift_id,
+                       ROUND(SUM(GREATEST(0, EXTRACT(EPOCH FROM (
+                           LEAST(ip.end_time, la.last_pick)
+                           - GREATEST(ip.start_time, s.check_in_time)
+                       )))) / 60.0)::int
+                FROM idle_periods ip
+                JOIN la ON la.shift_id = ip.shift_id
+                JOIN shifts s ON s.id = ip.shift_id
+                WHERE ip.end_time IS NOT NULL
+                GROUP BY ip.shift_id
+            """), {'ids': shift_ids}).fetchall()
+            idle_by_shift = {r[0]: r[1] for r in idle_rows}
+        except Exception:
+            logging.exception("shift_reports: clamped idle query failed")
+            db.session.rollback()
+            idle_by_shift = {}
     
     return render_template('shift_reports.html',
                          shifts=shifts,
@@ -401,7 +444,8 @@ def shift_reports():
                          end_date=end_date,
                          picker_filter=picker_filter,
                          all_pickers=all_pickers,
-                         dedicated_pickers=dedicated_pickers)
+                         dedicated_pickers=dedicated_pickers,
+                         idle_by_shift=idle_by_shift)
 
 # Admin routes for shift management
 @app.route('/admin/shifts', methods=['GET'])

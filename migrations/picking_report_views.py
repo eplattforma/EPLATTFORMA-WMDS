@@ -49,7 +49,7 @@ WHERE picker_username <> 'administrator'
 """
 
 VW_PICKER_DAILY_SQL = r"""
-CREATE OR REPLACE VIEW vw_picker_daily AS
+CREATE VIEW vw_picker_daily AS
 SELECT
   pick_date,
   picker,
@@ -58,6 +58,7 @@ SELECT
   round(percentile_cont(0.5) WITHIN GROUP (ORDER BY total_seconds)::numeric, 1)
                                                       AS median_seconds_per_pick,
   round(100.0 * avg(met_target::int), 0)              AS pct_meeting_target,
+  round(sum(total_seconds) / 3600.0, 2)               AS active_pick_hours,
   round(100.0 * sum(walking_seconds) / nullif(sum(total_seconds), 0), 0)
                                                       AS walking_share_pct,
   sum(long_gap::int)                                  AS long_gaps_to_watch
@@ -110,6 +111,9 @@ def ensure_picking_report_views():
             logger.info("Picking report views skipped (dialect=%s)", conn.dialect.name)
             return
         conn.execute(text(VW_PICK_DETAIL_SQL))
+        # DROP first: active_pick_hours was inserted mid-column-list, which
+        # CREATE OR REPLACE VIEW cannot do on an existing view.
+        conn.execute(text("DROP VIEW IF EXISTS vw_picker_daily"))
         conn.execute(text(VW_PICKER_DAILY_SQL))
         conn.execute(text(VW_IDLE_DEDICATED_SQL))
 
