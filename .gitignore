@@ -35,3 +35,8 @@ data/erp_auth_state/
 data/erp_exports/
 data/erp_downloads/
 data/erp_screenshots/
+
+# Production DB dump artifacts (never commit — contain real customer/user data)
+prod_backup.sql
+prod_backup.dump
+*.dump

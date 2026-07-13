@@ -284,6 +284,7 @@ _ADVICE_SECTION_KEYS = {
                       "offer_opportunities"),
     "pricing": ("price_index_outliers", "top_items_by_gp"),
     "risk": ("churn_risk_by_category", "activity_timeline", "engagement"),
+    "login": ("engagement", "activity_timeline"),
 }
 
 

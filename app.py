@@ -8,7 +8,6 @@ from sqlalchemy.orm import DeclarativeBase
 from werkzeug.middleware.proxy_fix import ProxyFix
 import pytz
 from datetime import datetime
-from flask_login import LoginManager
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger('urllib3').setLevel(logging.ERROR)
@@ -89,16 +88,6 @@ else:
 
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
-
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-
-
-@login_manager.user_loader
-def load_user(user_id):
-    from models import User
-    return User.query.get(int(user_id))
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
