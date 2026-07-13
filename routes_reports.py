@@ -1050,3 +1050,65 @@ def picking_performance():
         detail_date=detail_date,
         view_error=view_error,
     )
+
+
+@reports_bp.route("/idle-dedicated")
+@login_required
+def idle_dedicated():
+    """Idle report for dedicated pickers only (vw_idle_dedicated).
+
+    Idle only means something for users whose whole job is picking —
+    the ``dedicated_pickers`` setting (JSON list of usernames) controls
+    who appears here. Splits working idle (gaps <= 60 min) from long
+    absences (> 60 min, a monitor number to watch, not a score).
+    """
+    if current_user.role not in ["admin", "warehouse_manager"]:
+        flash("Access denied. Admin privileges required.", "danger")
+        return redirect(url_for("index"))
+
+    import json as _json
+    from app import db
+    from sqlalchemy import text
+    from models import Setting
+
+    today = datetime.utcnow().date()
+    default_start = today - timedelta(days=13)
+
+    def _parse_date(value, fallback):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return fallback
+
+    start_date = _parse_date(request.args.get("start_date"), default_start)
+    end_date = _parse_date(request.args.get("end_date"), today)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    try:
+        dedicated = _json.loads(Setting.get(db.session, "dedicated_pickers", "[]"))
+    except (ValueError, TypeError):
+        dedicated = []
+
+    rows = []
+    view_error = None
+    try:
+        rows = db.session.execute(text("""
+            SELECT idle_date, picker, working_idle_min, working_idle_gaps,
+                   long_absence_min_to_watch, long_absence_gaps
+            FROM vw_idle_dedicated
+            WHERE idle_date BETWEEN :start_date AND :end_date
+            ORDER BY idle_date DESC, picker
+        """), {"start_date": start_date, "end_date": end_date}).mappings().all()
+    except Exception as e:
+        logger.exception("Idle dedicated report query failed")
+        view_error = str(e)
+
+    return render_template(
+        "idle_dedicated.html",
+        rows=rows,
+        dedicated=dedicated,
+        start_date=start_date,
+        end_date=end_date,
+        view_error=view_error,
+    )

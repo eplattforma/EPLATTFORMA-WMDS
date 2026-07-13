@@ -29,20 +29,20 @@
                     <div class="col-md-3">
                         <label for="start_date" class="form-label">Start Date</label>
                         <input type="date" class="form-control" id="start_date" name="start_date" 
-                               value="{{ start_date.strftime('%d/%m/%y') if start_date else '' }}">
+                               value="{{ start_date.strftime('%Y-%m-%d') if start_date else '' }}">
                     </div>
                     <div class="col-md-3">
                         <label for="end_date" class="form-label">End Date</label>
                         <input type="date" class="form-control" id="end_date" name="end_date" 
-                               value="{{ end_date.strftime('%d/%m/%y') if end_date else '' }}">
+                               value="{{ end_date.strftime('%Y-%m-%d') if end_date else '' }}">
                     </div>
                     <div class="col-md-3">
                         <label for="picker" class="form-label">Picker</label>
                         <select class="form-select" id="picker" name="picker">
                             <option value="">All Pickers</option>
                             {% for picker in all_pickers %}
-                            <option value="{{ picker.username }}" {% if picker_filter == picker.username %}selected{% endif %}>
-                                {{ picker.username }}
+                            <option value="{{ picker }}" {% if picker_filter == picker %}selected{% endif %}>
+                                {{ picker }}
                             </option>
                             {% endfor %}
                         </select>
@@ -110,7 +110,7 @@
                             <th>Items Picked</th>
                             <th>Items/Hour</th>
                             <th>Avg Shift Hours</th>
-                            <th>Performance</th>
+                            <th>% Meeting Target</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -129,14 +129,13 @@
                             </td>
                             <td>{{ "%.1f"|format(picker.avg_shift_hours) }}h</td>
                             <td>
-                                <div class="progress" style="height: 20px;">
-                                    {% set max_performance = picker_stats|map(attribute='items_per_hour')|max %}
-                                    {% set performance_percent = (picker.items_per_hour / max_performance * 100) if max_performance > 0 else 0 %}
-                                    <div class="progress-bar bg-{% if performance_percent >= 80 %}success{% elif performance_percent >= 60 %}warning{% else %}danger{% endif %}" 
-                                         style="width: {{ performance_percent }}%">
-                                        {{ "%.0f"|format(performance_percent) }}%
-                                    </div>
-                                </div>
+                                {% if picker.pct_meeting_target is not none %}
+                                    <span class="badge bg-{% if picker.pct_meeting_target >= 80 %}success{% elif picker.pct_meeting_target >= 60 %}warning text-dark{% else %}danger{% endif %}">
+                                        {{ picker.pct_meeting_target|int }}%
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -167,7 +166,6 @@
                             <th>Check-Out</th>
                             <th>Duration</th>
                             <th>Idle Time</th>
-                            <th>Breaks</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -194,19 +192,15 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% set idle_time = shift.total_idle_time() %}
-                                {% if idle_time > 0 %}
-                                    <span class="badge bg-secondary">{{ idle_time }}min</span>
+                                {% if shift.picker_username in dedicated_pickers %}
+                                    {% set idle_time = shift.total_idle_time() %}
+                                    {% if idle_time > 0 %}
+                                        <span class="badge bg-secondary">{{ idle_time }}min</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
                                 {% else %}
-                                    <span class="text-muted">—</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% set break_count = shift.break_count() %}
-                                {% if break_count > 0 %}
-                                    <span class="badge bg-info">{{ break_count }}</span>
-                                {% else %}
-                                    <span class="text-muted">—</span>
+                                    <span class="text-muted" title="Idle is only tracked for dedicated pickers">n/a</span>
                                 {% endif %}
                             </td>
                             <td>

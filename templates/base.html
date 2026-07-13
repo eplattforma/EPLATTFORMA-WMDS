@@ -221,7 +221,7 @@
                     {% endif %}
                     {% if has_permission('menu.dashboard') %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['analytics.analytics_home', 'shift_reports', 'time_analysis_dashboard'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['analytics.analytics_home', 'shift_reports', 'reports.picking_performance', 'reports.idle_dedicated'] %}active{% endif %}" 
                            href="#" id="reportsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-chart-line me-1"></i>Reports
                         </a>
@@ -239,15 +239,15 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'time_analysis_dashboard' %}active{% endif %}" 
-                                   href="{{ url_for('time_analysis_dashboard') }}">
-                                    <i class="fas fa-stopwatch me-2"></i>Time Analysis
+                                <a class="dropdown-item {% if request.endpoint == 'reports.picking_performance' %}active{% endif %}" 
+                                   href="{{ url_for('reports.picking_performance') }}">
+                                    <i class="fas fa-person-walking me-2"></i>Picker Performance
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'reports.picking_performance' %}active{% endif %}" 
-                                   href="{{ url_for('reports.picking_performance') }}">
-                                    <i class="fas fa-person-walking me-2"></i>Picking Performance
+                                <a class="dropdown-item {% if request.endpoint == 'reports.idle_dedicated' %}active{% endif %}" 
+                                   href="{{ url_for('reports.idle_dedicated') }}">
+                                    <i class="fas fa-mug-hot me-2"></i>Idle — Dedicated Pickers
                                 </a>
                             </li>
                         </ul>

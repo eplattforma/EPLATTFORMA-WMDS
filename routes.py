@@ -5837,7 +5837,6 @@ def upload_stock_position():
 
 
 # Import time analysis routes
-import routes_time_analysis  # noqa: F401
 
 # Import shift tracking routes
 from routes_shifts import *

@@ -402,3 +402,23 @@ SELECT
 FROM vw_pick_detail
 GROUP BY pick_date, picker
 ORDER BY pick_date DESC, items_picked DESC;
+
+-- ===== VIEW: Idle for Dedicated Pickers only =====
+-- Idle only means something for users whose whole job is picking;
+-- the 'dedicated_pickers' setting (JSON list of usernames) controls
+-- who appears. Splits working idle (<=60 min gaps) from long absences.
+CREATE OR REPLACE VIEW vw_idle_dedicated AS
+SELECT
+  i.start_time::date                                                          AS idle_date,
+  sh.picker_username                                                          AS picker,
+  round(sum(CASE WHEN i.duration_minutes <= 60 THEN i.duration_minutes ELSE 0 END)::numeric, 0) AS working_idle_min,
+  sum(CASE WHEN i.duration_minutes <= 60 THEN 1 ELSE 0 END)                   AS working_idle_gaps,
+  round(sum(CASE WHEN i.duration_minutes > 60 THEN i.duration_minutes ELSE 0 END)::numeric, 0)  AS long_absence_min_to_watch,
+  sum(CASE WHEN i.duration_minutes > 60 THEN 1 ELSE 0 END)                    AS long_absence_gaps
+FROM idle_periods i
+JOIN shifts sh ON sh.id = i.shift_id
+WHERE sh.picker_username IN (
+  SELECT jsonb_array_elements_text(value::jsonb) FROM settings WHERE key = 'dedicated_pickers'
+)
+GROUP BY 1, 2
+ORDER BY idle_date DESC;

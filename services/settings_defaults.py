@@ -74,7 +74,7 @@ PHASE1_DEFAULTS = {
     # Picking performance reporting — idle/gap monitoring only applies to
     # dedicated pickers (others do mixed jobs, so their gaps aren't idle).
     # JSON list of usernames, e.g. ["Arslan","picker1"]. Empty = nobody.
-    "dedicated_pickers": "[]",
+    "dedicated_pickers": '["Arslan","picker1"]',
 
     # Forecast Week Rollover (Task #29 — Configurable Week Cutoff).
     # Weekday 0=Mon … 6=Sun; default Friday. Time is Athens wall-clock (HH:MM).

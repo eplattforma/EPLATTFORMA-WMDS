@@ -1,6 +1,7 @@
 """
 Routes for the shift tracking system
 """
+import logging
 from datetime import datetime, date, timedelta
 from flask import render_template, redirect, url_for, request, flash, session
 from flask_login import login_required, current_user
@@ -9,7 +10,7 @@ from services.picking_utils import get_picking_eligible_users
 from timezone_utils import get_local_time, format_local_time, localize_datetime, get_local_now, get_utc_now, format_utc_datetime_to_local
 
 from app import app, db
-from models import Shift, IdlePeriod, ActivityLog, User, Invoice, InvoiceItem
+from models import Shift, IdlePeriod, ActivityLog, User, Invoice, InvoiceItem, Setting
 from utils.shift_tracking import (
     check_in_picker, check_out_picker, start_break, end_break,
     record_activity, admin_adjust_shift, get_active_shift, get_picker_on_break,
@@ -313,50 +314,80 @@ def shift_reports():
     total_hours = sum([shift.total_duration_minutes or 0 for shift in shifts]) / 60
     avg_shift_duration = (total_hours / total_shifts) if total_shifts > 0 else 0
     
-    # Get activity data for productivity metrics
-    activities = ActivityLog.query.filter(
-        ActivityLog.timestamp >= start_datetime,
-        ActivityLog.timestamp <= end_datetime,
-        ActivityLog.activity_type == 'item_pick'
-    )
-    
+    # Real pick data from item_time_tracking (ActivityLog 'item_pick'
+    # rows were never written, which is why Items Picked showed 0).
+    from sqlalchemy import text as _text
+    pick_sql = """
+        SELECT picker_username,
+               count(*)                                   AS items_picked,
+               round(100.0 * avg((total_item_time <= expected_time)::int)
+                     FILTER (WHERE expected_time > 0), 0) AS pct_meeting_target
+        FROM item_time_tracking
+        WHERE item_started >= :start_dt AND item_started <= :end_dt
+          AND picker_username <> 'administrator'
+          AND was_skipped = false
+          AND total_item_time > 0
+    """
+    pick_params = {'start_dt': start_datetime, 'end_dt': end_datetime}
     if picker_filter:
-        activities = activities.filter(ActivityLog.picker_username == picker_filter)
-    
-    activity_count = activities.count()
+        pick_sql += " AND picker_username = :picker"
+        pick_params['picker'] = picker_filter
+    pick_sql += " GROUP BY picker_username"
+    try:
+        pick_rows = {r[0]: {'items': r[1], 'pct_target': r[2]}
+                     for r in db.session.execute(_text(pick_sql), pick_params).fetchall()}
+    except Exception:
+        logging.exception("shift_reports: item_time_tracking query failed")
+        pick_rows = {}
+
+    activity_count = sum(v['items'] for v in pick_rows.values())
     items_per_hour = (activity_count / total_hours) if total_hours > 0 else 0
     
     # Get picker performance breakdown
     picker_stats = []
     picker_usernames = [shift.picker_username for shift in shifts]
-    unique_pickers = list(set(picker_usernames))
+    unique_pickers = set(picker_usernames) | set(pick_rows.keys())
     
     for picker in unique_pickers:
         picker_shifts = [s for s in shifts if s.picker_username == picker]
         picker_hours = sum([s.total_duration_minutes or 0 for s in picker_shifts]) / 60
-        picker_activities = ActivityLog.query.filter(
-            ActivityLog.picker_username == picker,
-            ActivityLog.timestamp >= start_datetime,
-            ActivityLog.timestamp <= end_datetime,
-            ActivityLog.activity_type == 'item_pick'
-        ).count()
+        picker_picks = pick_rows.get(picker, {})
+        picker_items = picker_picks.get('items', 0)
         
-        picker_productivity = (picker_activities / picker_hours) if picker_hours > 0 else 0
+        picker_productivity = (picker_items / picker_hours) if picker_hours > 0 else 0
         
         picker_stats.append({
             'username': picker,
             'total_shifts': len(picker_shifts),
             'total_hours': picker_hours,
-            'items_picked': picker_activities,
+            'items_picked': picker_items,
             'items_per_hour': picker_productivity,
+            'pct_meeting_target': picker_picks.get('pct_target'),
             'avg_shift_hours': picker_hours / len(picker_shifts) if len(picker_shifts) > 0 else 0
         })
     
     # Sort by productivity
     picker_stats.sort(key=lambda x: x['items_per_hour'], reverse=True)
     
-    # Get all users for picker filter dropdown
-    all_pickers = get_picking_eligible_users()
+    # Picker dropdown: only real pickers (users who actually have picks
+    # recorded), not every admin/test account with picking permission.
+    try:
+        all_pickers = [r[0] for r in db.session.execute(_text("""
+            SELECT DISTINCT picker_username FROM item_time_tracking
+            WHERE picker_username <> 'administrator'
+            ORDER BY picker_username
+        """)).fetchall()]
+    except Exception:
+        logging.exception("shift_reports: picker list query failed")
+        all_pickers = sorted({u.username for u in get_picking_eligible_users()})
+    
+    # Idle is only meaningful for dedicated pickers (others do mixed jobs)
+    import json as _json
+    try:
+        dedicated_pickers = set(_json.loads(
+            Setting.get(db.session, 'dedicated_pickers', '[]')))
+    except (ValueError, TypeError):
+        dedicated_pickers = set()
     
     return render_template('shift_reports.html',
                          shifts=shifts,
@@ -369,7 +400,8 @@ def shift_reports():
                          start_date=start_date,
                          end_date=end_date,
                          picker_filter=picker_filter,
-                         all_pickers=all_pickers)
+                         all_pickers=all_pickers,
+                         dedicated_pickers=dedicated_pickers)
 
 # Admin routes for shift management
 @app.route('/admin/shifts', methods=['GET'])

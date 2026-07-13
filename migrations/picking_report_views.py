@@ -66,6 +66,24 @@ GROUP BY pick_date, picker
 ORDER BY pick_date DESC, items_picked DESC
 """
 
+VW_IDLE_DEDICATED_SQL = r"""
+CREATE OR REPLACE VIEW vw_idle_dedicated AS
+SELECT
+  i.start_time::date                                                          AS idle_date,
+  sh.picker_username                                                          AS picker,
+  round(sum(CASE WHEN i.duration_minutes <= 60 THEN i.duration_minutes ELSE 0 END)::numeric, 0) AS working_idle_min,
+  sum(CASE WHEN i.duration_minutes <= 60 THEN 1 ELSE 0 END)                   AS working_idle_gaps,
+  round(sum(CASE WHEN i.duration_minutes > 60 THEN i.duration_minutes ELSE 0 END)::numeric, 0)  AS long_absence_min_to_watch,
+  sum(CASE WHEN i.duration_minutes > 60 THEN 1 ELSE 0 END)                    AS long_absence_gaps
+FROM idle_periods i
+JOIN shifts sh ON sh.id = i.shift_id
+WHERE sh.picker_username IN (
+  SELECT jsonb_array_elements_text(value::jsonb) FROM settings WHERE key = 'dedicated_pickers'
+)
+GROUP BY 1, 2
+ORDER BY idle_date DESC
+"""
+
 BACKFILL_LEVEL_SQL = r"""
 UPDATE item_time_tracking
 SET level = substring(location from '\d{2}-\d{2}-([A-Z])')
@@ -93,6 +111,7 @@ def ensure_picking_report_views():
             return
         conn.execute(text(VW_PICK_DETAIL_SQL))
         conn.execute(text(VW_PICKER_DAILY_SQL))
+        conn.execute(text(VW_IDLE_DEDICATED_SQL))
 
         already_done = conn.execute(
             text("SELECT 1 FROM settings WHERE key = :k AND value = 'true'"),
