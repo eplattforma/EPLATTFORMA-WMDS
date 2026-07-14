@@ -528,7 +528,14 @@ def _create_default_terms_after_customer_insert(mapper, connection, target: Paym
     params["customer_code"] = target.code
     connection.execute(sql, params)
 
-if _db_available:
+# Schema migrations — skipped in production to prevent startup lock collisions.
+# Two concurrent gunicorn workers running ~25 idempotent ALTER TABLE checks
+# against Neon hit a 30-second lock_timeout on busy tables (e.g. ps_items_dw)
+# and push startup beyond Cloud Run's health probe window → deployment fails.
+# To apply NEW migrations to production: set RUN_MIGRATIONS=1, publish once,
+# then remove the flag (same pattern as the forecast-schema block above).
+if _db_available and (not is_production or os.environ.get('RUN_MIGRATIONS') == '1'):
+  logging.warning("PHASE 5.5: running schema migrations (dev or RUN_MIGRATIONS=1)")
   with app.app_context():
     try:
         update_database_schema()
