@@ -778,13 +778,6 @@ if _db_available and (not is_production or os.environ.get('RUN_MIGRATIONS') == '
         logging.error(f"Error seeding Phase 1 settings defaults: {str(e)}")
 
     try:
-        from services.permissions import register_template_helpers
-        register_template_helpers(app)
-        logging.warning("Phase 1 permissions: template helper has_permission() registered")
-    except Exception as e:
-        logging.error(f"Error registering permissions template helpers: {str(e)}")
-
-    try:
         from services.permission_seeding import seed_permissions_from_roles
         result = seed_permissions_from_roles(force=False)
         if result.get("ran"):
@@ -878,6 +871,13 @@ if _db_available and (not is_production or os.environ.get('RUN_MIGRATIONS') == '
         run_deferred_db_init()
     except Exception as e:
         logging.error(f"Error in deferred DB init: {str(e)}")
+
+try:
+    from services.permissions import register_template_helpers
+    register_template_helpers(app)
+    logging.warning("Phase 1 permissions: template helper has_permission() registered")
+except Exception as e:
+    logging.error(f"Error registering permissions template helpers: {str(e)}")
 
 logging.warning("PHASE 6: all schema updates and DB init done")
 print("PHASE 6: all schema updates and DB init done", flush=True)
