@@ -552,9 +552,48 @@ def customer_slot_dashboard():
 
     # Compute customer tiers (pure-Python, no extra DB query)
     try:
-        from services.crm_tier_service import classify_customers, tier_summary, TIER_META
+        from services.crm_tier_service import (
+            classify_customers, tier_summary, TIER_META,
+            compute_tier, _load_thresholds,
+        )
         dashboard_rows = classify_customers(dashboard_rows, db.session)
-        kpi_tier_summary = tier_summary(dashboard_rows)
+        if needs_python_eval:
+            # All filtered rows are already in dashboard_rows (no SQL pagination)
+            kpi_tier_summary = tier_summary(dashboard_rows)
+        else:
+            # SQL-paginated path: dashboard_rows only has the current page.
+            # Run a lightweight query to compute tier counts across ALL
+            # filtered customers so the "By Tier" strip is always accurate.
+            _tier_rows = (
+                q.order_by(None)
+                .with_entities(
+                    sales_sq.c.value_6m,
+                    sales_sq.c.value_4w,
+                    sales_sq.c.inv_cnt_90d,
+                    sales_sq.c.last_invoice_date,
+                    CrmCustomerProfile.classification,
+                )
+                .all()
+            )
+            _thresholds = _load_thresholds(db.session)
+            _counts = {k: 0 for k in TIER_META}
+            for _r in _tier_rows:
+                _lid = _r.last_invoice_date
+                _r_inv_days = None
+                if _lid:
+                    _d = _lid.date() if isinstance(_lid, datetime) else _lid
+                    _r_inv_days = (today - _d).days
+                _tier_code, _ = compute_tier(
+                    value_6m=float(_r.value_6m or 0),
+                    value_4w=float(_r.value_4w or 0),
+                    r_invoice_days=_r_inv_days,
+                    inv_cnt_90d=int(_r.inv_cnt_90d or 0),
+                    classification=_r.classification or "",
+                    thresholds=_thresholds,
+                )
+                if _tier_code in _counts:
+                    _counts[_tier_code] += 1
+            kpi_tier_summary = _counts
     except Exception as _te:
         logger.warning("Tier classification failed: %s", _te)
         kpi_tier_summary = {}
