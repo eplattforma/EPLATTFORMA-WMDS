@@ -1,0 +1,146 @@
+
+2026-07-15 14:39:16.17
+254b0250
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-15 14:39:16.17
+254b0250
+User
+Traceback (most recent call last):
+
+2026-07-15 14:39:16.17
+254b0250
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-15 14:39:16.17
+254b0250
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+
+2026-07-15 14:39:16.17
+254b0250
+User
+rv = self.dispatch_request()
+
+2026-07-15 14:39:16.17
+254b0250
+User
+response = self.full_dispatch_request()
+
+2026-07-15 14:39:16.17
+254b0250
+User
+The above exception was the direct cause of the following exception:
+
+2026-07-15 14:39:16.17
+254b0250
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+
+2026-07-15 14:39:16.17
+254b0250
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+
+2026-07-15 14:39:16.17
+254b0250
+User
+Traceback (most recent call last):
+
+2026-07-15 14:39:16.17
+254b0250
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 943, in do_execute
+
+2026-07-15 14:39:16.17
+254b0250
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+
+2026-07-15 14:39:16.17
+254b0250
+User
+cursor.execute(statement, parameters)
+
+2026-07-15 14:39:16.17
+254b0250
+User
+self.dialect.do_execute(
+
+2026-07-15 14:39:16.17
+254b0250
+User
+psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type numeric: "will put extra - MAKE SPACE"
+
+2026-07-15 14:39:16.18
+254b0250
+User
+Traceback (most recent call last):
+
+2026-07-15 14:39:19.98
+254b0250
+User
+34.77.216.99 - - [15/Jul/2026:11:39:19 +0000] "GET /picker/dashboard HTTP/1.1" 200 16006 "https://ep-picking-bro.replit.app/picker/batch/start/476" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:20.50
+254b0250
+User
+34.77.140.63 - - [15/Jul/2026:11:39:20 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/picker/dashboard" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:20.51
+254b0250
+User
+34.77.216.99 - - [15/Jul/2026:11:39:20 +0000] "GET /static/epiq-logo-dark.png HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/picker/dashboard" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:31.99
+254b0250
+User
+35.240.107.98 - - [15/Jul/2026:11:39:31 +0000] "POST /api/picker/invoice/IN10056563/confirm-pick HTTP/1.1" 200 57 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:32.01
+254b0250
+User
+35.240.107.98 - - [15/Jul/2026:11:39:32 +0000] "POST /api/picker/invoice/IN10056563/confirm-pick HTTP/1.1" 200 57 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:32.68
+254b0250
+User
+INFO:app:Blocked 2 batch-locked items from regular picking in IN10056563: [('CHO-0121', 'KINDER BUENO 43g 3PACK', 'COOLER-ROUTE-493'), ('CHO-0031', 'MALTESERS BITES 37g 1X25', 'COOLER-ROUTE-493')]
+
+2026-07-15 14:39:32.71
+254b0250
+User
+INFO:root:Image for CER-0010 found in local cache
+
+2026-07-15 14:39:33.66
+254b0250
+User
+35.233.89.106 - - [15/Jul/2026:11:39:33 +0000] "GET /picker/invoice/IN10056563/item HTTP/1.1" 200 54774 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:34.13
+254b0250
+User
+35.233.89.106 - - [15/Jul/2026:11:39:34 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+
+2026-07-15 14:39:34.13
+254b0250
+User
+35.240.107.98 - - [15/Jul/2026:11:39:34 +0000] "GET /static/epiq-logo-dark.png HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:34.30
+254b0250
+User
+35.189.242.45 - - [15/Jul/2026:11:39:34 +0000] "GET /static/images/loading-spinner.svg HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:34.30
+254b0250
+User
+35.233.89.106 - - [15/Jul/2026:11:39:34 +0000] "GET /static/images/CER-0010.webp HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/picker/invoice/IN10056563/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+2026-07-15 14:39:35.72
+254b0250
+User
+35.189.242.45 - - [15/Jul/2026:11:39:35 +0000] "POST /api/picker

@@ -1846,10 +1846,20 @@ def start_batch_picking(batch_id):
     current_app.logger.warning(f"🔍 BATCH START DEBUG: Zone list = {zone_list}")
     
     # Get all invoices in this batch - sort by routing number descending to maintain picking order
-    # Cast routing to numeric for proper sorting (not string sorting)
+    # Cast routing to numeric for proper sorting (not string sorting).
+    # Legacy Invoice.routing can contain free text (e.g. driver notes), so only
+    # cast values that actually look numeric — everything else sorts as NULL.
+    from sqlalchemy import case as _case
+    _routing_numeric = func.cast(
+        _case(
+            (Invoice.routing.op('~')(r'^\s*[0-9]+(\.[0-9]+)?\s*$'), Invoice.routing),
+            else_=None,
+        ),
+        db.Numeric,
+    )
     batch_invoices = BatchSessionInvoice.query.join(Invoice).filter(
         BatchSessionInvoice.batch_session_id == batch_id
-    ).order_by(func.cast(Invoice.routing, db.Numeric).desc().nulls_last()).all()
+    ).order_by(_routing_numeric.desc().nulls_last()).all()
     
     for bi in batch_invoices:
         # Get items that are actually locked by THIS batch
