@@ -41,6 +41,17 @@
     {% set is_collected = receipt.received_amount|float > 0 and pm not in ['not_collected', 'online'] %}
     {% set is_preview = receipt.id|string|truncate(7, True, '') == 'PREVIEW' %}
 
+    {% for copy_label in ['CUSTOMER COPY', 'OFFICE COPY'] %}
+    {% if not loop.first %}
+    <div class="center" style="margin: 6mm 0; border-top: 2px dashed #000; padding-top: 2mm; font-size: 9pt;">
+        &#9986; - - - - - - - - CUT HERE - - - - - - - - &#9986;
+    </div>
+    {% endif %}
+
+    <div class="center bold" style="font-size: 11pt; border: 2px solid #000; padding: 2mm; margin-bottom: 3mm; letter-spacing: 2px;">
+        {{ copy_label }}
+    </div>
+
     {% if is_preview %}
     <div class="center bold" style="font-size: 9pt; border: 1px solid #000; padding: 2mm; margin-bottom: 3mm;">
         *** PREVIEW - NOT A FINAL RECEIPT ***
@@ -63,6 +74,12 @@
     {% endif %}
 
     <hr>
+
+    {% if receipt.replaces %}
+    <div class="center bold" style="font-size: 9pt; border: 1px dashed #000; padding: 1.5mm; margin-bottom: 2mm;">
+        Replaces R{{ receipt.replaces[0].id }} (voided)
+    </div>
+    {% endif %}
 
     <table>
         <tr><td class="bold">Receipt:</td><td class="right">{{ receipt.id }}</td></tr>
@@ -167,6 +184,7 @@
         <div>Driver Signature:</div>
         <div style="margin-top: 8mm; border-bottom: 1px solid #000; width: 90%;"></div>
     </div>
+    {% endfor %}
 
     <div class="no-print" style="margin-top: 10mm; text-align: center;">
         <button id="btnPrintThermal" style="padding: 12px 24px; font-size: 14pt; background-color: #1f2937; color: white; border: none; border-radius: 5px; cursor: pointer;">

@@ -1072,6 +1072,7 @@ def submit_delivery(stop_id):
                     cheque_number=cod.get('cheque_number'),
                     cheque_date=cheque_date_val,
                     note=cod_note,
+                    variance_reason=(cod.get('variance_reason') or (active_pe.variance_reason if active_pe else None)),
                     doc_type=doc_type,
                     status='DRAFT',
                     ps365_reference_number=ps365_ref,
@@ -1596,6 +1597,7 @@ def print_receipt_png_by_id(receipt_id):
         'exceptions_total': float(exceptions_total),
         'net_payable': float(net_payable),
         'due_date': due_date_str,
+        'replaces_receipt_id': (receipt.replaces[0].id if getattr(receipt, 'replaces', None) else None),
     }
 
     w = request.args.get('w', type=int)
@@ -2112,6 +2114,7 @@ def print_receipt_pdf(stop_id):
         'exceptions_total': float(exceptions_total_dec),
         'net_payable': float(net_payable),
         'due_date': due_date_str,
+        'replaces_receipt_id': (cod_receipt.replaces[0].id if cod_receipt is not None and getattr(cod_receipt, 'replaces', None) else None),
     }
 
     pdf_bytes = build_delivery_receipt_pdf(pdf_data)
@@ -2352,6 +2355,7 @@ def print_receipt_png(stop_id):
         'exceptions_total': float(exceptions_total_dec),
         'net_payable': float(net_payable),
         'due_date': due_date_str,
+        'replaces_receipt_id': (cod_receipt.replaces[0].id if cod_receipt is not None and getattr(cod_receipt, 'replaces', None) else None),
     }
 
     w = request.args.get('w', type=int)

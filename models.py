@@ -1546,6 +1546,7 @@ class PaymentEntry(db.Model):
     amount = db.Column(db.Numeric(18, 2), nullable=False, default=0)
     cheque_no = db.Column(db.String(64))
     cheque_date = db.Column(db.Date)
+    variance_reason = db.Column(db.String(50))
 
     commit_mode = db.Column(db.String(20), nullable=False)
     doc_type = db.Column(db.String(20), nullable=False)
@@ -1570,6 +1571,7 @@ class PaymentEntry(db.Model):
             'amount': float(self.amount or 0),
             'cheque_no': self.cheque_no,
             'cheque_date': self.cheque_date.isoformat() if self.cheque_date else None,
+            'variance_reason': self.variance_reason,
             'commit_mode': self.commit_mode,
             'doc_type': self.doc_type,
             'ps_status': self.ps_status,
@@ -1722,6 +1724,17 @@ class CODReceipt(db.Model):
     voided_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_cod_receipts_voided_by'), nullable=True)
     void_reason = db.Column(db.Text, nullable=True)
     replaced_by_cod_receipt_id = db.Column(db.Integer, db.ForeignKey('cod_receipts.id', name='fk_cod_receipts_replaced_by'), nullable=True)
+
+    # Variance gate (driver must give a reason when collected != due)
+    variance_reason = db.Column(db.String(50), nullable=True)  # short_customer_dispute, short_agreed_credit, over_customer_overpaid, other
+
+    # Void hardening: printed slips physically recovered before void allowed
+    slips_recovered = db.Column(db.Integer, nullable=True)
+
+    # Manual PS365 reversal tracking (PS365 has no cancel API — admin cancels in back office)
+    ps365_reversed_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_cod_receipts_ps365_reversed_by'), nullable=True)
+    ps365_reversed_at = db.Column(UTCDateTime(), nullable=True)
+    ps365_reversal_ref = db.Column(db.String(128), nullable=True)
     
     # Idempotency
     client_request_id = db.Column(db.String(128), nullable=True)
@@ -1773,6 +1786,36 @@ class CODInvoiceAllocation(db.Model):
     
     def __repr__(self):
         return f"<CODInvoiceAllocation {self.invoice_no}: {self.payment_method} ${self.received_amount}>"
+
+class ManualReceiptLog(db.Model):
+    """Paper (manual book) receipts written by drivers when the app/printer failed.
+    Logged at reconciliation and matched to a digital CODReceipt."""
+    __tablename__ = 'manual_receipt_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    manual_book_number = db.Column(db.String(50), nullable=False)
+    driver_username = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=False)
+    route_id = db.Column(db.Integer, db.ForeignKey('shipments.id'), nullable=True)
+    route_stop_id = db.Column(db.Integer, db.ForeignKey('route_stop.route_stop_id'), nullable=True)
+    customer_code = db.Column(db.String(50), nullable=True)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    reason = db.Column(db.String(50), nullable=False, default='other')  # printer_failure, app_failure, no_paper, other
+    note = db.Column(db.Text, nullable=True)
+    matched_cod_receipt_id = db.Column(db.Integer, db.ForeignKey('cod_receipts.id', name='fk_manual_receipt_cod'), nullable=True)
+    logged_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_manual_receipt_logged_by'), nullable=False)
+    created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+
+    driver = db.relationship('User', foreign_keys=[driver_username], backref='manual_receipts')
+    matched_receipt = db.relationship('CODReceipt', foreign_keys=[matched_cod_receipt_id], backref='manual_receipts')
+
+    __table_args__ = (
+        db.Index('idx_manual_receipt_driver', 'driver_username'),
+        db.Index('idx_manual_receipt_route', 'route_id'),
+    )
+
+    def __repr__(self):
+        return f"<ManualReceiptLog {self.manual_book_number} {self.driver_username} €{self.amount}>"
+
 
 class PODRecord(db.Model):
     """Proof of Delivery records"""

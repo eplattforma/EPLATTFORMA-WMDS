@@ -26,6 +26,11 @@ def update_cod_receipts_locking_schema():
                 ('replaced_by_cod_receipt_id', 'INTEGER REFERENCES cod_receipts(id)'),
                 ('client_request_id', 'VARCHAR(128)'),
                 ('ps365_reference_number', 'VARCHAR(128)'),
+                ('variance_reason', 'VARCHAR(50)'),
+                ('slips_recovered', 'INTEGER'),
+                ('ps365_reversed_by', 'VARCHAR(64) REFERENCES users(username)'),
+                ('ps365_reversed_at', 'TIMESTAMPTZ'),
+                ('ps365_reversal_ref', 'VARCHAR(128)'),
             ]
 
             for column_name, column_type in columns_to_add:
@@ -79,6 +84,29 @@ def update_cod_receipts_locking_schema():
 
             db.session.execute(text(
                 "DROP INDEX IF EXISTS uq_cod_receipts_stop_non_voided"
+            ))
+
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS manual_receipt_log (
+                    id SERIAL PRIMARY KEY,
+                    manual_book_number VARCHAR(50) NOT NULL,
+                    driver_username VARCHAR(64) NOT NULL REFERENCES users(username),
+                    route_id INTEGER REFERENCES shipments(id),
+                    route_stop_id INTEGER REFERENCES route_stop(route_stop_id),
+                    customer_code VARCHAR(50),
+                    amount NUMERIC(12,2) NOT NULL,
+                    reason VARCHAR(50) NOT NULL DEFAULT 'other',
+                    note TEXT,
+                    matched_cod_receipt_id INTEGER REFERENCES cod_receipts(id),
+                    logged_by VARCHAR(64) NOT NULL REFERENCES users(username),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_manual_receipt_driver ON manual_receipt_log(driver_username)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_manual_receipt_route ON manual_receipt_log(route_id)"
             ))
 
             db.session.commit()

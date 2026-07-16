@@ -328,9 +328,16 @@ input[type=number]::-webkit-inner-spin-button {
                             <i class="fas fa-exclamation-triangle me-1"></i>
                             <span id="pe-error-msg"></span>
                         </div>
+                        <div id="pe-locked-row" class="alert alert-secondary small mb-3" style="display:none;">
+                            <i class="fas fa-lock me-1"></i>
+                            <span id="pe-locked-msg">Receipt printed — payment is locked.</span>
+                        </div>
                         <div class="d-grid gap-2">
                             <button type="button" class="btn btn-primary btn-lg" id="btnOpenPayWizard" onclick="openPaymentWizard()">
                                 <i class="fas fa-plus-circle me-1"></i> <span id="btnPayWizLabel">Add Payment</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-warning" id="btnRequestCancellation" style="display:none;" onclick="requestReceiptCancellation()">
+                                <i class="fas fa-phone me-1"></i> Request Cancellation
                             </button>
                             <button type="button" class="btn btn-warning btn-lg" id="btnRetryPS365" onclick="retryPayment()" style="display:none;">
                                 <i class="fas fa-sync-alt me-1"></i> Retry Receipt Sync
@@ -565,8 +572,16 @@ input[type=number]::-webkit-inner-spin-button {
                             <span class="text-white" id="pw-cf-due">€ 0.00</span>
                         </div>
                         <div class="d-flex justify-content-between py-2" id="pw-cf-variance-row" style="display:none !important;">
-                            <span class="text-white-50">Variance</span>
+                            <span class="text-white-50" id="pw-cf-variance-label">Variance</span>
                             <span class="fw-bold" id="pw-cf-variance">€ 0.00</span>
+                        </div>
+                        <div id="pw-cf-variance-panel" style="display:none;" class="mt-2 p-2 rounded" >
+                            <div class="fw-bold mb-2" id="pw-cf-variance-msg"></div>
+                            <div class="small text-white-50 mb-2">Why? (required)</div>
+                            <div id="pw-cf-reason-chips" class="d-flex flex-wrap gap-2"></div>
+                            <input type="text" id="pw-cf-reason-other" class="form-control form-control-sm mt-2"
+                                   placeholder="Type reason..." oninput="pwUpdateConfirmGate()"
+                                   style="display:none;background:#0f172a;color:#fff;border:1px solid rgba(255,255,255,.2);">
                         </div>
                         <div id="pw-cf-cheque-rows" style="display:none;">
                             <div class="d-flex justify-content-between py-2 border-top border-secondary">
@@ -1056,6 +1071,67 @@ function pwCheckPdc() {
     warn.style.display = sel > today ? 'block' : 'none';
 }
 
+let pwVarianceReason = null;
+let pwVarianceActive = false;
+
+function pwIsVarianceExempt() {
+    // Online payments and post-dated cheques are not cash variances
+    if (pwSelectedMethod === 'online') return true;
+    if (pwSelectedMethod === 'cheque') {
+        const dt = (document.getElementById('pw-cheque-date').value || '').trim();
+        const today = new Date().toISOString().split('T')[0];
+        if (dt && dt > today) return true;
+    }
+    return false;
+}
+
+function pwRenderReasonChips(shortfall) {
+    const chips = [
+        ['partial_payment', 'Customer paying part'],
+        ['item_dispute', 'Dispute on item'],
+        ['no_change', 'No change'],
+        ['other', 'Other']
+    ];
+    const box = document.getElementById('pw-cf-reason-chips');
+    box.innerHTML = '';
+    chips.forEach(([val, label]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-sm btn-outline-light pw-reason-chip';
+        b.textContent = label;
+        b.dataset.val = val;
+        b.onclick = () => pwSelectVarReason(val, b);
+        box.appendChild(b);
+    });
+}
+
+function pwSelectVarReason(val, btn) {
+    pwVarianceReason = val;
+    document.querySelectorAll('.pw-reason-chip').forEach(c => c.classList.remove('btn-warning'));
+    document.querySelectorAll('.pw-reason-chip').forEach(c => c.classList.add('btn-outline-light'));
+    btn.classList.remove('btn-outline-light');
+    btn.classList.add('btn-warning');
+    const other = document.getElementById('pw-cf-reason-other');
+    other.style.display = val === 'other' ? 'block' : 'none';
+    pwUpdateConfirmGate();
+}
+
+function pwGetVarianceReasonValue() {
+    if (!pwVarianceActive) return null;
+    if (!pwVarianceReason) return null;
+    if (pwVarianceReason === 'other') {
+        const txt = (document.getElementById('pw-cf-reason-other').value || '').trim();
+        return txt ? ('other: ' + txt).slice(0, 50) : null;
+    }
+    return pwVarianceReason;
+}
+
+function pwUpdateConfirmGate() {
+    const yesBtn = document.getElementById('pw-cf-yes-btn');
+    if (!yesBtn) return;
+    yesBtn.disabled = pwVarianceActive && !pwGetVarianceReasonValue();
+}
+
 function pwShowConfirm() {
     const labels = {cash:'Cash', cheque:'Cheque', online:'Pay Online', card:'Card (POS)'};
     const amount = parseFloat(document.getElementById('pw-amount-val').value) || 0;
@@ -1068,13 +1144,41 @@ function pwShowConfirm() {
 
     const varRow = document.getElementById('pw-cf-variance-row');
     const varEl = document.getElementById('pw-cf-variance');
-    if (Math.abs(variance) >= 0.01) {
+    const varLabel = document.getElementById('pw-cf-variance-label');
+    const panel = document.getElementById('pw-cf-variance-panel');
+    const msg = document.getElementById('pw-cf-variance-msg');
+
+    pwVarianceReason = null;
+    pwVarianceActive = false;
+    document.getElementById('pw-cf-reason-other').value = '';
+    document.getElementById('pw-cf-reason-other').style.display = 'none';
+
+    if (Math.abs(variance) >= 0.01 && !pwIsVarianceExempt()) {
+        const shortfall = variance < 0;
+        pwVarianceActive = true;
         varRow.style.cssText = 'display:flex !important;';
+        varLabel.textContent = shortfall ? 'Short' : 'Over';
+        varEl.textContent = (variance > 0 ? '+\u20AC ' : '\u2212\u20AC ') + Math.abs(variance).toFixed(2);
+        varEl.style.color = shortfall ? '#f97316' : '#ef4444';
+        panel.style.display = 'block';
+        panel.style.background = shortfall ? 'rgba(245,158,11,.12)' : 'rgba(239,68,68,.12)';
+        panel.style.border = shortfall ? '1px solid #f59e0b' : '1px solid #ef4444';
+        msg.style.color = shortfall ? '#f59e0b' : '#ef4444';
+        msg.textContent = shortfall
+            ? 'Collecting \u20AC' + Math.abs(variance).toFixed(2) + ' LESS than due'
+            : 'Collecting \u20AC' + Math.abs(variance).toFixed(2) + ' MORE than due';
+        pwRenderReasonChips(shortfall);
+    } else if (Math.abs(variance) >= 0.01) {
+        varRow.style.cssText = 'display:flex !important;';
+        varLabel.textContent = 'Variance';
         varEl.textContent = (variance > 0 ? '+\u20AC ' : '\u2212\u20AC ') + Math.abs(variance).toFixed(2);
         varEl.style.color = variance < 0 ? '#f97316' : '#22c55e';
+        panel.style.display = 'none';
     } else {
         varRow.style.cssText = 'display:none !important;';
+        panel.style.display = 'none';
     }
+    pwUpdateConfirmGate();
 
     const chqRows = document.getElementById('pw-cf-cheque-rows');
     if (pwSelectedMethod === 'cheque') {
@@ -1114,6 +1218,8 @@ async function submitPaymentWizard() {
 
     const amount = parseFloat(document.getElementById('pw-amount-val').value) || 0;
     const payload = { method: pwSelectedMethod, amount: amount };
+    const vr = pwGetVarianceReasonValue();
+    if (vr) payload.variance_reason = vr;
     if (pwSelectedMethod === 'cheque') {
         payload.cheque_no = (document.getElementById('pw-cheque-number').value || '').trim();
         payload.cheque_date = (document.getElementById('pw-cheque-date').value || '').trim();
@@ -1208,6 +1314,33 @@ function syncCodFromPayment(pe) {
     rawCents = String(Math.round(pe.amount * 100));
 }
 
+let lockedReceiptInfo = null;
+
+function requestReceiptCancellation() {
+    if (!lockedReceiptInfo) return;
+    alert('This receipt is locked because it was already printed.\n\n' +
+          'Call the office to cancel receipt #' + lockedReceiptInfo.receipt_id + '.\n' +
+          'You must hand back ALL printed customer copies (' + (lockedReceiptInfo.print_count || 1) + ' printed) before it can be voided.');
+}
+
+function applyReceiptLockUI() {
+    const lockRow = document.getElementById('pe-locked-row');
+    const lockMsg = document.getElementById('pe-locked-msg');
+    const cancelBtn = document.getElementById('btnRequestCancellation');
+    const wizBtn = document.getElementById('btnOpenPayWizard');
+    if (lockedReceiptInfo) {
+        if (lockRow) {
+            lockRow.style.display = 'block';
+            lockMsg.textContent = 'Receipt #' + lockedReceiptInfo.receipt_id + ' printed — payment is locked. Reprint is allowed; changes need office cancellation.';
+        }
+        if (cancelBtn) cancelBtn.style.display = 'block';
+        if (wizBtn) wizBtn.style.display = 'none';
+    } else {
+        if (lockRow) lockRow.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+    }
+}
+
 function renderPaymentSummary() {
     const pe = activePayment;
     const methodLabel = document.getElementById('pe-method-label');
@@ -1217,6 +1350,8 @@ function renderPaymentSummary() {
     const errMsg = document.getElementById('pe-error-msg');
     const retryBtn = document.getElementById('btnRetryPS365');
     const wizLabel = document.getElementById('btnPayWizLabel');
+
+    applyReceiptLockUI();
 
     if (!pe) {
         methodLabel.textContent = 'No payment entered';
@@ -1272,6 +1407,12 @@ async function loadExistingPayment() {
     try {
         const res = await fetch(`/api/route-stops/${stopId}/payment`);
         const data = await res.json();
+        if (data && data.receipt_locked) {
+            lockedReceiptInfo = {
+                receipt_id: data.locked_receipt_id || data.receipt_id,
+                print_count: data.locked_print_count || data.print_count || 1
+            };
+        }
         if (data && data.id) {
             activePayment = data;
             syncCodFromPayment(data);
@@ -1279,6 +1420,8 @@ async function loadExistingPayment() {
             if (data.ps_status === 'PENDING_RETRY') {
                 scheduleAutoRetry(10);
             }
+        } else if (lockedReceiptInfo) {
+            renderPaymentSummary();
         }
     } catch(e) {}
     refreshHeaderAndSteps();
@@ -1654,7 +1797,8 @@ async function submitDelivery() {
                 received: activePayment.amount,
                 note: '',
                 cheque_number: activePayment.cheque_no || null,
-                cheque_date: activePayment.cheque_date || null
+                cheque_date: activePayment.cheque_date || null,
+                variance_reason: activePayment.variance_reason || null
             };
         }
 

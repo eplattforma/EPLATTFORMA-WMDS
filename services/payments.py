@@ -74,6 +74,7 @@ def upsert_active_payment(route_stop_id, payload):
         amount=amount,
         cheque_no=cheque_no,
         cheque_date=cheque_date_val,
+        variance_reason=(payload.get('variance_reason') or None),
         commit_mode=commit_mode,
         doc_type=doc_type,
         ps_status=initial_status,

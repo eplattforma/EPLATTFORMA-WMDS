@@ -5,3 +5,4 @@
 - [Deferred batch item filters](deferred-batch-filters.md) — deferred sessions use sentinel zone 'DEFERRED' + status 'sent_to_batch'; zone-based or whitelist filters silently return 0 rows and picking falls back to a customer-merging rebuild.
 - [New batch_pick_queue status fan-out](cooler-queue-status-surfaces.md) — a new non-terminal queue status must also be added to cancel_batch + route-extraction DELETEs, or rows park invoices forever.
 - [Cooler boxing keys off bpq.status='picked'](cooler-boxing-picked-signal.md) — exception/zero-pick must set bpq+cbi 'exception', never leave 'picked', or the unavailable item gets boxed & shipped.
+- [Flask test blueprint rendering](flask-test-blueprint-rendering.md) — register all needed blueprints in the FIRST fixture (Flask blocks late registration); base.html renders need permission helpers + lenient url_for.

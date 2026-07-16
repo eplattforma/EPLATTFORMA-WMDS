@@ -650,7 +650,22 @@ def finalize_reconciliation(shipment_id: int, actor: str) -> Dict:
     shipment = db.session.get(Shipment, shipment_id)
     if not shipment:
         raise ValueError(f"Shipment {shipment_id} not found")
-    
+
+    # Receipt Controls: every manual (paper) receipt logged for this route must
+    # be matched to a digital CODReceipt before reconciliation can complete.
+    from models import ManualReceiptLog
+    unmatched = ManualReceiptLog.query.filter(
+        ManualReceiptLog.route_id == shipment_id,
+        ManualReceiptLog.matched_cod_receipt_id.is_(None)
+    ).all()
+    if unmatched:
+        books = ', '.join(m.manual_book_number for m in unmatched[:10])
+        raise ValueError(
+            f"Cannot finalize: {len(unmatched)} manual receipt(s) not yet matched "
+            f"to a digital receipt (book no: {books}). Match them on the Receipt "
+            f"Lookup page first."
+        )
+
     now = get_utc_now()
     shipment.reconciliation_status = 'RECONCILED'
     shipment.reconciled_at = now

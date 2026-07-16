@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Receipt Exception Report{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0"><i class="fas fa-flag me-2"></i>Receipt Exception Report</h3>
+        <a href="{{ url_for('reconciliation.receipt_lookup') }}" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-search me-1"></i> Receipt Lookup
+        </a>
+    </div>
+
+    <form method="get" class="row g-2 mb-4">
+        <div class="col-auto">
+            <label class="form-label small mb-0">From</label>
+            <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">To</label>
+            <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-auto d-flex align-items-end">
+            <button class="btn btn-primary btn-sm">Apply</button>
+        </div>
+    </form>
+
+    {% if not rows %}
+    <div class="alert alert-info">No receipts in this period.</div>
+    {% endif %}
+
+    {% for d in rows %}
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold"><i class="fas fa-user me-2"></i>{{ d.driver }}</span>
+            <span class="text-muted small">{{ d.receipts }} receipt(s)</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <h6 class="text-danger">Voids ({{ d.voids|length }})</h6>
+                    {% for v in d.voids %}
+                    <div class="small">R{{ v.id }} — {{ v.reason or 'no reason' }} <span class="text-muted">by {{ v.by }}</span></div>
+                    {% else %}<div class="small text-muted">None</div>{% endfor %}
+
+                    {% if d.dirty_voids %}
+                    <h6 class="text-danger mt-3">Still live in PS365 ({{ d.dirty_voids|length }})</h6>
+                    {% for v in d.dirty_voids %}
+                    <div class="small"><span class="badge bg-danger">R{{ v.id }}</span> PS365 {{ v.ps365_ref }} — cancellation not recorded</div>
+                    {% endfor %}
+                    {% endif %}
+
+                    {% if d.slip_mismatches %}
+                    <h6 class="text-warning mt-3">Slip mismatches ({{ d.slip_mismatches|length }})</h6>
+                    {% for s in d.slip_mismatches %}
+                    <div class="small">R{{ s.id }}: {{ s.printed }} printed, {{ s.recovered }} recovered</div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-warning">Variances ({{ d.variances|length }})</h6>
+                    {% for v in d.variances %}
+                    <div class="small">
+                        R{{ v.id }}:
+                        <span class="{% if v.variance > 0 %}text-danger{% else %}text-warning{% endif %}">
+                            {{ '%+.2f'|format(v.variance) }}
+                        </span>
+                        — {{ v.reason or 'no reason recorded' }}
+                    </div>
+                    {% else %}<div class="small text-muted">None</div>{% endfor %}
+                    {% if d.overpayments %}
+                    <div class="small mt-2"><span class="badge bg-danger">{{ d.overpayments|length }} overpayment(s)</span></div>
+                    {% endif %}
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-info">Manual receipts ({{ d.manual_receipts|length }})</h6>
+                    {% for m in d.manual_receipts %}
+                    <div class="small">
+                        Book {{ m.book_no }} — &euro;{{ '%.2f'|format(m.amount) }}
+                        {% if m.matched %}<span class="badge bg-success">matched</span>
+                        {% else %}<span class="badge bg-danger">unmatched</span>{% endif %}
+                    </div>
+                    {% else %}<div class="small text-muted">None</div>{% endfor %}
+                    {% if d.manual_receipts|length >= 3 %}
+                    <div class="small mt-2"><span class="badge bg-warning text-dark">Heavy manual usage — review</span></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

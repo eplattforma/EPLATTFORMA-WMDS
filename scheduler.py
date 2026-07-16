@@ -636,6 +636,19 @@ def setup_scheduler(app):
             )
             logger.info("✓ Expiry dates FTP upload scheduled: Daily at 17:45 Cairo")
 
+            _add_job_smart(
+                func=_tracked,
+                kwargs={'job_id': 'receipt_void_check', 'job_name': 'Receipt Void PS365 Check'},
+                trigger=CronTrigger(hour=21, minute=30),
+                id='receipt_void_check',
+                name='Receipt Void PS365 Check',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=21600,
+                coalesce=True,
+            )
+            logger.info("✓ Receipt void PS365 check scheduled: Daily at 21:30 Cairo")
+
             if is_production:
                 _add_job_smart(
                     func=_tracked,
@@ -1703,7 +1716,40 @@ def _register_job_funcs():
         'stock_777_sync': _run_stock_777_sync,
         'ftp_login_sync': _run_ftp_login_sync,
         'log_cleanup': _run_log_cleanup,
+        'receipt_void_check': _run_receipt_void_check,
     }
+
+
+def _run_receipt_void_check():
+    """Nightly safety net for Driver Receipt Controls (Change 3.3).
+
+    Flags any VOIDED receipt that was synced to PS365 but whose manual
+    back-office cancellation was never recorded (``ps365_reversal_ref`` is
+    empty) — i.e. money still posted in PS365 for a receipt we consider
+    cancelled. PS365 has no receipt-export API, so the recorded reversal
+    ref is our source of truth; anything missing it is a forgotten manual
+    delete. Result summary lands in ``job_runs``; details are logged and
+    surface on /reconciliation/receipts/exceptions.
+    """
+    from app import app as _flask_app
+    with _flask_app.app_context():
+        from app import db
+        from models import CODReceipt
+        dirty = CODReceipt.query.filter(
+            CODReceipt.status == 'VOIDED',
+            CODReceipt.ps365_reference_number.isnot(None),
+            CODReceipt.ps365_reference_number != '',
+            db.or_(CODReceipt.ps365_reversal_ref.is_(None),
+                   CODReceipt.ps365_reversal_ref == '')
+        ).all()
+        for r in dirty:
+            logger.warning(
+                f"RECEIPT VOID CHECK: receipt #{r.id} is VOIDED but still posted "
+                f"in PS365 (ref {r.ps365_reference_number}, voided by {r.voided_by}) "
+                f"— manual PS365 cancellation not recorded"
+            )
+        return {'voided_still_in_ps365': len(dirty),
+                'receipt_ids': [r.id for r in dirty[:50]]}
 
 
 def _run_log_cleanup():

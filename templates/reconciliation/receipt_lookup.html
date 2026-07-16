@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}Receipt Lookup{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width: 760px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0"><i class="fas fa-search me-2"></i>Receipt Lookup</h3>
+        <a href="{{ url_for('reconciliation.receipt_exception_report') }}" class="btn btn-outline-warning btn-sm">
+            <i class="fas fa-flag me-1"></i> Exception Report
+        </a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="input-group input-group-lg">
+                <input type="text" id="lookup-q" class="form-control" placeholder="Receipt number (e.g. 1234 or PS365 ref)"
+                       onkeydown="if(event.key==='Enter') doLookup()">
+                <button class="btn btn-primary" onclick="doLookup()"><i class="fas fa-search"></i> Look up</button>
+            </div>
+            <div id="lookup-error" class="alert alert-danger mt-3 mb-0" style="display:none;"></div>
+        </div>
+    </div>
+
+    <div id="result-card" class="card" style="display:none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">Receipt #<span id="r-id"></span></span>
+            <span id="r-status" class="badge"></span>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm mb-3">
+                <tbody id="r-details"></tbody>
+            </table>
+
+            <div id="r-links" class="mb-3"></div>
+
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn btn-outline-danger" id="btn-void" style="display:none;" onclick="showVoidForm()">
+                    <i class="fas fa-ban me-1"></i> Void Receipt
+                </button>
+                <button class="btn btn-outline-primary" id="btn-reissue" style="display:none;" onclick="doReissue()">
+                    <i class="fas fa-redo me-1"></i> Reissue
+                </button>
+            </div>
+
+            <div id="void-form" class="border rounded p-3 mt-3" style="display:none;">
+                <h6 class="mb-3">Void Receipt</h6>
+                <div class="mb-2">
+                    <label class="form-label small">Reason (required)</label>
+                    <input type="text" id="void-reason" class="form-control form-control-sm">
+                </div>
+                <div class="mb-2" id="void-slips-wrap" style="display:none;">
+                    <label class="form-label small">Customer copies recovered (printed: <span id="void-print-count"></span>)</label>
+                    <input type="number" id="void-slips" class="form-control form-control-sm" min="0">
+                    <div class="form-text">All printed customer copies must be handed back before the void completes.</div>
+                </div>
+                <div class="mb-2" id="void-ps365-wrap" style="display:none;">
+                    <label class="form-label small">PS365 cancellation reference (required — receipt is synced as <span id="void-ps365-ref"></span>)</label>
+                    <input type="text" id="void-reversal-ref" class="form-control form-control-sm"
+                           placeholder="Cancel in PS365 back office first, then enter the reference">
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn btn-danger btn-sm" onclick="doVoid()">Confirm Void</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('void-form').style.display='none'">Cancel</button>
+                </div>
+                <div id="void-error" class="alert alert-danger mt-2 mb-0 small" style="display:none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header fw-bold"><i class="fas fa-book me-2"></i>Log Manual (Paper) Receipt</div>
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label class="form-label small">Book number</label>
+                    <input type="text" id="mr-book" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Driver username</label>
+                    <input type="text" id="mr-driver" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Amount (&euro;)</label>
+                    <input type="number" step="0.01" id="mr-amount" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Reason</label>
+                    <select id="mr-reason" class="form-select form-select-sm">
+                        <option value="printer_failure">Printer failure</option>
+                        <option value="app_failure">App failure</option>
+                        <option value="no_paper">No paper</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Linked digital receipt # (optional)</label>
+                    <input type="number" id="mr-linked" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Route ID (optional)</label>
+                    <input type="number" id="mr-route" class="form-control form-control-sm">
+                </div>
+                <div class="col-12">
+                    <label class="form-label small">Note</label>
+                    <input type="text" id="mr-note" class="form-control form-control-sm">
+                </div>
+            </div>
+            <button class="btn btn-primary btn-sm mt-3" onclick="logManual()">Log Manual Receipt</button>
+            <div id="mr-msg" class="mt-2 small"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentReceipt = null;
+
+async function doLookup() {
+    const q = document.getElementById('lookup-q').value.trim();
+    const errEl = document.getElementById('lookup-error');
+    errEl.style.display = 'none';
+    document.getElementById('result-card').style.display = 'none';
+    document.getElementById('void-form').style.display = 'none';
+    if (!q) return;
+    try {
+        const res = await fetch('/reconciliation/api/receipts/lookup?q=' + encodeURIComponent(q));
+        const data = await res.json();
+        if (!data.success) {
+            errEl.textContent = data.error || 'Lookup failed';
+            errEl.style.display = 'block';
+            return;
+        }
+        renderReceipt(data.receipt);
+    } catch (e) {
+        errEl.textContent = 'Lookup failed: ' + e;
+        errEl.style.display = 'block';
+    }
+}
+
+function renderReceipt(r) {
+    currentReceipt = r;
+    document.getElementById('r-id').textContent = r.id;
+    const st = document.getElementById('r-status');
+    st.textContent = r.status;
+    st.className = 'badge ' + (r.status === 'VOIDED' ? 'bg-danger' : r.status === 'REISSUED' ? 'bg-warning text-dark' : 'bg-success');
+
+    const rows = [
+        ['Driver', r.driver_username],
+        ['Customer', (r.customer_name || '—') + (r.customer_code ? ' (' + r.customer_code + ')' : '')],
+        ['Route', r.route_id],
+        ['Invoices', r.invoice_nos || '—'],
+        ['Expected', '€ ' + r.expected_amount.toFixed(2)],
+        ['Received', '€ ' + r.received_amount.toFixed(2)],
+        ['Variance', '€ ' + r.variance.toFixed(2) + (r.variance_reason ? ' — ' + r.variance_reason : '')],
+        ['Method', r.payment_method || '—'],
+        ['Created', r.created_at ? r.created_at.replace('T', ' ').slice(0, 16) : '—'],
+        ['Prints', r.print_count + (r.locked ? ' (LOCKED since first print)' : '')],
+        ['PS365 ref', r.ps365_reference_number || 'not synced'],
+    ];
+    if (r.status === 'VOIDED') {
+        rows.push(['Voided', (r.voided_at || '').replace('T',' ').slice(0,16) + ' by ' + (r.voided_by || '—')]);
+        rows.push(['Void reason', r.void_reason || '—']);
+        rows.push(['Copies recovered', r.slips_recovered === null ? '—' : r.slips_recovered]);
+        if (r.ps365_reference_number) {
+            rows.push(['PS365 reversal', r.ps365_reversal_ref
+                ? r.ps365_reversal_ref + ' (by ' + (r.ps365_reversed_by || '—') + ')'
+                : 'NOT RECORDED — still live in PS365!']);
+        }
+    }
+    document.getElementById('r-details').innerHTML = rows.map(([k, v]) =>
+        '<tr><td class="text-muted" style="width:35%;">' + k + '</td><td>' + v + '</td></tr>').join('');
+
+    let links = '';
+    if (r.replaces_receipt_id) {
+        links += '<span class="badge bg-info me-2">Replaces R' + r.replaces_receipt_id + ' (voided)</span>';
+    }
+    if (r.replaced_by_cod_receipt_id) {
+        links += '<span class="badge bg-warning text-dark">Replaced by R' + r.replaced_by_cod_receipt_id + '</span>';
+    }
+    document.getElementById('r-links').innerHTML = links;
+
+    document.getElementById('btn-void').style.display = (r.status !== 'VOIDED') ? 'inline-block' : 'none';
+    document.getElementById('btn-reissue').style.display =
+        (r.status === 'VOIDED' && !r.replaced_by_cod_receipt_id) ? 'inline-block' : 'none';
+
+    document.getElementById('result-card').style.display = 'block';
+}
+
+function showVoidForm() {
+    const r = currentReceipt;
+    document.getElementById('void-form').style.display = 'block';
+    document.getElementById('void-error').style.display = 'none';
+    const slipsWrap = document.getElementById('void-slips-wrap');
+    if (r.print_count > 0) {
+        slipsWrap.style.display = 'block';
+        document.getElementById('void-print-count').textContent = r.print_count;
+    } else {
+        slipsWrap.style.display = 'none';
+    }
+    const psWrap = document.getElementById('void-ps365-wrap');
+    if (r.ps365_reference_number) {
+        psWrap.style.display = 'block';
+        document.getElementById('void-ps365-ref').textContent = r.ps365_reference_number;
+    } else {
+        psWrap.style.display = 'none';
+    }
+}
+
+async function doVoid() {
+    const r = currentReceipt;
+    const errEl = document.getElementById('void-error');
+    errEl.style.display = 'none';
+    const payload = { reason: document.getElementById('void-reason').value.trim() };
+    if (r.print_count > 0) payload.slips_recovered = document.getElementById('void-slips').value;
+    if (r.ps365_reference_number) payload.ps365_reversal_ref = document.getElementById('void-reversal-ref').value.trim();
+    try {
+        const res = await fetch('/reconciliation/api/receipts/' + r.id + '/void', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!data.success) {
+            errEl.textContent = data.error || 'Void failed';
+            errEl.style.display = 'block';
+            return;
+        }
+        document.getElementById('lookup-q').value = r.id;
+        doLookup();
+    } catch (e) {
+        errEl.textContent = 'Void failed: ' + e;
+        errEl.style.display = 'block';
+    }
+}
+
+async function doReissue() {
+    const r = currentReceipt;
+    if (!confirm('Reissue receipt #' + r.id + ' with a NEW number? The new slip will print "Replaces R' + r.id + ' (voided)".')) return;
+    try {
+        const res = await fetch('/reconciliation/api/receipts/' + r.id + '/reissue', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || 'Reissue failed');
+            return;
+        }
+        document.getElementById('lookup-q').value = data.new_receipt_id;
+        doLookup();
+    } catch (e) {
+        alert('Reissue failed: ' + e);
+    }
+}
+
+async function logManual() {
+    const msg = document.getElementById('mr-msg');
+    msg.textContent = '';
+    const payload = {
+        manual_book_number: document.getElementById('mr-book').value.trim(),
+        driver_username: document.getElementById('mr-driver').value.trim(),
+        amount: document.getElementById('mr-amount').value,
+        reason: document.getElementById('mr-reason').value,
+        note: document.getElementById('mr-note').value.trim(),
+        matched_cod_receipt_id: document.getElementById('mr-linked').value || null,
+        route_id: document.getElementById('mr-route').value || null
+    };
+    try {
+        const res = await fetch('/reconciliation/api/manual-receipts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!data.success) {
+            msg.className = 'mt-2 small text-danger';
+            msg.textContent = data.error || 'Failed';
+            return;
+        }
+        msg.className = 'mt-2 small text-success';
+        msg.textContent = 'Logged as entry #' + data.id + (data.matched ? ' (matched to digital receipt)' : ' — remember to match it to a digital receipt before the route reconciles.');
+        ['mr-book','mr-amount','mr-note','mr-linked','mr-route'].forEach(id => document.getElementById(id).value = '');
+    } catch (e) {
+        msg.className = 'mt-2 small text-danger';
+        msg.textContent = 'Failed: ' + e;
+    }
+}
+</script>
+{% endblock %}

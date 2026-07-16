@@ -255,93 +255,105 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                 ref_lines.append(line)
             return ref_lines or [""]
 
-        if is_preview:
-            add_t("*** PREVIEW ***")
-
         is_reprint = bool(data.get("is_reprint"))
 
-        add_company_header()
-        add(sep)
-        reprint_label = "REPRINT" if is_reprint else ""
-        if reprint_label:
-            add_b(_pad_right("PAYMENT RECEIPT", reprint_label, cols))
-        else:
-            add_t("PAYMENT RECEIPT")
-        add(sep)
+        for copy_idx, copy_label in enumerate(["CUSTOMER COPY", "OFFICE COPY"]):
+            if copy_idx > 0:
+                add("")
+                add_c("- - - - - - CUT HERE - - - - - -")
+                add("")
 
-        receipt_no = str(data.get("receipt_no", "")).strip()
-        date_str = str(data.get("date_str", "")).strip()
-        if " " in date_str:
-            d_part, t_part = date_str.split(" ", 1)
-        else:
-            d_part, t_part = date_str, ""
-        add_b(f"Receipt No: {receipt_no}")
-        if t_part:
-            add_b(f"Date: {d_part}   Time: {t_part}")
-        else:
-            add_b(f"Date: {d_part}")
-        add(sep)
+            add_t(f"** {copy_label} **")
 
-        add_b("Customer:")
-        for w in wrap(data.get("customer_name", "")):
-            add(w)
+            if is_preview:
+                add_t("*** PREVIEW ***")
 
-        invoice_nos_plain = data.get("invoice_nos_plain") or [
-            inv.get("invoice_no", "") for inv in (data.get("invoices") or [])
-        ]
-        invoice_nos_plain = [str(n) for n in invoice_nos_plain if n]
-        if invoice_nos_plain:
-            if len(invoice_nos_plain) == 1:
-                add_b(f"Payment for Invoice: {invoice_nos_plain[0]}")
+            add_company_header()
+            add(sep)
+            reprint_label = "REPRINT" if is_reprint else ""
+            if reprint_label:
+                add_b(_pad_right("PAYMENT RECEIPT", reprint_label, cols))
             else:
-                add_b("Invoices:")
-                for ref_line in _wrap_inv_refs(invoice_nos_plain, cols - 2):
-                    add("  " + ref_line)
-        add(sep)
+                add_t("PAYMENT RECEIPT")
+            add(sep)
 
-        add_b("Collected:")
-        payments = data.get("payments") or []
-        total_collected = Decimal("0")
-        if payments:
-            for p in payments:
-                method = str(p.get("method", "")).strip()
-                amt = Decimal(str(p.get("amount", "0") or "0"))
-                total_collected += amt
-                add(_pad_right(f"  {method}:", f"EUR {amt:,.2f}", cols))
-        else:
-            fallback_collected = Decimal(str(data.get("collected", "0") or "0"))
-            pm = str(data.get("payment_method", "")).replace("_", " ").title().strip()
-            if pm and fallback_collected > 0:
-                add(_pad_right(f"  {pm}:", f"EUR {fallback_collected:,.2f}", cols))
-                total_collected = fallback_collected
+            replaces_id = data.get("replaces_receipt_id")
+            if replaces_id:
+                add_b(f"Replaces R{replaces_id} (voided)")
 
-        cheque_number = str(data.get("cheque_number", "") or "").strip()
-        cheque_date = str(data.get("cheque_date", "") or "").strip()
-        if cheque_number:
-            add(f"  Cheque No: {cheque_number}")
-        if cheque_date:
-            add(f"  Cheque Date: {cheque_date}")
-
-        add_b(_pad_right("Total Paid:", f"EUR {total_collected:,.2f}", cols))
-        add(sep)
-
-        collector = str(data.get("collector_name", "") or data.get("driver_name", "")).strip()
-        if collector:
+            receipt_no = str(data.get("receipt_no", "")).strip()
+            date_str = str(data.get("date_str", "")).strip()
+            if " " in date_str:
+                d_part, t_part = date_str.split(" ", 1)
+            else:
+                d_part, t_part = date_str, ""
+            add_b(f"Receipt No: {receipt_no}")
+            if t_part:
+                add_b(f"Date: {d_part}   Time: {t_part}")
+            else:
+                add_b(f"Date: {d_part}")
+            add(sep)
+    
+            add_b("Customer:")
+            for w in wrap(data.get("customer_name", "")):
+                add(w)
+    
+            invoice_nos_plain = data.get("invoice_nos_plain") or [
+                inv.get("invoice_no", "") for inv in (data.get("invoices") or [])
+            ]
+            invoice_nos_plain = [str(n) for n in invoice_nos_plain if n]
+            if invoice_nos_plain:
+                if len(invoice_nos_plain) == 1:
+                    add_b(f"Payment for Invoice: {invoice_nos_plain[0]}")
+                else:
+                    add_b("Invoices:")
+                    for ref_line in _wrap_inv_refs(invoice_nos_plain, cols - 2):
+                        add("  " + ref_line)
+            add(sep)
+    
+            add_b("Collected:")
+            payments = data.get("payments") or []
+            total_collected = Decimal("0")
+            if payments:
+                for p in payments:
+                    method = str(p.get("method", "")).strip()
+                    amt = Decimal(str(p.get("amount", "0") or "0"))
+                    total_collected += amt
+                    add(_pad_right(f"  {method}:", f"EUR {amt:,.2f}", cols))
+            else:
+                fallback_collected = Decimal(str(data.get("collected", "0") or "0"))
+                pm = str(data.get("payment_method", "")).replace("_", " ").title().strip()
+                if pm and fallback_collected > 0:
+                    add(_pad_right(f"  {pm}:", f"EUR {fallback_collected:,.2f}", cols))
+                    total_collected = fallback_collected
+    
+            cheque_number = str(data.get("cheque_number", "") or "").strip()
+            cheque_date = str(data.get("cheque_date", "") or "").strip()
+            if cheque_number:
+                add(f"  Cheque No: {cheque_number}")
+            if cheque_date:
+                add(f"  Cheque Date: {cheque_date}")
+    
+            add_b(_pad_right("Total Paid:", f"EUR {total_collected:,.2f}", cols))
+            add(sep)
+    
+            collector = str(data.get("collector_name", "") or data.get("driver_name", "")).strip()
+            if collector:
+                add("")
+                add("")
+                add_b(f"Collector: {collector}")
+    
+            sig_line = "_" * cols
+            add("Collector Signature:")
+            add(sig_line)
             add("")
             add("")
-            add_b(f"Collector: {collector}")
-
-        sig_line = "_" * cols
-        add("Collector Signature:")
-        add(sig_line)
-        add("")
-        add("")
-        add(sep)
-        add("Payment acknowledgement for the")
-        add("invoice(s) referenced above.")
-        add("Not a tax invoice.")
-        for _ in range(3):
-            add("")
+            add(sep)
+            add("Payment acknowledgement for the")
+            add("invoice(s) referenced above.")
+            add("Not a tax invoice.")
+            for _ in range(3):
+                add("")
 
         line_h_body = 30
         line_h_title = 38

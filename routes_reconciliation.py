@@ -63,6 +63,34 @@ def api_void_receipt(receipt_id):
         if not reason:
             return jsonify({'success': False, 'error': 'A void reason is required'}), 400
 
+        # Hardening 1: all printed slips must be physically recovered
+        print_count = receipt.print_count or 0
+        if print_count > 0:
+            slips_raw = data.get('slips_recovered')
+            try:
+                slips = int(slips_raw)
+            except (TypeError, ValueError):
+                return jsonify({'success': False,
+                                'error': f'This receipt was printed {print_count} time(s). '
+                                         f'Enter how many printed slips were recovered.'}), 400
+            if slips != print_count:
+                return jsonify({'success': False,
+                                'error': f'All printed slips must be recovered before voiding: '
+                                         f'{print_count} printed, {slips} recovered.'}), 400
+            receipt.slips_recovered = slips
+
+        # Hardening 2: if synced to PS365, the manual back-office cancellation must be recorded
+        if receipt.ps365_reference_number:
+            reversal_ref = (data.get('ps365_reversal_ref') or '').strip()
+            if not reversal_ref:
+                return jsonify({'success': False,
+                                'error': f'Receipt is synced to PS365 (ref {receipt.ps365_reference_number}). '
+                                         f'Cancel it in the PS365 back office first, then enter the PS365 '
+                                         f'cancellation/credit reference to complete the void.'}), 400
+            receipt.ps365_reversal_ref = reversal_ref
+            receipt.ps365_reversed_by = current_user.username
+            receipt.ps365_reversed_at = utc_now()
+
         now = utc_now()
         receipt.status = 'VOIDED'
         receipt.voided_at = now
@@ -94,6 +122,14 @@ def api_reissue_receipt(receipt_id):
 
         if old_receipt.replaced_by_cod_receipt_id:
             return jsonify({'success': False, 'error': 'Receipt has already been reissued'}), 400
+
+        # Block reissue until the original's PS365 posting has been manually reversed
+        if old_receipt.ps365_reference_number and not old_receipt.ps365_reversal_ref:
+            return jsonify({'success': False,
+                            'error': f'Original receipt is still posted in PS365 (ref '
+                                     f'{old_receipt.ps365_reference_number}). Record the PS365 '
+                                     f'cancellation on the void before reissuing, otherwise the '
+                                     f'customer would be charged twice.'}), 400
 
         data = request.get_json(force=True)
         now = utc_now()
@@ -390,6 +426,8 @@ def api_finalize(shipment_id):
     try:
         result = recon.finalize_reconciliation(shipment_id, current_user.username)
         return jsonify(result)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         logger.error(f"Error finalizing reconciliation: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1424,3 +1462,231 @@ def api_fetch_all_balances():
 @admin_or_warehouse_required
 def api_fetch_balances_status():
     return jsonify(_balance_fetch_status)
+
+
+# ── Receipt Controls: manual receipts, lookup, exception report ─────────────
+
+@reconciliation_bp.route('/api/manual-receipts', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_log_manual_receipt():
+    """Log a paper (manual book) receipt written by a driver, at reconciliation."""
+    from models import ManualReceiptLog
+    try:
+        data = request.get_json(force=True) or {}
+        book_no = (data.get('manual_book_number') or '').strip()
+        driver = (data.get('driver_username') or '').strip()
+        amount_raw = data.get('amount')
+        if not book_no:
+            return jsonify({'success': False, 'error': 'Manual book number is required'}), 400
+        if not driver:
+            return jsonify({'success': False, 'error': 'Driver is required'}), 400
+        try:
+            amount = Decimal(str(amount_raw))
+        except Exception:
+            return jsonify({'success': False, 'error': 'A valid amount is required'}), 400
+        if amount <= 0:
+            return jsonify({'success': False, 'error': 'Amount must be greater than zero'}), 400
+
+        existing = ManualReceiptLog.query.filter_by(manual_book_number=book_no).first()
+        if existing:
+            return jsonify({'success': False,
+                            'error': f'Manual book number {book_no} is already logged '
+                                     f'(entry #{existing.id}, driver {existing.driver_username}).'}), 409
+
+        linked_id = data.get('matched_cod_receipt_id')
+        if linked_id:
+            linked = db.session.get(CODReceipt, int(linked_id))
+            if not linked:
+                return jsonify({'success': False, 'error': f'Digital receipt #{linked_id} not found'}), 404
+
+        entry = ManualReceiptLog(
+            manual_book_number=book_no,
+            driver_username=driver,
+            route_id=data.get('route_id') or None,
+            route_stop_id=data.get('route_stop_id') or None,
+            customer_code=(data.get('customer_code') or '').strip() or None,
+            amount=amount,
+            reason=(data.get('reason') or 'other').strip(),
+            note=(data.get('note') or '').strip() or None,
+            matched_cod_receipt_id=int(linked_id) if linked_id else None,
+            logged_by=current_user.username,
+            created_at=utc_now()
+        )
+        db.session.add(entry)
+        db.session.commit()
+        logger.info(f"Manual receipt {book_no} logged by {current_user.username} for driver {driver}")
+        return jsonify({'success': True, 'id': entry.id,
+                        'matched': bool(entry.matched_cod_receipt_id)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error logging manual receipt: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/api/manual-receipts/<int:entry_id>/match', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_match_manual_receipt(entry_id):
+    """Link a logged manual receipt to its digital CODReceipt."""
+    from models import ManualReceiptLog
+    try:
+        entry = db.session.get(ManualReceiptLog, entry_id)
+        if not entry:
+            return jsonify({'success': False, 'error': 'Manual receipt entry not found'}), 404
+        data = request.get_json(force=True) or {}
+        receipt_id = data.get('cod_receipt_id')
+        receipt = db.session.get(CODReceipt, int(receipt_id)) if receipt_id else None
+        if not receipt:
+            return jsonify({'success': False, 'error': 'Digital receipt not found'}), 404
+        entry.matched_cod_receipt_id = receipt.id
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error matching manual receipt {entry_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/receipts/lookup')
+@login_required
+@admin_or_warehouse_required
+def receipt_lookup():
+    """Office receipt lookup page: number -> live status, links, void/reissue actions."""
+    return render_template('reconciliation/receipt_lookup.html')
+
+
+@reconciliation_bp.route('/api/receipts/lookup')
+@login_required
+@admin_or_warehouse_required
+def api_receipt_lookup():
+    """Look up a receipt by number (our id or PS365 ref)."""
+    q = (request.args.get('q') or '').strip().lstrip('Rr#')
+    if not q:
+        return jsonify({'success': False, 'error': 'Enter a receipt number'}), 400
+    receipt = None
+    if q.isdigit():
+        receipt = db.session.get(CODReceipt, int(q))
+    if not receipt:
+        receipt = CODReceipt.query.filter_by(ps365_reference_number=q).first()
+    if not receipt:
+        return jsonify({'success': False, 'error': f'No receipt found for "{q}"'}), 404
+
+    from models import RouteStop as _RS
+    stop = db.session.get(_RS, receipt.route_stop_id) if receipt.route_stop_id else None
+
+    status = receipt.status or 'DRAFT'
+    if status != 'VOIDED' and receipt.replaced_by_cod_receipt_id:
+        status = 'REISSUED'
+
+    def _iso(dt):
+        return dt.isoformat() + 'Z' if dt else None
+
+    replaces_id = receipt.replaces[0].id if getattr(receipt, 'replaces', None) else None
+
+    return jsonify({'success': True, 'receipt': {
+        'id': receipt.id,
+        'status': status,
+        'route_id': receipt.route_id,
+        'driver_username': receipt.driver_username,
+        'customer_name': stop.stop_name if stop else None,
+        'customer_code': stop.customer_code if stop else None,
+        'expected_amount': float(receipt.expected_amount or 0),
+        'received_amount': float(receipt.received_amount or 0),
+        'variance': float(receipt.variance or 0),
+        'variance_reason': receipt.variance_reason,
+        'payment_method': receipt.payment_method,
+        'created_at': _iso(receipt.created_at),
+        'print_count': receipt.print_count or 0,
+        'first_printed_at': _iso(receipt.first_printed_at),
+        'locked': bool(receipt.first_printed_at),
+        'ps365_reference_number': receipt.ps365_reference_number,
+        'ps365_reversal_ref': receipt.ps365_reversal_ref,
+        'ps365_reversed_by': receipt.ps365_reversed_by,
+        'voided_at': _iso(receipt.voided_at),
+        'voided_by': receipt.voided_by,
+        'void_reason': receipt.void_reason,
+        'slips_recovered': receipt.slips_recovered,
+        'replaced_by_cod_receipt_id': receipt.replaced_by_cod_receipt_id,
+        'replaces_receipt_id': replaces_id,
+        'invoice_nos': receipt.invoice_nos,
+    }})
+
+
+@reconciliation_bp.route('/receipts/exceptions')
+@login_required
+@admin_or_warehouse_required
+def receipt_exception_report():
+    """Per-driver exception report: voids, variances, overpayments, manual receipts,
+    slip mismatches, plus voided-but-still-synced flags."""
+    from models import ManualReceiptLog
+    from sqlalchemy import func
+    from datetime import timedelta, datetime as _dt
+
+    date_to = request.args.get('date_to', '')
+    date_from = request.args.get('date_from', '')
+    try:
+        d_to = _dt.strptime(date_to, '%Y-%m-%d') if date_to else utc_now()
+    except ValueError:
+        d_to = utc_now()
+    try:
+        d_from = _dt.strptime(date_from, '%Y-%m-%d') if date_from else d_to - timedelta(days=30)
+    except ValueError:
+        d_from = d_to - timedelta(days=30)
+    d_to_end = d_to + timedelta(days=1)
+
+    receipts = CODReceipt.query.filter(
+        CODReceipt.created_at >= d_from,
+        CODReceipt.created_at < d_to_end
+    ).all()
+
+    manuals = ManualReceiptLog.query.filter(
+        ManualReceiptLog.created_at >= d_from,
+        ManualReceiptLog.created_at < d_to_end
+    ).all()
+
+    drivers = {}
+
+    def _drv(name):
+        name = name or '(unknown)'
+        if name not in drivers:
+            drivers[name] = {
+                'driver': name, 'receipts': 0,
+                'voids': [], 'variances': [], 'overpayments': [],
+                'manual_receipts': [], 'slip_mismatches': [], 'dirty_voids': []
+            }
+        return drivers[name]
+
+    for r in receipts:
+        d = _drv(r.driver_username)
+        d['receipts'] += 1
+        if r.status == 'VOIDED':
+            d['voids'].append({'id': r.id, 'reason': r.void_reason, 'by': r.voided_by})
+            if r.ps365_reference_number and not r.ps365_reversal_ref:
+                d['dirty_voids'].append({'id': r.id, 'ps365_ref': r.ps365_reference_number})
+            if (r.print_count or 0) > 0 and (r.slips_recovered or 0) != (r.print_count or 0):
+                d['slip_mismatches'].append({'id': r.id,
+                                             'printed': r.print_count or 0,
+                                             'recovered': r.slips_recovered or 0})
+        v = float(r.variance or 0)
+        if abs(v) >= 0.01:
+            item = {'id': r.id, 'variance': v, 'reason': r.variance_reason}
+            d['variances'].append(item)
+            if v > 0:
+                d['overpayments'].append(item)
+
+    for m in manuals:
+        d = _drv(m.driver_username)
+        d['manual_receipts'].append({'id': m.id, 'book_no': m.manual_book_number,
+                                     'amount': float(m.amount or 0),
+                                     'matched': bool(m.matched_cod_receipt_id)})
+
+    rows = sorted(drivers.values(),
+                  key=lambda x: -(len(x['voids']) + len(x['variances']) +
+                                  len(x['manual_receipts']) + len(x['slip_mismatches']) +
+                                  len(x['dirty_voids'])))
+
+    return render_template('reconciliation/receipt_exceptions.html',
+                           rows=rows,
+                           date_from=d_from.strftime('%Y-%m-%d'),
+                           date_to=d_to.strftime('%Y-%m-%d'))

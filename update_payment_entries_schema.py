@@ -33,6 +33,10 @@ def update_payment_entries_schema():
         """))
 
         db.session.execute(text("""
+            ALTER TABLE payment_entries ADD COLUMN IF NOT EXISTS variance_reason VARCHAR(50)
+        """))
+
+        db.session.execute(text("""
             CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_entries_active
             ON payment_entries(route_stop_id)
             WHERE is_active = TRUE
