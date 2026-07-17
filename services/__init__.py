@@ -196,31 +196,29 @@ def set_invoice_in_stop_status(route_stop_id: int, invoice_no: str, status: str,
 def route_progress(shipment_id: int):
     """
     Calculate progress statistics for a route.
-    Returns dict with total, done, and percentage.
+    Returns dict with total (stops), done (stops with an outcome), and percentage.
     """
-    # Count total invoices in this route (exclude soft-deleted stops and inactive RSI)
-    total = db.session.query(func.count(RouteStopInvoice.route_stop_invoice_id))\
-        .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)\
+    # Count total non-deleted stops for this route
+    total = db.session.query(func.count(RouteStop.route_stop_id))\
         .filter(
             RouteStop.shipment_id == shipment_id,
-            RouteStop.deleted_at.is_(None),
-            RouteStopInvoice.is_active == True
+            RouteStop.deleted_at.is_(None)
         ).scalar() or 0
-    
-    # Count completed invoices by checking Invoice.status (terminal statuses)
-    done = db.session.query(func.count(RouteStopInvoice.route_stop_invoice_id))\
-        .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)\
-        .join(Invoice, Invoice.invoice_no == RouteStopInvoice.invoice_no)\
+
+    # A stop is "done" when the driver has recorded a delivery outcome
+    # (delivered_at set) or a failure outcome (failed_at set)
+    done = db.session.query(func.count(RouteStop.route_stop_id))\
         .filter(
             RouteStop.shipment_id == shipment_id,
             RouteStop.deleted_at.is_(None),
-            RouteStopInvoice.is_active == True,
-            func.lower(Invoice.status).in_(["delivered", "returned_to_warehouse", "delivery_failed"])
-        )\
-        .scalar() or 0
-    
+            db.or_(
+                RouteStop.delivered_at.isnot(None),
+                RouteStop.failed_at.isnot(None)
+            )
+        ).scalar() or 0
+
     percentage = (done / total * 100.0) if total > 0 else 0.0
-    
+
     return {
         "total": total,
         "done": done,
