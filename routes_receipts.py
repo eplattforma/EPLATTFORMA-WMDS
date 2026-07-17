@@ -3,7 +3,10 @@ Flask blueprint for customer receipts via Powersoft365 API
 """
 import os
 import json
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 from flask import Blueprint, request, render_template, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from functools import wraps
