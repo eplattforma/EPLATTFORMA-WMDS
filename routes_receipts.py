@@ -227,19 +227,69 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                 error_msg = api_response.get("response_msg", "Unknown error from Powersoft365")
 
                 # Special case: PS365 says this reference number already exists.
-                # This means the receipt WAS created on a previous attempt but the
-                # network dropped before we received the confirmation. The receipt
-                # is in PS365 — treat this as success so the driver can proceed.
+                # Two possible causes:
+                #   A) Lost confirmation — our app posted on a prior attempt and
+                #      the network dropped before we got the OK back. The receipt
+                #      IS in PS365 under this reference.  Safe to treat as success.
+                #   B) Foreign collision — PS365 already had a receipt with this
+                #      reference from a different source (manual entry, sequence
+                #      gap, etc.).  Treating as success here is WRONG — the money
+                #      would never reach PS365.
+                #
+                # We distinguish the two by checking our own receipt_log: if we
+                # already have a log row for (route_stop_id, reference_number)
+                # then it's case A; otherwise it's case B and we must retry with
+                # a fresh reference number.
                 if ("already exists" in error_msg.lower()
                         and "reference_number" in error_msg.lower()):
-                    logger.warning(
-                        "[Receipts] PS365 reports %s already exists — "
-                        "treating as SUCCESS (response was lost on prior attempt). "
-                        "Error was: %s", reference_number, error_msg
-                    )
-                    ok = True
-                    if not response_id:
-                        response_id = reference_number
+
+                    prior_log = None
+                    if route_stop_id:
+                        prior_log = ReceiptLog.query.filter_by(
+                            route_stop_id=route_stop_id,
+                            reference_number=reference_number
+                        ).first()
+
+                    if prior_log:
+                        # Case A: our own prior attempt — receipt is in PS365.
+                        logger.warning(
+                            "[Receipts] PS365 'already exists' for %s — prior log "
+                            "row found for stop %s, treating as SUCCESS (lost "
+                            "confirmation). Error was: %s",
+                            reference_number, route_stop_id, error_msg
+                        )
+                        ok = True
+                        response_id = prior_log.response_id or reference_number
+                    else:
+                        # Case B: foreign collision — generate a new reference
+                        # number and retry the PS365 call exactly once.
+                        old_ref = reference_number
+                        reference_number = next_reference_number()
+                        logger.warning(
+                            "[Receipts] PS365 reference collision: %s not ours "
+                            "(no receipt_log row for stop %s). Retrying with new "
+                            "reference %s.",
+                            old_ref, route_stop_id, reference_number
+                        )
+                        req_obj["customer_receipt"]["reference_number"] = reference_number
+                        safe_req_obj_retry = redact_ps365_request(req_obj)
+                        ps_resp2 = requests.post(url, json=req_obj, timeout=20)
+                        status_code = ps_resp2.status_code
+                        try:
+                            ps_json = ps_resp2.json()
+                        except Exception:
+                            ps_json = {"raw": ps_resp2.text}
+                        api_response = ps_json.get("api_response", {})
+                        response_code = api_response.get("response_code", "")
+                        response_id = api_response.get("response_id") or ps_json.get("response_id")
+                        ok = ps_resp2.ok and response_code == "1" and bool(response_id)
+                        if not ok:
+                            retry_msg = api_response.get("response_msg", "Unknown error")
+                            raise Exception(
+                                f"Powersoft365 receipt creation failed after "
+                                f"reference collision (tried {old_ref} then "
+                                f"{reference_number}): {retry_msg}"
+                            )
                 else:
                     raise Exception(f"Powersoft365 receipt creation failed: {error_msg}")
         else:
