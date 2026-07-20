@@ -387,8 +387,27 @@ def stops_list(route_id):
                 cust_lat = ps_cust.latitude
                 cust_lng = ps_cust.longitude
 
+        # R4: payment-edit eligibility for closed stops (edit window lasts
+        # until print/post or route submit)
+        live_r = None
+        can_edit_payment = False
+        payment_locked = False
+        if stop_status == 'delivered':
+            live_r = CODReceipt.query.filter(
+                CODReceipt.route_stop_id == stop.route_stop_id,
+                CODReceipt.status != 'VOIDED'
+            ).order_by(CODReceipt.created_at.desc(), CODReceipt.id.desc()).first()
+            if live_r:
+                if live_r.first_printed_at or live_r.ps365_reference_number:
+                    payment_locked = True
+                elif not route.driver_submitted_at:
+                    can_edit_payment = True
+
         stops_data.append({
             'stop': stop,
+            'live_receipt': live_r,
+            'can_edit_payment': can_edit_payment,
+            'payment_locked': payment_locked,
             'items_count': items_count,
             'total_weight': round(total_weight, 2),
             'total_gross': float(total_gross),

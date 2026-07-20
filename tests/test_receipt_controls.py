@@ -686,3 +686,167 @@ class TestRound3Fixes:
         assert resp.status_code == 200
         with recon_app.app_context():
             assert db.session.get(CODReceipt, rid).print_count == 2
+
+
+class TestRound4EditWindow:
+    """R4: payment edit window survives stop close until print/post/submit."""
+
+    def _login(self, client, username):
+        resp = client.post('/login', data={'username': username,
+                                           'password': 'test_password'})
+        assert resp.status_code == 302
+        return client
+
+    def _closed_stop_with_receipt(self, recon_app, **receipt_overrides):
+        """Simulate closeStop's snapshot: DRAFT receipt + allocation rows."""
+        from app import db
+        from models import CODReceipt, CODInvoiceAllocation
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official',
+                            expected_amount=Decimal('500.00'),
+                            received_amount=Decimal('500.00'),
+                            **receipt_overrides)
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            db.session.add(CODInvoiceAllocation(
+                cod_receipt_id=r.id, invoice_no='INV-1', route_id=r.route_id,
+                expected_amount=Decimal('500.00'),
+                received_amount=Decimal('500.00'),
+                deduct_amount=Decimal('0'), payment_method='cash',
+                is_pending=False))
+            db.session.commit()
+            return rid, r.route_stop_id, r.route_id
+
+    def test_edit_after_close_updates_receipt_and_allocations(self, recon_app):
+        from app import db
+        from models import CODReceipt, CODInvoiceAllocation
+        rid, stop_id, _ = self._closed_stop_with_receipt(recon_app)
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 50,
+                                 'variance_reason': 'customer short paid'})
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            assert r.received_amount == Decimal('50')
+            assert r.variance == Decimal('-450')
+            assert r.variance_reason == 'customer short paid'
+            allocs = CODInvoiceAllocation.query.filter_by(cod_receipt_id=rid).all()
+            assert sum(a.received_amount for a in allocs) == Decimal('50')
+            assert r.expected_amount == Decimal('500.00')
+
+    def test_edit_to_cheque_updates_doc_fields(self, recon_app):
+        from app import db
+        from models import CODReceipt, CODInvoiceAllocation
+        rid, stop_id, _ = self._closed_stop_with_receipt(recon_app)
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cheque', 'amount': 500,
+                                 'cheque_no': 'CHQ-9',
+                                 'cheque_date': '2026-01-01'})
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            assert r.payment_method == 'cheque'
+            assert r.cheque_number == 'CHQ-9'
+            assert r.doc_type == 'official'  # past-dated cheque commits
+            alloc = CODInvoiceAllocation.query.filter_by(cod_receipt_id=rid).first()
+            assert alloc.payment_method == 'cheque'
+            assert alloc.cheque_number == 'CHQ-9'
+
+    def test_edit_blocked_when_printed(self, recon_app):
+        from models import utc_now
+        rid, stop_id, _ = self._closed_stop_with_receipt(
+            recon_app, first_printed_at=utc_now())
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 50})
+        assert resp.status_code == 409
+        assert resp.get_json().get('receipt_locked')
+
+    def test_edit_blocked_after_route_submit(self, recon_app):
+        from app import db
+        from models import Shipment, utc_now
+        rid, stop_id, route_id = self._closed_stop_with_receipt(recon_app)
+        with recon_app.app_context():
+            db.session.get(Shipment, route_id).driver_submitted_at = utc_now()
+            db.session.commit()
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 50})
+        assert resp.status_code == 409
+
+    @pytest.fixture()
+    def lenient_urls(self, recon_app):
+        from flask import url_for as real_url_for
+        from werkzeug.routing.exceptions import BuildError
+        orig = recon_app.jinja_env.globals.get('url_for', real_url_for)
+
+        def safe_url_for(endpoint, **values):
+            try:
+                return orig(endpoint, **values)
+            except BuildError:
+                return '#'
+        recon_app.jinja_env.globals['url_for'] = safe_url_for
+        yield
+        recon_app.jinja_env.globals['url_for'] = orig
+
+    def test_stops_list_shows_edit_or_lock(self, recon_app, lenient_urls):
+        from app import db
+        from models import CODReceipt, RouteStop, utc_now
+        rid, stop_id, route_id = self._closed_stop_with_receipt(recon_app)
+        recon_app.jinja_env.filters.setdefault('local_time', lambda v, *a: v)
+        recon_app.jinja_env.globals.setdefault('cooler_driver_view_enabled',
+                                               lambda: False)
+        with recon_app.app_context():
+            stop = db.session.get(RouteStop, stop_id)
+            stop.delivered_at = utc_now()
+            db.session.commit()
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.get(f'/driver/routes/{route_id}/stops')
+        assert resp.status_code == 200
+        assert b'onclick="openEditPayment' in resp.data
+        # now printed -> lock chip instead
+        with recon_app.app_context():
+            db.session.get(CODReceipt, rid).first_printed_at = utc_now()
+            db.session.commit()
+        resp = driver.get(f'/driver/routes/{route_id}/stops')
+        assert resp.status_code == 200
+        assert b'onclick="openEditPayment' not in resp.data
+        assert b'Locked (printed)' in resp.data
+        assert b'Request Cancellation' in resp.data
+
+    def test_edit_targets_newest_live_receipt(self, recon_app):
+        """Two unprinted non-VOIDED receipts on one stop: the API must
+        update the newest one (matching what the stops list shows)."""
+        from app import db
+        from models import CODReceipt, utc_now
+        from datetime import timedelta
+        rid_old, stop_id, route_id = self._closed_stop_with_receipt(recon_app)
+        with recon_app.app_context():
+            old = db.session.get(CODReceipt, rid_old)
+            old.created_at = utc_now() - timedelta(hours=2)
+            newer = CODReceipt(
+                route_id=route_id, route_stop_id=stop_id,
+                driver_username='test_driver_user',
+                invoice_nos=['INV-1'],
+                expected_amount=Decimal('500.00'),
+                received_amount=Decimal('500.00'),
+                variance=Decimal('0.00'), payment_method='cash',
+                status='DRAFT', doc_type='official', created_at=utc_now())
+            db.session.add(newer)
+            db.session.commit()
+            rid_new = newer.id
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 50,
+                                 'variance_reason': 'short paid'})
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            assert db.session.get(CODReceipt, rid_new).received_amount == Decimal('50')
+            assert db.session.get(CODReceipt, rid_old).received_amount == Decimal('500.00')
