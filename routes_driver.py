@@ -1352,6 +1352,22 @@ def fail_delivery(stop_id):
 
 # --- COD Receipt Print ---
 
+
+def _official_sync_missing(receipt):
+    """True when an official, non-voided receipt still has no PS365 reference
+    after the print-time sync — printing must be refused (all print paths
+    behave the same; retry machinery / manual book resolves it)."""
+    return (receipt is not None
+            and receipt.status != 'VOIDED'
+            and (receipt.doc_type or 'official').lower() == 'official'
+            and not receipt.ps365_reference_number)
+
+
+def _receipt_not_registered_response(receipt):
+    return render_template('driver/receipt_not_registered.html',
+                           receipt=receipt), 503
+
+
 @driver_bp.route('/receipts/<int:receipt_id>/print')
 @driver_required
 def print_receipt(receipt_id):
@@ -1363,6 +1379,10 @@ def print_receipt(receipt_id):
     if receipt.status != 'VOIDED':
         from services.payments import sync_receipt_ps365_at_print
         sync_receipt_ps365_at_print(receipt, stop, current_user.username)
+
+        if _official_sync_missing(receipt):
+            db.session.commit()
+            return _receipt_not_registered_response(receipt)
 
         now = utc_now()
         if receipt.status != 'ISSUED':
@@ -1400,6 +1420,10 @@ def print_receipt_80mm(receipt_id):
     if receipt.status != 'VOIDED':
         from services.payments import sync_receipt_ps365_at_print
         sync_receipt_ps365_at_print(receipt, stop, current_user.username)
+
+        if _official_sync_missing(receipt):
+            db.session.commit()
+            return _receipt_not_registered_response(receipt)
 
         now = utc_now()
         if receipt.status != 'ISSUED':
@@ -1685,6 +1709,10 @@ def print_stop_receipt(stop_id):
         from services.payments import sync_receipt_ps365_at_print
         sync_receipt_ps365_at_print(cod_receipt, stop, current_user.username)
 
+        if _official_sync_missing(cod_receipt):
+            db.session.commit()
+            return _receipt_not_registered_response(cod_receipt)
+
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
             cod_receipt.status = 'ISSUED'
@@ -1793,6 +1821,10 @@ def print_stop_receipt_80mm(stop_id):
     if cod_receipt and cod_receipt.status != 'VOIDED':
         from services.payments import sync_receipt_ps365_at_print
         sync_receipt_ps365_at_print(cod_receipt, stop, current_user.username)
+
+        if _official_sync_missing(cod_receipt):
+            db.session.commit()
+            return _receipt_not_registered_response(cod_receipt)
 
         now = utc_now()
         if cod_receipt.status != 'ISSUED':

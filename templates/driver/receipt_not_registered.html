@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receipt Not Registered</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+  <div class="container py-5" style="max-width: 480px;">
+    <div class="card border-danger shadow-sm">
+      <div class="card-body text-center">
+        <div class="display-6 text-danger mb-3">&#9888;</div>
+        <h5 class="card-title">Receipt not registered in Powersoft yet</h5>
+        <p class="text-muted">
+          Receipt #{{ receipt.id }} could not be posted to Powersoft365, so it
+          cannot be printed yet. Retry in a moment, or use the manual receipt book.
+        </p>
+        <button class="btn btn-primary" onclick="location.reload()">Retry</button>
+        <button class="btn btn-outline-secondary" onclick="history.back()">Back</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

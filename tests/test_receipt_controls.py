@@ -603,3 +603,86 @@ class TestRound2Fixes:
         self._login(client, 'other_driver2')
         resp = client.post(f'/driver/receipts/{rid}/request-cancellation')
         assert resp.status_code == 403
+
+
+class TestRound3Fixes:
+    """R3: R-number lookup + consistent print gating when PS365 is down."""
+
+    def _login(self, client, username):
+        resp = client.post('/login', data={'username': username,
+                                           'password': 'test_password'})
+        assert resp.status_code == 302
+        return client
+
+    def test_lookup_finds_r_number_variants(self, recon_app, admin_client):
+        rid = _make_receipt(recon_app, ps365_reference_number='R1000001')
+        for q in ('R1000001', '1000001', str(rid)):
+            resp = admin_client.get(f'/reconciliation/api/receipts/lookup?q={q}')
+            assert resp.status_code == 200, q
+            assert resp.get_json()['receipt']['id'] == rid, q
+
+    def test_html_print_refuses_unsynced_official(self, recon_app, monkeypatch):
+        """With PS365 down, HTML print views return 503, do not lock."""
+        from app import db
+        from models import CODReceipt
+        import services.payments as sp
+        monkeypatch.setattr(sp, 'commit_to_ps365',
+                            lambda pe, *a, **k: pe)  # sync fails silently
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official')
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        with recon_app.app_context():
+            stop_id = db.session.get(CODReceipt, rid).route_stop_id
+        for url in (f'/driver/receipts/{rid}/print',
+                    f'/driver/receipts/{rid}/print_80mm',
+                    f'/driver/stops/{stop_id}/print_receipt',
+                    f'/driver/stops/{stop_id}/print_receipt_80mm'):
+            resp = driver.get(url)
+            assert resp.status_code == 503, url
+            assert b'not registered in Powersoft' in resp.data, url
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            assert r.status == 'DRAFT'
+            assert not r.locked_at
+
+    def test_html_print_allows_online_doc(self, recon_app, lenient_urls):
+        """Online/PDC docs don't post to PS365 and must still print."""
+        from app import db
+        from models import CODReceipt
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='online')
+        # main.py registers this filter; the test app doesn't load main.py
+        recon_app.jinja_env.filters.setdefault('local_time', lambda v, *a: v)
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.get(f'/driver/receipts/{rid}/print')
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            assert db.session.get(CODReceipt, rid).status == 'ISSUED'
+
+    @pytest.fixture()
+    def lenient_urls(self, recon_app):
+        from flask import url_for as real_url_for
+        from werkzeug.routing.exceptions import BuildError
+        orig = recon_app.jinja_env.globals.get('url_for', real_url_for)
+
+        def safe_url_for(endpoint, **values):
+            try:
+                return orig(endpoint, **values)
+            except BuildError:
+                return '#'
+        recon_app.jinja_env.globals['url_for'] = safe_url_for
+        yield
+        recon_app.jinja_env.globals['url_for'] = orig
+
+    def test_reprint_synced_official_still_prints(self, recon_app):
+        from app import db
+        from models import CODReceipt
+        rid = _make_receipt(recon_app, status='ISSUED', doc_type='official',
+                            ps365_reference_number='R1000002', print_count=1)
+        recon_app.jinja_env.filters.setdefault('local_time', lambda v, *a: v)
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.get(f'/driver/receipts/{rid}/print')
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            assert db.session.get(CODReceipt, rid).print_count == 2

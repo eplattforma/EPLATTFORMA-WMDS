@@ -1569,16 +1569,21 @@ def receipt_lookup():
 @admin_or_warehouse_required
 def api_receipt_lookup():
     """Look up a receipt by number (our id or PS365 ref)."""
-    q = (request.args.get('q') or '').strip().lstrip('Rr#')
+    raw = (request.args.get('q') or '').strip()
+    q = raw.lstrip('Rr#')
     if not q:
         return jsonify({'success': False, 'error': 'Enter a receipt number'}), 400
     receipt = None
     if q.isdigit():
         receipt = db.session.get(CODReceipt, int(q))
     if not receipt:
-        receipt = CODReceipt.query.filter_by(ps365_reference_number=q).first()
+        # References are stored WITH the R prefix (e.g. R1000001) —
+        # match raw input, stripped form, and re-prefixed form.
+        receipt = CODReceipt.query.filter(
+            CODReceipt.ps365_reference_number.in_([raw, q, f'R{q}'])
+        ).first()
     if not receipt:
-        return jsonify({'success': False, 'error': f'No receipt found for "{q}"'}), 404
+        return jsonify({'success': False, 'error': f'No receipt found for "{raw}"'}), 404
 
     from models import RouteStop as _RS
     stop = db.session.get(_RS, receipt.route_stop_id) if receipt.route_stop_id else None
