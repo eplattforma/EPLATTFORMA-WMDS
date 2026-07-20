@@ -72,10 +72,10 @@ def api_void_receipt(receipt_id):
             except (TypeError, ValueError):
                 return jsonify({'success': False,
                                 'error': f'This receipt was printed {print_count} time(s). '
-                                         f'Enter how many printed slips were recovered.'}), 400
+                                         f'Enter how many customer copies were recovered.'}), 400
             if slips != print_count:
                 return jsonify({'success': False,
-                                'error': f'All printed slips must be recovered before voiding: '
+                                'error': f'All customer copies must be recovered before voiding: '
                                          f'{print_count} printed, {slips} recovered.'}), 400
             receipt.slips_recovered = slips
 
@@ -96,6 +96,14 @@ def api_void_receipt(receipt_id):
         receipt.voided_at = now
         receipt.voided_by = current_user.username
         receipt.void_reason = reason
+
+        # Unlock the stop's payment so the driver can re-enter after reissue
+        if receipt.route_stop_id:
+            from models import PaymentEntry
+            active_pe = PaymentEntry.query.filter_by(
+                route_stop_id=receipt.route_stop_id, is_active=True).first()
+            if active_pe:
+                active_pe.is_active = False
 
         db.session.commit()
         logger.info(f"Receipt {receipt_id} voided by {current_user.username}: {reason}")
@@ -1607,6 +1615,8 @@ def api_receipt_lookup():
         'voided_by': receipt.voided_by,
         'void_reason': receipt.void_reason,
         'slips_recovered': receipt.slips_recovered,
+        'cancellation_requested_at': _iso(receipt.cancellation_requested_at),
+        'cancellation_requested_by': receipt.cancellation_requested_by,
         'replaced_by_cod_receipt_id': receipt.replaced_by_cod_receipt_id,
         'replaces_receipt_id': replaces_id,
         'invoice_nos': receipt.invoice_nos,
@@ -1653,7 +1663,8 @@ def receipt_exception_report():
             drivers[name] = {
                 'driver': name, 'receipts': 0,
                 'voids': [], 'variances': [], 'overpayments': [],
-                'manual_receipts': [], 'slip_mismatches': [], 'dirty_voids': []
+                'manual_receipts': [], 'slip_mismatches': [], 'dirty_voids': [],
+                'cancel_requests': []
             }
         return drivers[name]
 
@@ -1668,6 +1679,11 @@ def receipt_exception_report():
                 d['slip_mismatches'].append({'id': r.id,
                                              'printed': r.print_count or 0,
                                              'recovered': r.slips_recovered or 0})
+        if r.cancellation_requested_at and r.status != 'VOIDED':
+            d['cancel_requests'].append({
+                'id': r.id,
+                'by': r.cancellation_requested_by,
+                'at': r.cancellation_requested_at.strftime('%Y-%m-%d %H:%M')})
         v = float(r.variance or 0)
         if abs(v) >= 0.01:
             item = {'id': r.id, 'variance': v, 'reason': r.variance_reason}
@@ -1684,7 +1700,7 @@ def receipt_exception_report():
     rows = sorted(drivers.values(),
                   key=lambda x: -(len(x['voids']) + len(x['variances']) +
                                   len(x['manual_receipts']) + len(x['slip_mismatches']) +
-                                  len(x['dirty_voids'])))
+                                  len(x['dirty_voids']) + len(x['cancel_requests'])))
 
     return render_template('reconciliation/receipt_exceptions.html',
                            rows=rows,

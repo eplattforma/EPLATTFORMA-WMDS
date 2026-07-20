@@ -116,7 +116,18 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         if route_stop_id and not allow_duplicate_stop:
             existing_receipt = ReceiptLog.query.filter_by(route_stop_id=route_stop_id).first()
             if existing_receipt:
-                raise Exception(f"Receipt already exists for this customer. Reference: {existing_receipt.reference_number}")
+                # Only block when a live (non-VOIDED) CODReceipt is already
+                # posted to PS365 — that would be a true double-post. A live
+                # replacement receipt without a PS365 reference (reissue after
+                # void) is allowed to post.
+                from models import CODReceipt
+                live_posted = CODReceipt.query.filter(
+                    CODReceipt.route_stop_id == route_stop_id,
+                    db.or_(CODReceipt.status.is_(None), CODReceipt.status != 'VOIDED'),
+                    CODReceipt.ps365_reference_number.isnot(None)
+                ).first()
+                if live_posted:
+                    raise Exception(f"Receipt already exists for this customer. Reference: {existing_receipt.reference_number}")
         
         # Generate reference number
         reference_number = next_reference_number()

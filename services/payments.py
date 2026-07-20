@@ -189,3 +189,64 @@ def get_active_payment(route_stop_id):
         route_stop_id=route_stop_id,
         is_active=True,
     ).first()
+
+
+def sync_receipt_ps365_at_print(cod_receipt, stop, user_code):
+    """
+    Deferred PS365 commit — called at print time (the natural lock point).
+
+    Prefers the PaymentEntry path so the existing retry machinery
+    (PENDING_RETRY / auto-retry / Retry button) keeps working; falls back to
+    a direct create_receipt_core call for legacy receipts without a
+    PaymentEntry. Copies the PS365 reference onto the CODReceipt on success.
+
+    Never raises — a PS365 failure must not block printing; the retry
+    machinery resolves it afterwards. Callers must db.session.commit().
+    """
+    if cod_receipt.status == 'VOIDED':
+        return
+    if (cod_receipt.doc_type or 'official').lower() != 'official':
+        return
+    if cod_receipt.ps365_reference_number:
+        return
+
+    try:
+        pe = get_active_payment(cod_receipt.route_stop_id)
+
+        if pe and pe.commit_mode == 'COMMIT':
+            if pe.ps_status != 'SUCCESS':
+                from models import RouteStopInvoice
+                rsis = RouteStopInvoice.query.filter_by(
+                    route_stop_id=cod_receipt.route_stop_id, is_active=True).all()
+                invoice_nos = [r.invoice_no for r in rsis] or (cod_receipt.invoice_nos or [])
+                customer_code = (stop.customer_code if stop else '') or ''
+                pe = commit_to_ps365(pe, customer_code, invoice_nos,
+                                     cod_receipt.driver_username or user_code)
+            if pe.ps_status == 'SUCCESS' and pe.ps_reference:
+                cod_receipt.ps365_reference_number = pe.ps_reference
+                cod_receipt.ps365_synced_at = datetime.utcnow()
+            return
+
+        # Legacy fallback: no PaymentEntry (or SKIP mode receipt marked official)
+        from routes_receipts import create_receipt_core
+        invoice_nos_list = cod_receipt.invoice_nos or []
+        inv_list_str = ', '.join(invoice_nos_list[:5])
+        if len(invoice_nos_list) > 5:
+            inv_list_str += f' +{len(invoice_nos_list) - 5}'
+        ok, ref_num, resp_id, _, _ = create_receipt_core(
+            customer_code=(stop.customer_code if stop else '') or '',
+            amount_val=float(cod_receipt.received_amount or 0),
+            comments=inv_list_str,
+            driver_username=cod_receipt.driver_username,
+            user_code=user_code,
+            invoice_no=inv_list_str,
+            route_stop_id=cod_receipt.route_stop_id,
+            cheque_number=cod_receipt.cheque_number or '',
+            cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
+            allow_duplicate_stop=True,
+        )
+        cod_receipt.ps365_reference_number = ref_num
+        cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+        cod_receipt.ps365_synced_at = datetime.utcnow()
+    except Exception as exc:
+        logger.error(f"PS365 sync at print failed for CODReceipt {cod_receipt.id}: {exc}")

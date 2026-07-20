@@ -172,6 +172,10 @@ function renderReceipt(r) {
     if (r.replaces_receipt_id) {
         links += '<span class="badge bg-info me-2">Replaces R' + r.replaces_receipt_id + ' (voided)</span>';
     }
+    if (r.cancellation_requested_at && r.status !== 'VOIDED') {
+        links += '<span class="badge bg-warning text-dark me-2">Cancellation requested by ' + (r.cancellation_requested_by || '—') +
+                 ' at ' + r.cancellation_requested_at.replace('T',' ').slice(0,16) + '</span>';
+    }
     if (r.replaced_by_cod_receipt_id) {
         links += '<span class="badge bg-warning text-dark">Replaced by R' + r.replaced_by_cod_receipt_id + '</span>';
     }

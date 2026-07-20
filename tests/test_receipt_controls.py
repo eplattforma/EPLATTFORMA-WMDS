@@ -339,3 +339,267 @@ class TestArchitectFixes:
         assert resp.status_code == 200
         resp = admin_client.post(f'/reconciliation/api/shipments/{route_id}/finalize')
         assert resp.status_code == 200
+
+
+class TestRound2Fixes:
+    """R2: void unlocks payment, deferred PS365 commit, PENDING_RETRY guard,
+    cancellation-request logging."""
+
+    def _login(self, client, username):
+        resp = client.post('/login', data={'username': username,
+                                           'password': 'test_password'})
+        assert resp.status_code == 302
+        return client
+
+    def test_void_deactivates_payment_entry(self, recon_app, admin_client):
+        from app import db
+        from models import PaymentEntry
+        rid = _make_receipt(recon_app)
+        from models import CODReceipt
+        with recon_app.app_context():
+            stop_id = db.session.get(CODReceipt, rid).route_stop_id
+            pe = PaymentEntry(route_stop_id=stop_id, method='cash',
+                              amount=Decimal('100'), commit_mode='COMMIT',
+                              doc_type='official', ps_status='SUCCESS',
+                              ps_reference='PS-77', is_active=True)
+            db.session.add(pe)
+            db.session.commit()
+            pe_id = pe.id
+        resp = admin_client.post(f'/reconciliation/api/receipts/{rid}/void',
+                                 json={'reason': 'wrong amount'})
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            assert db.session.get(PaymentEntry, pe_id).is_active is False
+
+    def test_driver_can_reenter_payment_after_void(self, recon_app, admin_client):
+        """Bug 1 acceptance: void -> driver re-enters payment at same stop."""
+        from app import db
+        from models import CODReceipt, utc_now
+        rid = _make_receipt(recon_app, print_count=1,
+                            first_printed_at=utc_now())
+        with recon_app.app_context():
+            stop_id = db.session.get(CODReceipt, rid).route_stop_id
+        # locked while ISSUED+printed
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 100})
+        assert resp.status_code == 409
+        assert resp.get_json().get('receipt_locked')
+        # void it
+        resp = admin_client.post(f'/reconciliation/api/receipts/{rid}/void',
+                                 json={'reason': 'redo', 'slips_recovered': 1})
+        assert resp.status_code == 200
+        # driver can now re-enter
+        resp = driver.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 100})
+        assert resp.status_code == 200
+
+    def test_confirm_defers_ps365_commit(self, recon_app):
+        """Bug 2: confirming cash leaves ps_status NEW, no PS365 call."""
+        route_id, stop_id = _make_route_and_stop(recon_app)
+        client = recon_app.test_client()
+        self._login(client, 'test_driver_user')
+        resp = client.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'cash', 'amount': 50})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ps_status'] == 'NEW'
+        assert not data.get('ps_reference')
+
+    def test_online_still_skipped_on_confirm(self, recon_app):
+        route_id, stop_id = _make_route_and_stop(recon_app)
+        client = recon_app.test_client()
+        self._login(client, 'test_driver_user')
+        resp = client.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'online', 'amount': 50})
+        assert resp.status_code == 200
+        assert resp.get_json()['ps_status'] == 'SKIPPED'
+
+    def test_change_blocked_while_pending_retry(self, recon_app):
+        """Bug 3: change payment rejected while PENDING_RETRY."""
+        from app import db
+        from models import PaymentEntry
+        route_id, stop_id = _make_route_and_stop(recon_app)
+        with recon_app.app_context():
+            pe = PaymentEntry(route_stop_id=stop_id, method='cash',
+                              amount=Decimal('50'), commit_mode='COMMIT',
+                              doc_type='official', ps_status='PENDING_RETRY',
+                              is_active=True)
+            db.session.add(pe)
+            db.session.commit()
+        client = recon_app.test_client()
+        self._login(client, 'test_driver_user')
+        resp = client.post(f'/api/route-stops/{stop_id}/payment',
+                           json={'method': 'card', 'amount': 50})
+        assert resp.status_code == 409
+        assert 'confirmed' in resp.get_json()['error'].lower()
+
+    def test_sync_at_print_uses_payment_entry(self, recon_app, monkeypatch):
+        """Bug 2: print-time sync commits via the PaymentEntry and copies the ref."""
+        from app import db
+        from models import PaymentEntry, CODReceipt, RouteStop
+        import services.payments as sp
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official')
+        with recon_app.app_context():
+            receipt = db.session.get(CODReceipt, rid)
+            stop = db.session.get(RouteStop, receipt.route_stop_id)
+            pe = PaymentEntry(route_stop_id=receipt.route_stop_id, method='cash',
+                              amount=Decimal('100'), commit_mode='COMMIT',
+                              doc_type='official', ps_status='NEW',
+                              is_active=True)
+            db.session.add(pe)
+            db.session.commit()
+
+            def fake_commit(pe_arg, customer_code, invoice_nos, driver):
+                pe_arg.ps_status = 'SUCCESS'
+                pe_arg.ps_reference = 'PS-999'
+                return pe_arg
+
+            monkeypatch.setattr(sp, 'commit_to_ps365', fake_commit)
+            sp.sync_receipt_ps365_at_print(receipt, stop, 'test_driver_user')
+            db.session.commit()
+            assert receipt.ps365_reference_number == 'PS-999'
+
+    def test_sync_at_print_failure_does_not_raise(self, recon_app, monkeypatch):
+        from app import db
+        from models import PaymentEntry, CODReceipt, RouteStop
+        import services.payments as sp
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official')
+        with recon_app.app_context():
+            receipt = db.session.get(CODReceipt, rid)
+            stop = db.session.get(RouteStop, receipt.route_stop_id)
+            pe = PaymentEntry(route_stop_id=receipt.route_stop_id, method='cash',
+                              amount=Decimal('100'), commit_mode='COMMIT',
+                              doc_type='official', ps_status='NEW',
+                              is_active=True)
+            db.session.add(pe)
+            db.session.commit()
+
+            def boom(*a, **k):
+                raise RuntimeError('PS365 down')
+
+            monkeypatch.setattr(sp, 'commit_to_ps365', boom)
+            sp.sync_receipt_ps365_at_print(receipt, stop, 'test_driver_user')
+            assert receipt.ps365_reference_number is None
+
+    def test_cancellation_request_logged_and_surfaced(self, recon_app, admin_client):
+        from app import db
+        from models import CODReceipt
+        rid = _make_receipt(recon_app, print_count=1)
+        driver = recon_app.test_client()
+        self._login(driver, 'test_driver_user')
+        resp = driver.post(f'/driver/receipts/{rid}/request-cancellation')
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            assert r.cancellation_requested_at is not None
+            assert r.cancellation_requested_by == 'test_driver_user'
+        # surfaced in the office lookup API
+        resp = admin_client.get(f'/reconciliation/api/receipts/lookup?q={rid}')
+        data = resp.get_json()['receipt']
+        assert data['cancellation_requested_by'] == 'test_driver_user'
+        assert data['cancellation_requested_at']
+
+    def test_void_wording_customer_copies(self, recon_app, admin_client):
+        rid = _make_receipt(recon_app, print_count=1)
+        resp = admin_client.post(f'/reconciliation/api/receipts/{rid}/void',
+                                 json={'reason': 'x'})
+        assert resp.status_code == 400
+        assert 'customer copies' in resp.get_json()['error']
+
+    def test_reissue_after_void_posts_at_print(self, recon_app, admin_client, monkeypatch):
+        """Bug 1 end-to-end: voided synced receipt + replacement receipt ->
+        print-time sync posts to PS365 despite the old ReceiptLog."""
+        from app import db
+        from models import CODReceipt, RouteStop, ReceiptLog, PaymentEntry, utc_now
+        import services.payments as sp
+        rid = _make_receipt(recon_app, status='VOIDED',
+                            ps365_reference_number='PS-OLD',
+                            ps365_reversal_ref='CN-1')
+        with recon_app.app_context():
+            old = db.session.get(CODReceipt, rid)
+            stop_id = old.route_stop_id
+            # old ReceiptLog from the first (now-voided) post
+            db.session.add(ReceiptLog(route_stop_id=stop_id,
+                                      reference_number='PS-OLD',
+                                      customer_code_365='C1',
+                                      amount=Decimal('100'),
+                                      success=1))
+            # live replacement receipt, not yet posted
+            new_r = CODReceipt(route_id=old.route_id, route_stop_id=stop_id,
+                               driver_username='test_driver_user',
+                               invoice_nos='INV-1',
+                               expected_amount=Decimal('100'),
+                               received_amount=Decimal('100'),
+                               variance=Decimal('0'), payment_method='cash',
+                               status='DRAFT', doc_type='official',
+                               created_at=utc_now())
+            db.session.add(new_r)
+            pe = PaymentEntry(route_stop_id=stop_id, method='cash',
+                              amount=Decimal('100'), commit_mode='COMMIT',
+                              doc_type='official', ps_status='NEW',
+                              is_active=True)
+            db.session.add(pe)
+            db.session.commit()
+            new_id = new_r.id
+
+            class FakeResp:
+                status_code = 200
+                ok = True
+                def json(self):
+                    return {'api_response': {'response_code': '1',
+                                             'response_id': 'TX-123'}}
+            import routes_receipts as rr
+            # sqlite can't run the FOR UPDATE sequence query
+            monkeypatch.setattr(rr, 'next_reference_number', lambda: 'PS-NEW')
+            monkeypatch.setattr(rr.requests, 'post', lambda *a, **k: FakeResp())
+            # simpler: patch commit_to_ps365 outcome only if HTTP patch not effective
+            def fake_commit(pe_arg, customer_code, invoice_nos, driver):
+                from routes_receipts import create_receipt_core
+                ok, ref, resp_id, _, _ = create_receipt_core(
+                    customer_code='C1', amount_val=100.0, comments='x',
+                    user_code=driver, invoice_no='INV-1',
+                    driver_username=driver, route_stop_id=stop_id)
+                pe_arg.ps_status = 'SUCCESS'
+                pe_arg.ps_reference = ref
+                return pe_arg
+            monkeypatch.setattr(sp, 'commit_to_ps365', fake_commit)
+
+            stop = db.session.get(RouteStop, stop_id)
+            receipt = db.session.get(CODReceipt, new_id)
+            sp.sync_receipt_ps365_at_print(receipt, stop, 'test_driver_user')
+            db.session.commit()
+            assert receipt.ps365_reference_number, \
+                'reissued receipt must get a PS365 reference at first print'
+
+    @pytest.fixture()
+    def lenient_urls(self, recon_app):
+        from flask import url_for as real_url_for
+        from werkzeug.routing.exceptions import BuildError
+        orig = recon_app.jinja_env.globals.get('url_for', real_url_for)
+
+        def safe_url_for(endpoint, **values):
+            try:
+                return orig(endpoint, **values)
+            except BuildError:
+                return '#'
+        recon_app.jinja_env.globals['url_for'] = safe_url_for
+        yield
+        recon_app.jinja_env.globals['url_for'] = orig
+
+    def test_cancellation_request_403_for_other_driver(self, recon_app, lenient_urls):
+        from app import db
+        from models import User
+        from werkzeug.security import generate_password_hash
+        rid = _make_receipt(recon_app)
+        with recon_app.app_context():
+            if not User.query.filter_by(username='other_driver2').first():
+                db.session.add(User(username='other_driver2',
+                                    password=generate_password_hash('test_password'),
+                                    role='driver'))
+                db.session.commit()
+        client = recon_app.test_client()
+        self._login(client, 'other_driver2')
+        resp = client.post(f'/driver/receipts/{rid}/request-cancellation')
+        assert resp.status_code == 403

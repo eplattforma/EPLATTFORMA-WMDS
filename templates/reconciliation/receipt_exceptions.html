@@ -41,6 +41,13 @@
                     <div class="small">R{{ v.id }} — {{ v.reason or 'no reason' }} <span class="text-muted">by {{ v.by }}</span></div>
                     {% else %}<div class="small text-muted">None</div>{% endfor %}
 
+                    {% if d.cancel_requests %}
+                    <h6 class="text-warning mt-3">Cancellation requested ({{ d.cancel_requests|length }})</h6>
+                    {% for c in d.cancel_requests %}
+                    <div class="small"><span class="badge bg-warning text-dark">R{{ c.id }}</span> requested by {{ c.by }} at {{ c.at }} UTC — awaiting office void</div>
+                    {% endfor %}
+                    {% endif %}
+
                     {% if d.dirty_voids %}
                     <h6 class="text-danger mt-3">Still live in PS365 ({{ d.dirty_voids|length }})</h6>
                     {% for v in d.dirty_voids %}

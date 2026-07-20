@@ -31,6 +31,8 @@ def update_cod_receipts_locking_schema():
                 ('ps365_reversed_by', 'VARCHAR(64) REFERENCES users(username)'),
                 ('ps365_reversed_at', 'TIMESTAMPTZ'),
                 ('ps365_reversal_ref', 'VARCHAR(128)'),
+                ('cancellation_requested_at', 'TIMESTAMPTZ'),
+                ('cancellation_requested_by', 'VARCHAR(64)'),
             ]
 
             for column_name, column_type in columns_to_add:

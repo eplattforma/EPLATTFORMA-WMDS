@@ -1318,8 +1318,12 @@ let lockedReceiptInfo = null;
 
 function requestReceiptCancellation() {
     if (!lockedReceiptInfo) return;
-    alert('This receipt is locked because it was already printed.\n\n' +
-          'Call the office to cancel receipt #' + lockedReceiptInfo.receipt_id + '.\n' +
+    fetch('/driver/receipts/' + lockedReceiptInfo.receipt_id + '/request-cancellation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    }).catch(() => {});
+    alert('Your cancellation request was logged for the office.\n\n' +
+          'You can also call the office about receipt #' + lockedReceiptInfo.receipt_id + '.\n' +
           'You must hand back ALL printed customer copies (' + (lockedReceiptInfo.print_count || 1) + ' printed) before it can be voided.');
 }
 
@@ -1395,6 +1399,11 @@ function renderPaymentSummary() {
         errRow.style.display = 'block';
         errMsg.textContent = pe.ps_error || 'PS365 sync failed';
         retryBtn.style.display = 'block';
+    } else if (pe.ps_status === 'NEW' || pe.ps_status === 'READY') {
+        chip.className = 'badge bg-primary ms-2';
+        chip.textContent = 'READY';
+        errRow.style.display = 'none';
+        retryBtn.style.display = 'none';
     } else {
         chip.className = 'badge bg-warning text-dark ms-2';
         chip.textContent = 'PENDING';
@@ -1663,6 +1672,9 @@ function refreshHeaderAndSteps() {
             } else {
                 const st = activePayment.ps_status;
                 if (st === 'SUCCESS' || st === 'SKIPPED') {
+                    payDone = true;
+                } else if (st === 'NEW' || st === 'READY') {
+                    // Deferred commit: PS365 posting happens at print time
                     payDone = true;
                 } else if (st === 'PENDING_RETRY') {
                     payDone = true;

@@ -1735,6 +1735,10 @@ class CODReceipt(db.Model):
     ps365_reversed_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_cod_receipts_ps365_reversed_by'), nullable=True)
     ps365_reversed_at = db.Column(UTCDateTime(), nullable=True)
     ps365_reversal_ref = db.Column(db.String(128), nullable=True)
+
+    # Driver cancellation request (logged so office sees it without a phone call)
+    cancellation_requested_at = db.Column(UTCDateTime(), nullable=True)
+    cancellation_requested_by = db.Column(db.String(64), nullable=True)
     
     # Idempotency
     client_request_id = db.Column(db.String(128), nullable=True)

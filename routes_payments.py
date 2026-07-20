@@ -59,6 +59,10 @@ def create_payment(stop_id):
     existing = get_active_payment(stop_id)
     if existing and existing.ps_status == 'SUCCESS':
         return jsonify({'error': 'Payment already synced to PS365. Cannot change a committed receipt.'}), 409
+    if existing and existing.ps_status == 'PENDING_RETRY':
+        # Bug 3 guard: the previous attempt may have landed in PS365 (timeout
+        # is not failure). Changing now could double-post under a new reference.
+        return jsonify({'error': 'Previous attempt is still being confirmed — retry or wait, then change.'}), 409
 
     payload = request.get_json(silent=True) or {}
     method = (payload.get('method') or '').strip().lower()
@@ -67,7 +71,9 @@ def create_payment(stop_id):
 
     try:
         pe = upsert_active_payment(stop_id, payload)
-        pe = commit_to_ps365(pe, customer_code, invoice_nos, current_user.username)
+        # Deferred commit (Bug 2): PS365 posting happens at print time, not at
+        # confirm. The driver keeps an edit window until the receipt prints.
+        # SKIP-mode entries (online / post-dated cheque) are already SKIPPED.
         db.session.commit()
         return jsonify(pe.to_dict()), 200
     except Exception as exc:
