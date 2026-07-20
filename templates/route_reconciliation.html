@@ -631,6 +631,59 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <span style="color: #475569; font-size: 0.72rem;">No payment recorded</span>
                         </div>
                         {% endif %}
+                        {# Part 3 (R4): voided receipts — shown for paper-copy collection,
+                           never included in cash totals #}
+                        {% set voided_list = stop_data_match.voided_receipts if stop_data_match else [] %}
+                        {% for vr in voided_list %}
+                        {% set vr_printed = (vr.print_count or 0) %}
+                        {% set vr_recovered = vr.slips_recovered %}
+                        {% set copies_outstanding = vr_printed > 0 and (vr_recovered is none or vr_recovered < vr_printed) %}
+                        <div class="px-3 py-2" style="border-top: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.05);">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="badge bg-danger" style="font-size: 0.65rem;">VOIDED</span>
+                                <span style="color: #94A3B8; font-size: 0.72rem; text-decoration: line-through;">&euro;{{ "%.2f"|format(vr.received_amount|float) }}</span>
+                                <span style="color: #64748B; font-size: 0.65rem;">R{{ vr.id }}</span>
+                                {% if vr.replaced_by_cod_receipt_id %}
+                                <span style="color: #60A5FA; font-size: 0.65rem;">
+                                    <i class="bi bi-arrow-right-circle me-1"></i>→ R{{ vr.replaced_by_cod_receipt_id }}
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% if vr.void_reason %}
+                            <div style="color: #CBD5E1; font-size: 0.68rem; margin-bottom: 2px;">
+                                <i class="bi bi-chat-left-text me-1" style="color: #EF4444;"></i>{{ vr.void_reason }}
+                            </div>
+                            {% endif %}
+                            <div style="color: #64748B; font-size: 0.65rem; margin-bottom: 3px;">
+                                Voided {% if vr.voided_at %}{{ vr.voided_at | local_time }}{% endif %}{% if vr.voided_by %} by {{ vr.voided_by }}{% endif %}
+                            </div>
+                            <div class="d-flex flex-wrap align-items-center gap-2" style="font-size: 0.65rem;">
+                                {% if vr_printed > 0 %}
+                                <span style="color: #94A3B8;">
+                                    <i class="bi bi-printer me-1"></i>{{ vr_printed }} cop{{ 'y' if vr_printed == 1 else 'ies' }} printed
+                                </span>
+                                <span style="color: {{ '#EF4444' if copies_outstanding else '#4ADE80' }}; font-weight: 600;">
+                                    {{ vr_recovered if vr_recovered is not none else 0 }}/{{ vr_printed }} recovered
+                                    {% if copies_outstanding %}<i class="bi bi-exclamation-triangle-fill ms-1"></i>{% endif %}
+                                </span>
+                                {% endif %}
+                                {% if vr.ps365_reversal_ref %}
+                                <span style="color: #94A3B8;">
+                                    <i class="bi bi-x-circle me-1"></i>PS365 reversed: {{ vr.ps365_reversal_ref }}
+                                </span>
+                                {% elif vr.ps365_reference_number %}
+                                <span style="color: #FACC15;">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>PS365 {{ vr.ps365_reference_number }} — reversal pending
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% if copies_outstanding %}
+                            <div class="mt-1" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.35); border-radius: 4px; padding: 3px 8px; font-size: 0.66rem; color: #FCA5A5;">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>Copies outstanding — collect from driver
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
                     </div>
                 </div>
                 </div>

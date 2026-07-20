@@ -1893,11 +1893,19 @@ def reconciliation_report(shipment_id):
                 reference_number=cod_receipt.ps365_receipt_id
             ).first()
         
+        # Part 3 (R4): fetch voided receipts separately so reconciler can
+        # collect cancelled paper copies — kept out of cash totals.
+        voided_receipts = CODReceipt.query.filter_by(
+            route_stop_id=stop.route_stop_id,
+            status='VOIDED'
+        ).order_by(CODReceipt.voided_at.desc()).all()
+
         stops_data.append({
             'stop': stop,
             'invoices': stop_invoices,
             'delivery_lines': delivery_lines,
             'cod_receipt': cod_receipt,
+            'voided_receipts': voided_receipts,
             'pod_record': pod_record,
             'discrepancies': discrepancies,
             'ps365_receipt': ps365_receipt
