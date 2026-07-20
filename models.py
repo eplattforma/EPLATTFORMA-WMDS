@@ -1739,7 +1739,11 @@ class CODReceipt(db.Model):
     # Driver cancellation request (logged so office sees it without a phone call)
     cancellation_requested_at = db.Column(UTCDateTime(), nullable=True)
     cancellation_requested_by = db.Column(db.String(64), nullable=True)
-    
+
+    # Part 2D: driver confirmed no customer copy at route submit time
+    confirmed_unprinted_at = db.Column(UTCDateTime(), nullable=True)
+    confirmed_unprinted_by = db.Column(db.String(64), nullable=True)
+
     # Idempotency
     client_request_id = db.Column(db.String(128), nullable=True)
     

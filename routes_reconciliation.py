@@ -1669,7 +1669,7 @@ def receipt_exception_report():
                 'driver': name, 'receipts': 0,
                 'voids': [], 'variances': [], 'overpayments': [],
                 'manual_receipts': [], 'slip_mismatches': [], 'dirty_voids': [],
-                'cancel_requests': []
+                'cancel_requests': [], 'confirmed_unprinted': []
             }
         return drivers[name]
 
@@ -1689,6 +1689,11 @@ def receipt_exception_report():
                 'id': r.id,
                 'by': r.cancellation_requested_by,
                 'at': r.cancellation_requested_at.strftime('%Y-%m-%d %H:%M')})
+        if getattr(r, 'confirmed_unprinted_at', None):
+            d['confirmed_unprinted'].append({
+                'id': r.id,
+                'by': getattr(r, 'confirmed_unprinted_by', None),
+                'at': r.confirmed_unprinted_at.strftime('%Y-%m-%d %H:%M')})
         v = float(r.variance or 0)
         if abs(v) >= 0.01:
             item = {'id': r.id, 'variance': v, 'reason': r.variance_reason}

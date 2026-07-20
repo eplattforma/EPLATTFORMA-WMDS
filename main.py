@@ -451,6 +451,21 @@ except Exception as e:
 
 
 @app.context_processor
+def _inject_open_cancellation_count():
+    """Part 2A: expose open cancellation request count to all templates so
+    the office nav badge is always current without a separate API call."""
+    try:
+        from models import CODReceipt
+        count = CODReceipt.query.filter(
+            CODReceipt.cancellation_requested_at.isnot(None),
+            CODReceipt.status != 'VOIDED'
+        ).count()
+        return {'open_cancellation_count': count}
+    except Exception:
+        return {'open_cancellation_count': 0}
+
+
+@app.context_processor
 def _inject_phase4_drain_banner():
     """Phase 4: expose drain banner to ALL templates so picker pages
     (and admin pages) can render the maintenance warning. Returns an
@@ -878,6 +893,13 @@ try:
     logging.warning("Phase 1 permissions: template helper has_permission() registered")
 except Exception as e:
     logging.error(f"Error registering permissions template helpers: {str(e)}")
+
+try:
+    with app.app_context():
+        from migrations.confirmed_unprinted_schema import ensure_confirmed_unprinted_schema
+        ensure_confirmed_unprinted_schema(db)
+except Exception as e:
+    logging.warning(f"confirmed_unprinted schema migration skipped: {e}")
 
 logging.warning("PHASE 6: all schema updates and DB init done")
 print("PHASE 6: all schema updates and DB init done", flush=True)

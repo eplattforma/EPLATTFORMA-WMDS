@@ -122,6 +122,16 @@
             <strong><i class="fas fa-file-invoice-dollar"></i> Submit Settlement</strong>
         </div>
         <div class="card-body">
+            {% if unprinted_stops %}
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                <strong>{{ unprinted_stops|length }} receipt{{ 's' if unprinted_stops|length != 1 else '' }} not printed:</strong>
+                stop{% if unprinted_stops|length != 1 %}s{% endif %}
+                {% for u in unprinted_stops %}{{ u.seq_no }}{% if not loop.last %}, {% endif %}{% endfor %}.
+                The customer has no paper copy. Print now or confirm to proceed without printing.
+            </div>
+            {% endif %}
+
             <div class="alert alert-info">
                 <i class="fas fa-info-circle"></i> Submit the total amount you're handing over for this route. Admin will verify and complete the settlement.
             </div>
@@ -155,7 +165,7 @@
 <script>
 const routeId = {{ route.id }};
 
-async function submitSettlement() {
+async function submitSettlement(unprintedConfirmed) {
     const amount = parseFloat(document.getElementById('settlement-amount').value) || 0;
     const notes = document.getElementById('settlement-notes').value;
     
@@ -164,7 +174,7 @@ async function submitSettlement() {
         return;
     }
     
-    if (!confirm(`Submit settlement of €${amount.toFixed(2)}?`)) {
+    if (!unprintedConfirmed && !confirm(`Submit settlement of €${amount.toFixed(2)}?`)) {
         return;
     }
     
@@ -172,7 +182,7 @@ async function submitSettlement() {
         const response = await fetch(`/driver/routes/${routeId}/settlement/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, notes })
+            body: JSON.stringify({ amount, notes, unprinted_confirmed: !!unprintedConfirmed })
         });
         
         const data = await response.json();
@@ -180,6 +190,12 @@ async function submitSettlement() {
         if (data.success) {
             alert('Settlement submitted successfully!');
             location.reload();
+        } else if (data.requires_unprinted_confirm) {
+            const stops = (data.unprinted_stops || []).join(', ');
+            const msg = `${data.unprinted_stops ? data.unprinted_stops.length : 'Some'} receipt(s) were not printed (stop${data.unprinted_stops && data.unprinted_stops.length !== 1 ? 's' : ''} ${stops}).\n\nThe customer(s) will have no paper copy. Proceed anyway?`;
+            if (confirm(msg)) {
+                submitSettlement(true);
+            }
         } else {
             alert(data.error || 'Failed to submit settlement');
         }

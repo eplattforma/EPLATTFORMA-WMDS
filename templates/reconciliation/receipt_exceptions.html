@@ -55,6 +55,13 @@
                     {% endfor %}
                     {% endif %}
 
+                    {% if d.confirmed_unprinted %}
+                    <h6 class="text-warning mt-3">Confirmed unprinted ({{ d.confirmed_unprinted|length }})</h6>
+                    {% for u in d.confirmed_unprinted %}
+                    <div class="small"><span class="badge bg-warning text-dark">R{{ u.id }}</span> driver confirmed no customer copy — {{ u.at }} UTC{% if u.by %} by {{ u.by }}{% endif %}</div>
+                    {% endfor %}
+                    {% endif %}
+
                     {% if d.slip_mismatches %}
                     <h6 class="text-warning mt-3">Slip mismatches ({{ d.slip_mismatches|length }})</h6>
                     {% for s in d.slip_mismatches %}

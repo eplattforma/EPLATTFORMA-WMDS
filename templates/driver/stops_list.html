@@ -232,11 +232,35 @@
                                 </div>
                                 {% endif %}
                                 <small class="d-block mt-1 fw-bold text-dark">{{ stop.delivered_at|local_time }}</small>
-                                {% if stop.cod_receipts and stop.cod_receipts|length > 0 %}
-                                <button class="btn btn-outline-secondary btn-sm mt-2" onclick="reprintReceipt({{ stop.cod_receipts[0].id }})">
-                                    <i class="fas fa-print me-1"></i> Reprint Receipt
+
+                                {# Part 2D: NOT PRINTED chip — loud amber for unprinted non-credit stops #}
+                                {% if item.is_unprinted %}
+                                <div class="alert alert-warning py-1 px-2 mt-2 mb-1 small fw-bold text-center">
+                                    <i class="fas fa-exclamation-triangle me-1"></i> NOT PRINTED — customer has no receipt
+                                </div>
+                                {% endif %}
+
+                                {# Part 2A: replacement_ready takes over the whole print/action area #}
+                                {% if item.cancellation_state == 'replacement_ready' and item.replacement_receipt_id %}
+                                <button class="btn btn-success btn-sm mt-2" onclick="reprintReceipt({{ item.replacement_receipt_id }})">
+                                    <i class="fas fa-print me-1"></i> New receipt ready — Print
+                                </button>
+                                {% elif item.cancellation_state == 'voided' %}
+                                <span class="badge bg-danger mt-2 d-block">
+                                    <i class="fas fa-ban me-1"></i> Receipt voided by office
+                                </span>
+                                {% else %}
+
+                                {# Reprint / Print Receipt button — driven by live_receipt (Part 2C: solid, Part 2D: label) #}
+                                {% if item.live_receipt %}
+                                {% set _rc = item.live_receipt %}
+                                {% set _printed = (_rc.print_count or 0) > 0 %}
+                                <button class="btn btn-secondary btn-sm mt-2" onclick="reprintReceipt({{ _rc.id }})">
+                                    <i class="fas fa-print me-1"></i> {% if _printed %}Reprint Receipt{% else %}Print Receipt{% endif %}
                                 </button>
                                 {% endif %}
+
+                                {# Edit Payment / Lock chip — Part 1 (R4) + Part 2B (PS365 reference) #}
                                 {% if item.can_edit_payment and item.live_receipt %}
                                 <button class="btn btn-outline-primary btn-sm mt-1"
                                         onclick="openEditPayment({{ stop.route_stop_id }}, {{ item.live_receipt.received_amount or 0 }}, {{ item.live_receipt.expected_amount or 0 }}, '{{ item.live_receipt.payment_method or 'cash' }}')">
@@ -244,13 +268,31 @@
                                 </button>
                                 <span class="d-block small text-muted mt-1" id="edit-pay-amount-{{ stop.route_stop_id }}"></span>
                                 {% elif item.payment_locked and item.live_receipt %}
+                                {% set _lr = item.live_receipt %}
                                 <span class="badge bg-secondary mt-1">
-                                    <i class="fas fa-lock me-1"></i> Locked (printed)
+                                    <i class="fas fa-lock me-1"></i> Locked (printed) &middot; R{{ _lr.id }}{% if _lr.ps365_reference_number %} &middot; {{ _lr.ps365_reference_number }} &middot; SYNCED{% endif %}{% if (_lr.print_count or 0) > 1 %} &middot; printed &times;{{ _lr.print_count }}{% endif %}
                                 </span>
-                                <button class="btn btn-outline-danger btn-sm mt-1" onclick="requestCancellation({{ item.live_receipt.id }})">
+                                {# Cancellation button — or pending chip if already requested #}
+                                {% if item.cancellation_state == 'pending' %}
+                                <span class="badge bg-warning text-dark mt-1 d-block">
+                                    <i class="fas fa-hourglass-half me-1"></i> Cancellation requested — waiting for office
+                                </span>
+                                {% else %}
+                                <button class="btn btn-danger btn-sm mt-1" onclick="requestCancellation({{ _lr.id }})">
                                     <i class="fas fa-ban me-1"></i> Request Cancellation
                                 </button>
                                 {% endif %}
+                                {% endif %}
+
+                                {# Pending chip on editable (unprinted) stop #}
+                                {% if item.cancellation_state == 'pending' and item.can_edit_payment %}
+                                <span class="badge bg-warning text-dark mt-1 d-block">
+                                    <i class="fas fa-hourglass-half me-1"></i> Cancellation requested — waiting for office
+                                </span>
+                                {% endif %}
+
+                                {% endif %}{# end replacement_ready/voided else #}
+
                                 {% if item.has_exceptions %}
                                 <button class="btn btn-outline-warning btn-sm mt-1" onclick="printExceptions({{ stop.route_stop_id }})">
                                     <i class="fas fa-exclamation-triangle me-1"></i> Print Exceptions
@@ -456,7 +498,13 @@ async function reprintReceipt(receiptId) {
     try {
         const res = await fetch(`/driver/receipts/${receiptId}/print.png`, { cache: 'no-store' });
         if (!res.ok) {
-            alert('Could not load receipt. Please try again.');
+            // Part 2C: pass server message through so driver sees real error (sync fail, etc)
+            let msg = 'Could not load receipt. Please try again.';
+            try {
+                const errData = await res.clone().json();
+                if (errData && errData.error) msg = errData.error;
+            } catch (_) {}
+            alert(msg);
             return;
         }
         const blob = await res.blob();

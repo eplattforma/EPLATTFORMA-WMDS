@@ -387,27 +387,53 @@ def stops_list(route_id):
                 cust_lat = ps_cust.latitude
                 cust_lng = ps_cust.longitude
 
-        # R4: payment-edit eligibility for closed stops (edit window lasts
-        # until print/post or route submit)
+        # R4: payment-edit eligibility, lock state, cancellation state, and
+        # print visibility flags for closed stops.
         live_r = None
         can_edit_payment = False
         payment_locked = False
+        cancellation_state = None   # 'pending' | 'voided' | 'replacement_ready'
+        replacement_receipt_id = None
+        is_unprinted = False        # Part 2D: delivered but receipt never printed
         if stop_status == 'delivered':
-            live_r = CODReceipt.query.filter(
-                CODReceipt.route_stop_id == stop.route_stop_id,
-                CODReceipt.status != 'VOIDED'
-            ).order_by(CODReceipt.created_at.desc(), CODReceipt.id.desc()).first()
+            all_stop_receipts = CODReceipt.query.filter_by(
+                route_stop_id=stop.route_stop_id
+            ).order_by(CODReceipt.created_at.desc(), CODReceipt.id.desc()).all()
+
+            live_r = next((r for r in all_stop_receipts if r.status != 'VOIDED'), None)
+
             if live_r:
                 if live_r.first_printed_at or live_r.ps365_reference_number:
                     payment_locked = True
                 elif not route.driver_submitted_at:
                     can_edit_payment = True
+                # Part 2A: detect which cancellation state applies.
+                # `live_r.replaces` is non-empty when live_r IS the office-issued
+                # replacement for a voided receipt — show "New receipt ready" green button.
+                if live_r.replaces:
+                    cancellation_state = 'replacement_ready'
+                    replacement_receipt_id = live_r.id
+                elif live_r.cancellation_requested_at:
+                    # Request sent but office hasn't voided+reissued yet
+                    cancellation_state = 'pending'
+                # NOT PRINTED: delivered non-credit stop, live receipt, never printed.
+                # Use authoritative credit-terms lookup — terms_code may be 'NET30'
+                # or other labels, not necessarily the literal string 'credit'.
+                stop_is_credit = get_credit_terms(stop.customer_code).get('is_credit', False)
+                if not stop_is_credit and not live_r.first_printed_at:
+                    is_unprinted = True
+            else:
+                # All receipts VOIDED, no replacement issued yet
+                cancellation_state = 'voided'
 
         stops_data.append({
             'stop': stop,
             'live_receipt': live_r,
             'can_edit_payment': can_edit_payment,
             'payment_locked': payment_locked,
+            'cancellation_state': cancellation_state,
+            'replacement_receipt_id': replacement_receipt_id,
+            'is_unprinted': is_unprinted,
             'items_count': items_count,
             'total_weight': round(total_weight, 2),
             'total_gross': float(total_gross),
@@ -2360,13 +2386,28 @@ def settlement_form(route_id):
         'cleared_by': route.settlement_cleared_by
     }
     
+    # Part 2D: list unprinted stops for the blocking confirm on the form.
+    # Exclude credit stops — they don't collect cash, so "not printed" is not a
+    # problem; the submit gate also excludes them for the same reason.
+    unprinted_stops = []
+    for r in cod_receipts:
+        if r.status != 'VOIDED' and not r.first_printed_at and r.route_stop_id:
+            rs = RouteStop.query.get(r.route_stop_id)
+            if rs:
+                rs_is_credit = (get_credit_terms(rs.customer_code).get('is_credit', False)
+                                if rs.customer_code else False)
+                if not rs_is_credit:
+                    unprinted_stops.append({'seq_no': rs.seq_no, 'stop_id': rs.route_stop_id,
+                                            'receipt_id': r.id})
+
     return render_template('driver/settlement_form.html',
                          route=route,
                          cod_receipts=cod_receipts,
                          total_expected=float(total_expected),
                          total_received=float(total_received),
                          total_variance=float(total_variance),
-                         settlement_info=settlement_info)
+                         settlement_info=settlement_info,
+                         unprinted_stops=unprinted_stops)
 
 @driver_bp.route('/routes/<int:route_id>/settlement/submit', methods=['POST'])
 @driver_required
@@ -2390,6 +2431,37 @@ def submit_settlement(route_id):
         
         # Compute totals from CODReceipt (authoritative source)
         cod_receipts = CODReceipt.query.filter_by(route_id=route_id).all()
+
+        # Part 2D: block submit if any non-credit receipt is unprinted unless
+        # driver confirms. Credit stops don't produce CODReceipts in normal flow,
+        # but guard against edge-case manual receipts on credit stops too.
+        unprinted_confirmed = bool(data.get('unprinted_confirmed', False))
+        def _is_credit_stop(receipt):
+            if not receipt.route_stop_id:
+                return False
+            rs = RouteStop.query.get(receipt.route_stop_id)
+            if not rs or not rs.customer_code:
+                return False
+            return get_credit_terms(rs.customer_code).get('is_credit', False)
+        unprinted = [r for r in cod_receipts
+                     if r.status != 'VOIDED' and not r.first_printed_at
+                     and not _is_credit_stop(r)]
+        if unprinted and not unprinted_confirmed:
+            stop_seqs = []
+            for r in unprinted:
+                rs = RouteStop.query.get(r.route_stop_id) if r.route_stop_id else None
+                stop_seqs.append(rs.seq_no if rs else '?')
+            return jsonify({
+                'error': 'Some receipts were not printed.',
+                'requires_unprinted_confirm': True,
+                'unprinted_stops': stop_seqs,
+            }), 400
+        # Mark confirmed-unprinted receipts so the office exception report shows them
+        if unprinted and unprinted_confirmed:
+            now = utc_now()
+            for r in unprinted:
+                r.confirmed_unprinted_at = now
+                r.confirmed_unprinted_by = current_user.username
 
         # Fallback (Bug 2): commit any never-printed official receipts to PS365
         # now — the route is closing, so the edit window is over.

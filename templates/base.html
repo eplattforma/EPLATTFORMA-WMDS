@@ -137,9 +137,16 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint == 'reconciliation.receipt_lookup' or request.endpoint == 'reconciliation.receipt_exception_report' %}active{% endif %}"
+                                <a class="dropdown-item {% if request.endpoint == 'reconciliation.receipt_lookup' %}active{% endif %}"
                                    href="{{ url_for('reconciliation.receipt_lookup') }}">
                                     <i class="fas fa-search me-2"></i>Receipt Lookup
+                                </a>
+                                <a class="dropdown-item {% if request.endpoint == 'reconciliation.receipt_exception_report' %}active{% endif %}"
+                                   href="{{ url_for('reconciliation.receipt_exception_report') }}">
+                                    <i class="fas fa-flag me-2"></i>Receipt Exceptions
+                                    {% if open_cancellation_count and open_cancellation_count > 0 %}
+                                    <span class="badge bg-danger ms-1">{{ open_cancellation_count }}</span>
+                                    {% endif %}
                                 </a>
                                 <a class="dropdown-item {% if request.endpoint and 'reconciliation' in request.endpoint and request.endpoint not in ['reconciliation.customer_balances_report', 'reconciliation.receipt_lookup', 'reconciliation.receipt_exception_report'] %}active{% endif %}" 
                                    href="{{ url_for('reconciliation.shipment_list') }}">
