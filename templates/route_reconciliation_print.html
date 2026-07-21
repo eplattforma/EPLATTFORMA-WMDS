@@ -187,12 +187,13 @@
                 <th style="width: 55px;">Method</th>
                 <th class="text-end" style="width: 75px;">Expected</th>
                 <th class="text-end" style="width: 75px;">Received</th>
+                <th class="text-end" style="width: 75px;">Post-dated</th>
                 <th class="text-end" style="width: 75px;">Returns</th>
                 <th class="text-end" style="width: 80px;">Outstanding</th>
             </tr>
         </thead>
         <tbody>
-            {% set ns = namespace(tot_expected=0, tot_received=0, tot_disc=0, tot_outstanding=0) %}
+            {% set ns = namespace(tot_expected=0, tot_received=0, tot_postdated=0, tot_disc=0, tot_outstanding=0) %}
             {% for stop_recon in invoice_report %}
             {% set has_disc = stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
             {% set has_outstanding = stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
@@ -209,11 +210,13 @@
                 <td>{{ stop_recon.payment_type or '-' }}</td>
                 <td class="text-end">{{ "%.2f"|format(stop_recon.stop_expected) }}</td>
                 <td class="text-end">{% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}{{ "%.2f"|format(stop_recon.stop_received) }}{% else %}-{% endif %}</td>
+                <td class="text-end">{% if (stop_recon.stop_postdated or 0) > 0.001 %}{{ "%.2f"|format(stop_recon.stop_postdated) }}{% else %}-{% endif %}</td>
                 <td class="text-end">{% if has_disc %}{{ "%.2f"|format(stop_recon.stop_discrepancy) }}{% else %}-{% endif %}</td>
                 <td class="text-end" style="{% if has_outstanding %}font-weight:700;{% endif %}">{% if has_outstanding %}{{ "%.2f"|format(stop_recon.stop_outstanding) }}{% else %}-{% endif %}</td>
             </tr>
             {% set ns.tot_expected = ns.tot_expected + stop_recon.stop_expected %}
             {% set ns.tot_received = ns.tot_received + stop_recon.stop_received %}
+            {% set ns.tot_postdated = ns.tot_postdated + (stop_recon.stop_postdated or 0) %}
             {% set ns.tot_disc = ns.tot_disc + stop_recon.stop_discrepancy %}
             {% set ns.tot_outstanding = ns.tot_outstanding + stop_recon.stop_outstanding %}
             {% endfor %}
@@ -221,6 +224,7 @@
                 <td colspan="4">TOTALS</td>
                 <td class="text-end">&euro;{{ "%.2f"|format(ns.tot_expected) }}</td>
                 <td class="text-end">&euro;{{ "%.2f"|format(ns.tot_received) }}</td>
+                <td class="text-end">&euro;{{ "%.2f"|format(ns.tot_postdated) }}</td>
                 <td class="text-end">&euro;{{ "%.2f"|format(ns.tot_disc) }}</td>
                 <td class="text-end">&euro;{{ "%.2f"|format(ns.tot_outstanding) }}</td>
             </tr>
@@ -294,6 +298,7 @@
             <strong>Financial Summary:</strong>
             Total Expected: <strong>&euro;{{ "%.2f"|format(ns.tot_expected) }}</strong> &nbsp;|&nbsp;
             Total Received: <strong>&euro;{{ "%.2f"|format(ns.tot_received) }}</strong> &nbsp;|&nbsp;
+            Post-dated Cheques: <strong>&euro;{{ "%.2f"|format(ns.tot_postdated) }}</strong> &nbsp;|&nbsp;
             Total Returns: <strong>&euro;{{ "%.2f"|format(ns.tot_disc) }}</strong> &nbsp;|&nbsp;
             Outstanding: <strong>&euro;{{ "%.2f"|format(ns.tot_outstanding) }}</strong>
         </div>

@@ -340,6 +340,7 @@ def shipment_detail(shipment_id):
                 'invoices': [],
                 'stop_expected': 0.0,
                 'stop_received': 0.0,
+                'stop_postdated': 0.0,
                 'stop_discrepancy': 0.0,
                 'stop_outstanding': 0.0,
                 'payment_type': '—',

@@ -184,6 +184,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
         .kpi-total { background: rgba(148,163,184,0.10); color: #E5E7EB; }
         .kpi-returns { background: rgba(245,158,11,0.12); color: #F59E0B; }
         .kpi-received { background: rgba(34,197,94,0.12); color: #22C55E; }
+        .kpi-postdated { background: rgba(250,204,21,0.12); color: #FACC15; }
         .kpi-outstanding-red { background: rgba(239,68,68,0.12); color: #EF4444; }
         .kpi-outstanding-green { background: rgba(34,197,94,0.12); color: #22C55E; }
         .kpi-outstanding-neutral { background: rgba(148,163,184,0.06); color: #94A3B8; }
@@ -329,7 +330,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             </button>
         </div>
 
-            {% set ns = namespace(grand_expected=0, grand_received=0, grand_disc=0, grand_outstanding=0) %}
+            {% set ns = namespace(grand_expected=0, grand_received=0, grand_postdated=0, grand_disc=0, grand_outstanding=0) %}
             {% for stop_recon in invoice_report %}
             {% set has_returns = stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
             {% set has_outstanding = stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
@@ -382,6 +383,12 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <span class="kpi-value">-</span>
                                 {% endif %}
                             </div>
+                            {% if (stop_recon.stop_postdated or 0) > 0.001 %}
+                            <div class="recon-kpi-pill kpi-postdated">
+                                <span class="kpi-label">Post-dated</span>
+                                <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_postdated) }}</span>
+                            </div>
+                            {% endif %}
                             <div class="recon-kpi-pill {% if stop_recon.payment_type and stop_recon.payment_type != '-' %}{% if stop_recon.payment_type == 'CASH' %}kpi-method-cash{% elif stop_recon.payment_type == 'ONLINE' %}kpi-method-online{% else %}kpi-method-default{% endif %}{% endif %}">
                                 <span class="kpi-label">Method</span>
                                 <span class="kpi-value" style="font-size: 0.85rem;">{{ stop_recon.payment_type }}</span>
@@ -404,6 +411,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                        data-expected="{{ stop_recon.stop_expected }}"
                                        data-returns="{{ stop_recon.stop_discrepancy }}"
                                        data-received="{{ stop_recon.stop_received }}"
+                                       data-postdated="{{ stop_recon.stop_postdated or 0 }}"
                                        data-outstanding="{{ stop_recon.stop_outstanding }}"
                                        data-method="{{ stop_recon.payment_type or '-' }}"
                                        style="width: 20px; height: 20px; cursor: pointer; accent-color: #22C55E;">
@@ -690,6 +698,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             </div>
             {% set ns.grand_expected = ns.grand_expected + stop_recon.stop_expected %}
             {% set ns.grand_received = ns.grand_received + stop_recon.stop_received %}
+            {% set ns.grand_postdated = ns.grand_postdated + (stop_recon.stop_postdated or 0) %}
             {% set ns.grand_disc = ns.grand_disc + stop_recon.stop_discrepancy %}
             {% set ns.grand_outstanding = ns.grand_outstanding + stop_recon.stop_outstanding %}
             {% endfor %}
@@ -709,6 +718,12 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <span class="kpi-label">Received</span>
                         <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_received) }}</span>
                     </div>
+                    {% if ns.grand_postdated > 0.001 %}
+                    <div class="recon-kpi-pill kpi-postdated">
+                        <span class="kpi-label">Post-dated</span>
+                        <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_postdated) }}</span>
+                    </div>
+                    {% endif %}
                     <div class="recon-kpi-pill kpi-method-default">
                         <span class="kpi-label">Method</span>
                         <span class="kpi-value" style="font-size: 0.85rem;">&nbsp;</span>
@@ -731,6 +746,9 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                     <div class="recon-kpi-pill kpi-received">
                         <span class="kpi-value" id="rec-received-val">&euro;0.00</span>
                     </div>
+                    <div class="recon-kpi-pill kpi-postdated" id="rec-postdated-pill" style="display: none;">
+                        <span class="kpi-value" id="rec-postdated-val">&euro;0.00</span>
+                    </div>
                     <div class="recon-kpi-pill kpi-method-default">
                         <span class="kpi-value" id="rec-method-val" style="font-size: 0.85rem;">-</span>
                     </div>
@@ -749,6 +767,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const recTotalVal = document.getElementById('rec-total-val');
     const recReturnsVal = document.getElementById('rec-returns-val');
     const recReceivedVal = document.getElementById('rec-received-val');
+    const recPostdatedVal = document.getElementById('rec-postdated-val');
+    const recPostdatedPill = document.getElementById('rec-postdated-pill');
     const recOutstandingVal = document.getElementById('rec-outstanding-val');
     const recOutstandingPill = document.getElementById('rec-outstanding-pill');
     const recMethodVal = document.getElementById('rec-method-val');
@@ -761,6 +781,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let total = 0;
         let returns = 0;
         let received = 0;
+        let postdated = 0;
         let outstanding = 0;
         let checkedCount = 0;
         let methods = new Set();
@@ -770,6 +791,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 total += parseFloat(cb.getAttribute('data-expected')) || 0;
                 returns += parseFloat(cb.getAttribute('data-returns')) || 0;
                 received += parseFloat(cb.getAttribute('data-received')) || 0;
+                postdated += parseFloat(cb.getAttribute('data-postdated')) || 0;
                 outstanding += parseFloat(cb.getAttribute('data-outstanding')) || 0;
                 let m = cb.getAttribute('data-method');
                 if (m && m !== '-') methods.add(m);
@@ -782,6 +804,12 @@ document.addEventListener('DOMContentLoaded', function() {
             recTotalVal.textContent = formatEuro(total);
             recReturnsVal.textContent = formatEuro(returns);
             recReceivedVal.textContent = formatEuro(received);
+            if (postdated > 0.001) {
+                recPostdatedPill.style.display = '';
+                recPostdatedVal.textContent = formatEuro(postdated);
+            } else {
+                recPostdatedPill.style.display = 'none';
+            }
             recOutstandingVal.textContent = formatEuro(outstanding);
             
             if (methods.size === 1) {

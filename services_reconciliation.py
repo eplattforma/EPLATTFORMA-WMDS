@@ -121,6 +121,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 'customer_code_365': r.get('customer_code_365') or '',
                 'invoices': [],
                 'total_received': 0,
+                'total_postdated': 0,
                 'payment_method': None,
                 'is_day_cheque': False
             }
@@ -137,9 +138,16 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         pm_upper = payment_method.upper() if payment_method else ''
         is_day_cheque = (pm_upper == 'CHEQUE' and cheque_date and cheque_date <= datetime.now().date())
         is_cash = pm_upper == 'CASH'
-        
-        # Accumulate stop-level total received (trusting the sum of invoice allocations)
-        stops_data[stop_id]['total_received'] += received
+        # Post-dated cheque: collected, but not bankable yet — tracked
+        # separately, never counted inside "Received".
+        is_postdated = (pm_upper == 'CHEQUE' and cheque_date and cheque_date > datetime.now().date())
+
+        # Accumulate stop-level totals (trusting the sum of invoice allocations).
+        # Post-dated cheque amounts go to their own bucket.
+        if is_postdated:
+            stops_data[stop_id]['total_postdated'] += received
+        else:
+            stops_data[stop_id]['total_received'] += received
         if pm_upper and not stops_data[stop_id]['payment_method']:
             stops_data[stop_id]['payment_method'] = pm_upper
             stops_data[stop_id]['is_day_cheque'] = is_day_cheque
@@ -170,9 +178,12 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         pod_expected = sum(inv['expected'] for inv in data['invoices'] if not inv['is_credit'])
         pod_discrepancy = sum(inv['discrepancy'] or 0 for inv in data['invoices'] if not inv['is_credit'])
         
-        # Grand total received at stop (sum of all invoice allocations)
+        # Grand total received at stop (sum of all invoice allocations).
+        # Post-dated cheques are kept in their own bucket: they still cover
+        # the invoice (so no phantom outstanding) but are not "received" cash.
         stop_received = data['total_received']
-        stop_outstanding = pod_expected - stop_received - pod_discrepancy
+        stop_postdated = data['total_postdated']
+        stop_outstanding = pod_expected - stop_received - stop_postdated - pod_discrepancy
         
         rows.append({
             'stop_seq': data['stop_seq'],
@@ -182,6 +193,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             'terms': 'CREDIT' if any(inv['is_credit'] for inv in data['invoices']) else 'POD',
             'stop_expected': float(stop_expected),
             'stop_received': float(stop_received),
+            'stop_postdated': float(stop_postdated),
             'stop_discrepancy': float(stop_discrepancy),
             'stop_outstanding': float(stop_outstanding),
             'invoices': data['invoices']
