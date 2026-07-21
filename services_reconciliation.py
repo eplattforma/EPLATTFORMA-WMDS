@@ -122,6 +122,10 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 'invoices': [],
                 'total_received': 0,
                 'total_postdated': 0,
+                'total_online': 0,
+                'pod_received': 0,
+                'pod_postdated': 0,
+                'pod_online': 0,
                 'payment_method': None,
                 'is_day_cheque': False
             }
@@ -143,11 +147,18 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         is_postdated = (pm_upper == 'CHEQUE' and cheque_date and cheque_date > datetime.now().date())
 
         # Accumulate stop-level totals (trusting the sum of invoice allocations).
-        # Post-dated cheque amounts go to their own bucket.
+        # Post-dated cheque and online amounts go to their own buckets.
         if is_postdated:
-            stops_data[stop_id]['total_postdated'] += received
+            bucket = 'postdated'
+        elif pm_upper == 'ONLINE':
+            bucket = 'online'
         else:
-            stops_data[stop_id]['total_received'] += received
+            bucket = 'received'
+        stops_data[stop_id]['total_' + bucket] += received
+        # Track POD-only collections separately so payments made against
+        # credit invoices never reduce the POD outstanding.
+        if not is_credit:
+            stops_data[stop_id]['pod_' + bucket] += received
         if pm_upper and not stops_data[stop_id]['payment_method']:
             stops_data[stop_id]['payment_method'] = pm_upper
             stops_data[stop_id]['is_day_cheque'] = is_day_cheque
@@ -183,8 +194,25 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         # the invoice (so no phantom outstanding) but are not "received" cash.
         stop_received = data['total_received']
         stop_postdated = data['total_postdated']
-        stop_outstanding = pod_expected - stop_received - stop_postdated - pod_discrepancy
-        
+        stop_online = data['total_online']
+        # Outstanding is POD-only: subtract only collections on POD invoices.
+        stop_outstanding = (pod_expected - data['pod_received'] - data['pod_postdated']
+                            - data['pod_online'] - pod_discrepancy)
+
+        # Credit bucket: the part of credit-terms invoices left on account
+        # (expected minus whatever was actually paid/returned on them).
+        stop_credit = sum(
+            max((inv['expected'] - (inv['received'] or 0) - (inv['discrepancy'] or 0)), 0)
+            for inv in data['invoices'] if inv['is_credit']
+        )
+
+        # Due = what the driver had to account for after returns.
+        # Uncollected = the part of Due not explained by any bucket.
+        stop_due = stop_expected - stop_discrepancy
+        stop_uncollected = stop_due - stop_received - stop_postdated - stop_online - stop_credit
+        if abs(stop_uncollected) < 0.001:
+            stop_uncollected = 0.0
+
         rows.append({
             'stop_seq': data['stop_seq'],
             'customer_name': data['customer_name'],
@@ -194,6 +222,10 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             'stop_expected': float(stop_expected),
             'stop_received': float(stop_received),
             'stop_postdated': float(stop_postdated),
+            'stop_online': float(stop_online),
+            'stop_credit': float(stop_credit),
+            'stop_due': float(stop_due),
+            'stop_uncollected': float(stop_uncollected),
             'stop_discrepancy': float(stop_discrepancy),
             'stop_outstanding': float(stop_outstanding),
             'invoices': data['invoices']
