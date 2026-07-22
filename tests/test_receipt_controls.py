@@ -1318,3 +1318,50 @@ class TestReconciliationTotalsExcludeVoided:
                 CODReceipt.route_id == route_id,
                 CODReceipt.status != 'VOIDED').all()
             assert sum(r.received_amount for r in live_total) == Decimal('80.00')
+
+class TestOfficePostPs365:
+    """Office 'Post to PS365' for reissued receipts that will never be printed
+    (route already finished, so print-time sync never fires)."""
+
+    def test_post_endpoint_posts_draft_reissue(self, recon_app, admin_client, monkeypatch):
+        from app import db
+        from models import CODReceipt
+        import services.payments as sp
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official',
+                            received_amount=Decimal('92.00'))
+
+        posted = {}
+        def fake_sync(receipt, stop, user_code):
+            posted['amount'] = receipt.received_amount
+            receipt.ps365_reference_number = 'R9999999'
+        monkeypatch.setattr(sp, 'sync_receipt_ps365_at_print', fake_sync)
+        # routes_reconciliation imports it inside the function → patch source module
+        resp = admin_client.post(f'/reconciliation/api/receipts/{rid}/post-ps365', json={})
+        assert resp.status_code == 200, resp.data
+        data = resp.get_json()
+        assert data['success'] and data['ps365_reference_number'] == 'R9999999'
+        assert posted['amount'] == Decimal('92.00')
+        with recon_app.app_context():
+            assert db.session.get(CODReceipt, rid).ps365_reference_number == 'R9999999'
+
+    def test_post_endpoint_refuses_bad_states(self, recon_app, admin_client, monkeypatch):
+        import services.payments as sp
+        monkeypatch.setattr(sp, 'sync_receipt_ps365_at_print',
+                            lambda *a, **k: None)
+        # voided
+        rid = _make_receipt(recon_app, status='VOIDED')
+        assert admin_client.post(f'/reconciliation/api/receipts/{rid}/post-ps365',
+                                 json={}).status_code == 400
+        # already posted
+        rid = _make_receipt(recon_app, ps365_reference_number='R1'
+                            )
+        assert admin_client.post(f'/reconciliation/api/receipts/{rid}/post-ps365',
+                                 json={}).status_code == 400
+        # non-official
+        rid = _make_receipt(recon_app, doc_type='online_notice')
+        assert admin_client.post(f'/reconciliation/api/receipts/{rid}/post-ps365',
+                                 json={}).status_code == 400
+        # sync ran but PS365 returned nothing -> 502
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official')
+        assert admin_client.post(f'/reconciliation/api/receipts/{rid}/post-ps365',
+                                 json={}).status_code == 502

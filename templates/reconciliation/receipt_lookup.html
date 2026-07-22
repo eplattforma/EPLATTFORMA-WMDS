@@ -39,7 +39,11 @@
                 <button class="btn btn-outline-primary" id="btn-reissue" style="display:none;" onclick="showReissueForm()">
                     <i class="fas fa-redo me-1"></i> Reissue
                 </button>
+                <button class="btn btn-warning" id="btn-post-ps365" style="display:none;" onclick="doPostPs365()">
+                    <i class="fas fa-cloud-upload-alt me-1"></i> Post to PS365
+                </button>
             </div>
+            <div id="post-ps365-error" class="alert alert-danger mt-2 mb-0 small" style="display:none;"></div>
 
             <div id="void-form" class="border rounded p-3 mt-3" style="display:none;">
                 <h6 class="mb-3">Void Receipt</h6>
@@ -213,6 +217,10 @@ function renderReceipt(r) {
     document.getElementById('btn-void').style.display = (r.status !== 'VOIDED') ? 'inline-block' : 'none';
     document.getElementById('btn-reissue').style.display =
         (r.status === 'VOIDED' && !r.replaced_by_cod_receipt_id) ? 'inline-block' : 'none';
+    document.getElementById('btn-post-ps365').style.display =
+        (r.status !== 'VOIDED' && (r.doc_type || 'official') === 'official' && !r.ps365_reference_number)
+        ? 'inline-block' : 'none';
+    document.getElementById('post-ps365-error').style.display = 'none';
 
     document.getElementById('result-card').style.display = 'block';
 }
@@ -261,6 +269,35 @@ async function doVoid() {
     } catch (e) {
         errEl.textContent = 'Void failed: ' + e;
         errEl.style.display = 'block';
+    }
+}
+
+async function doPostPs365() {
+    const r = currentReceipt;
+    const errEl = document.getElementById('post-ps365-error');
+    errEl.style.display = 'none';
+    if (!confirm('Post receipt #' + r.id + ' (€' + r.received_amount.toFixed(2) + ') to PS365 now? This registers the payment in Powersoft.')) return;
+    const btn = document.getElementById('btn-post-ps365');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/reconciliation/api/receipts/' + r.id + '/post-ps365', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}'
+        });
+        const data = await res.json();
+        if (!data.success) {
+            errEl.textContent = data.error || 'PS365 posting failed';
+            errEl.style.display = 'block';
+            return;
+        }
+        document.getElementById('lookup-q').value = r.id;
+        doLookup();
+    } catch (e) {
+        errEl.textContent = 'PS365 posting failed: ' + e;
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
     }
 }
 

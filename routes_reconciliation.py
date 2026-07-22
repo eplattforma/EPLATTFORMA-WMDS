@@ -1630,7 +1630,51 @@ def api_receipt_lookup():
         'replaced_by_cod_receipt_id': receipt.replaced_by_cod_receipt_id,
         'replaces_receipt_id': replaces_id,
         'invoice_nos': receipt.invoice_nos,
+        'doc_type': receipt.doc_type or 'official',
     }})
+
+
+@reconciliation_bp.route('/api/receipts/<int:receipt_id>/post-ps365', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_post_receipt_ps365(receipt_id):
+    """Office-side PS365 posting for a receipt that was never printed
+    (e.g. a reissue done after the route already finished — no driver
+    will ever print it, so print-time sync never fires)."""
+    try:
+        receipt = db.session.get(CODReceipt, receipt_id)
+        if not receipt:
+            return jsonify({'success': False, 'error': 'Receipt not found'}), 404
+        if receipt.status == 'VOIDED':
+            return jsonify({'success': False, 'error': 'Receipt is voided'}), 400
+        if (receipt.doc_type or 'official').lower() != 'official':
+            return jsonify({'success': False,
+                            'error': 'Only official receipts post to PS365'}), 400
+        if receipt.ps365_reference_number:
+            return jsonify({'success': False,
+                            'error': f'Already posted (ref {receipt.ps365_reference_number})'}), 400
+
+        from models import RouteStop as _RS
+        stop = db.session.get(_RS, receipt.route_stop_id) if receipt.route_stop_id else None
+
+        from services.payments import sync_receipt_ps365_at_print
+        sync_receipt_ps365_at_print(receipt, stop, current_user.username)
+        db.session.commit()
+
+        if not receipt.ps365_reference_number:
+            return jsonify({'success': False,
+                            'error': 'PS365 posting failed — Powersoft did not return a '
+                                     'reference. Check connectivity and try again.'}), 502
+
+        logger.info(f"Receipt {receipt_id} posted to PS365 as "
+                    f"{receipt.ps365_reference_number} by {current_user.username} (office)")
+        return jsonify({'success': True,
+                        'ps365_reference_number': receipt.ps365_reference_number,
+                        'message': f'Posted to PS365 as {receipt.ps365_reference_number}'})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error posting receipt {receipt_id} to PS365: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @reconciliation_bp.route('/receipts/exceptions')
