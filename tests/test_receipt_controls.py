@@ -1235,3 +1235,86 @@ class TestRound4Part2CreditStop:
         data = resp.get_json()
         assert not data.get('requires_unprinted_confirm'), \
             f"Should not gate on credit stop receipt; got {data}"
+
+class TestTokenizedPrintGuard:
+    """Phase 1.2: tokenized PDF/PNG print paths must also refuse an official
+    receipt that has no PS365 reference after the print-time sync — same
+    behavior as the HTML views: 503, no lock, no print_count bump."""
+
+    def _token(self, stop_id):
+        from utils.print_token import make_print_token
+        return make_print_token(stop_id, 'test_driver_user')
+
+    def test_tokenized_paths_refuse_unsynced_official(self, recon_app, monkeypatch):
+        from app import db
+        from models import CODReceipt
+        import services.payments as sp
+        monkeypatch.setattr(sp, 'commit_to_ps365', lambda pe, *a, **k: pe)
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='official')
+        with recon_app.app_context():
+            stop_id = db.session.get(CODReceipt, rid).route_stop_id
+        client = recon_app.test_client()
+        token = self._token(stop_id)
+        for url in (f'/driver/print/receipt/{stop_id}.pdf?token={token}',
+                    f'/driver/print/receipt/{stop_id}.png?token={token}'):
+            resp = client.get(url)
+            assert resp.status_code == 503, url
+            assert b'not registered in Powersoft' in resp.data, url
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            assert r.status == 'DRAFT'
+            assert not r.first_printed_at
+            assert (r.print_count or 0) == 0
+
+    def test_tokenized_png_prints_online_doc(self, recon_app, monkeypatch):
+        """Online/PDC docs never post and must still print via tokenized paths."""
+        from app import db
+        from models import CODReceipt
+        rid = _make_receipt(recon_app, status='DRAFT', doc_type='online_notice',
+                            payment_method='online',
+                            received_amount=Decimal('0.00'))
+        with recon_app.app_context():
+            stop_id = db.session.get(CODReceipt, rid).route_stop_id
+        client = recon_app.test_client()
+        token = self._token(stop_id)
+        resp = client.get(f'/driver/print/receipt/{stop_id}.png?token={token}')
+        assert resp.status_code == 200
+        with recon_app.app_context():
+            r = db.session.get(CODReceipt, rid)
+            assert r.status == 'ISSUED'
+            assert r.first_printed_at is not None
+
+
+class TestReconciliationTotalsExcludeVoided:
+    """Phase 3.3: voided receipts render on reconciliation but never count."""
+
+    def test_totals_exclude_voided(self, recon_app):
+        from app import db
+        from models import CODReceipt, utc_now
+        rid = _make_receipt(recon_app, status='ISSUED',
+                            received_amount=Decimal('80.00'),
+                            expected_amount=Decimal('80.00'))
+        with recon_app.app_context():
+            live = db.session.get(CODReceipt, rid)
+            route_id = live.route_id
+            voided = CODReceipt(
+                route_id=route_id,
+                route_stop_id=live.route_stop_id,
+                driver_username='test_driver_user',
+                invoice_nos='INV-1',
+                expected_amount=Decimal('96.16'),
+                received_amount=Decimal('96.16'),
+                variance=Decimal('0.00'),
+                payment_method='cash',
+                status='VOIDED',
+                void_reason='wrong amount',
+                voided_at=utc_now(),
+                created_at=utc_now(),
+            )
+            db.session.add(voided)
+            db.session.commit()
+
+            live_total = db.session.query(CODReceipt).filter(
+                CODReceipt.route_id == route_id,
+                CODReceipt.status != 'VOIDED').all()
+            assert sum(r.received_amount for r in live_total) == Decimal('80.00')

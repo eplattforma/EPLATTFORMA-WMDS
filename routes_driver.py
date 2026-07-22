@@ -1939,6 +1939,10 @@ def print_receipt_pdf(stop_id):
         from services.payments import sync_receipt_ps365_at_print
         sync_receipt_ps365_at_print(cod_receipt, stop, token_data.get('username') or '')
 
+        if _official_sync_missing(cod_receipt):
+            db.session.commit()
+            return _receipt_not_registered_response(cod_receipt)
+
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
             # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
@@ -2155,6 +2159,10 @@ def print_receipt_png(stop_id):
     if cod_receipt and cod_receipt.status != 'VOIDED':
         from services.payments import sync_receipt_ps365_at_print
         sync_receipt_ps365_at_print(cod_receipt, stop, token_data.get('username') or '')
+
+        if _official_sync_missing(cod_receipt):
+            db.session.commit()
+            return _receipt_not_registered_response(cod_receipt)
 
         now = utc_now()
         if cod_receipt.status != 'ISSUED':

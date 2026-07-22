@@ -1911,8 +1911,10 @@ def reconciliation_report(shipment_id):
             'ps365_receipt': ps365_receipt
         })
     
-    # Calculate totals
-    all_cod_receipts = CODReceipt.query.filter_by(route_id=shipment_id).all()
+    # Calculate totals — voided receipts are displayed but never counted
+    all_cod_receipts = CODReceipt.query.filter_by(route_id=shipment_id).filter(
+        CODReceipt.status != 'VOIDED'
+    ).all()
     total_expected = sum(r.expected_amount for r in all_cod_receipts)
     total_received = sum(r.received_amount for r in all_cod_receipts)
     total_variance = total_received - total_expected
