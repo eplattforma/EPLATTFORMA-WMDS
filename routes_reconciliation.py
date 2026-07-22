@@ -179,10 +179,35 @@ def api_reissue_receipt(receipt_id):
         db.session.commit()
         logger.info(f"Receipt {receipt_id} reissued as {new_receipt.id} by {current_user.username}, {len(old_allocs)} allocations updated")
 
+        # Post the replacement to PS365 immediately. Waiting for print time
+        # never happens for office reissues (route already finished), so the
+        # corrected transaction would otherwise never reach PS365. The guard
+        # above already ensured the original posting was reversed.
+        ps365_warning = None
+        if (new_receipt.doc_type or 'official').lower() == 'official':
+            try:
+                from models import RouteStop as _RS
+                from services.payments import sync_receipt_ps365_at_print
+                stop = db.session.get(_RS, new_receipt.route_stop_id) if new_receipt.route_stop_id else None
+                sync_receipt_ps365_at_print(new_receipt, stop, current_user.username)
+                db.session.commit()
+            except Exception as sync_exc:
+                db.session.rollback()
+                logger.error(f"PS365 post after reissue failed for receipt {new_receipt.id}: {sync_exc}", exc_info=True)
+            if new_receipt.ps365_reference_number:
+                logger.info(f"Reissued receipt {new_receipt.id} posted to PS365 as {new_receipt.ps365_reference_number}")
+            else:
+                ps365_warning = ('Receipt was reissued but PS365 posting failed — use the '
+                                 '"Post to PS365" button on the new receipt to retry.')
+
         return jsonify({
             'success': True,
-            'message': f'Receipt reissued as #{new_receipt.id}',
-            'new_receipt_id': new_receipt.id
+            'message': f'Receipt reissued as #{new_receipt.id}'
+                       + (f', posted to PS365 as {new_receipt.ps365_reference_number}'
+                          if new_receipt.ps365_reference_number else ''),
+            'new_receipt_id': new_receipt.id,
+            'ps365_reference_number': new_receipt.ps365_reference_number,
+            'ps365_warning': ps365_warning
         })
     except Exception as e:
         db.session.rollback()

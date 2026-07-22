@@ -346,6 +346,7 @@ async function doReissue() {
             return;
         }
         document.getElementById('reissue-form').style.display = 'none';
+        if (data.ps365_warning) alert(data.ps365_warning);
         document.getElementById('lookup-q').value = data.new_receipt_id;
         doLookup();
     } catch (e) {

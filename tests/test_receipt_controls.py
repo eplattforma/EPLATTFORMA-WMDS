@@ -1365,3 +1365,40 @@ class TestOfficePostPs365:
         rid = _make_receipt(recon_app, status='DRAFT', doc_type='official')
         assert admin_client.post(f'/reconciliation/api/receipts/{rid}/post-ps365',
                                  json={}).status_code == 502
+
+class TestReissueAutoPost:
+    """Reissue must post the replacement to PS365 immediately — office
+    reissues happen after the route is done, so print-time sync never fires."""
+
+    def test_reissue_posts_to_ps365_immediately(self, recon_app, admin_client, monkeypatch):
+        from app import db
+        from models import CODReceipt
+        import services.payments as sp
+        posted = {}
+        def fake_sync(receipt, stop, user_code):
+            posted['amount'] = receipt.received_amount
+            receipt.ps365_reference_number = 'R7777777'
+        monkeypatch.setattr(sp, 'sync_receipt_ps365_at_print', fake_sync)
+        rid = _make_receipt(recon_app, status='VOIDED', doc_type='official')
+        resp = admin_client.post(f'/reconciliation/api/receipts/{rid}/reissue',
+                                 json={'received_amount': 92.00})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ps365_reference_number'] == 'R7777777'
+        assert not data.get('ps365_warning')
+        assert posted['amount'] == Decimal('92.00')
+        with recon_app.app_context():
+            new_r = db.session.get(CODReceipt, data['new_receipt_id'])
+            assert new_r.ps365_reference_number == 'R7777777'
+
+    def test_reissue_warns_when_ps365_post_fails(self, recon_app, admin_client, monkeypatch):
+        import services.payments as sp
+        monkeypatch.setattr(sp, 'sync_receipt_ps365_at_print', lambda *a, **k: None)
+        rid = _make_receipt(recon_app, status='VOIDED', doc_type='official')
+        resp = admin_client.post(f'/reconciliation/api/receipts/{rid}/reissue',
+                                 json={'received_amount': 92.00})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success']
+        assert data['ps365_reference_number'] is None
+        assert 'Post to PS365' in (data['ps365_warning'] or '')
