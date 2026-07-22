@@ -121,7 +121,9 @@ def api_void_receipt(receipt_id):
 def api_reissue_receipt(receipt_id):
     """Admin reissues a VOIDED receipt with corrected data"""
     try:
-        old_receipt = db.session.get(CODReceipt, receipt_id)
+        # Row lock: prevents a double-click / concurrent reissue from
+        # creating two replacements (and two PS365 postings).
+        old_receipt = db.session.get(CODReceipt, receipt_id, with_for_update=True)
         if not old_receipt:
             return jsonify({'success': False, 'error': 'Receipt not found'}), 404
 
@@ -1667,7 +1669,10 @@ def api_post_receipt_ps365(receipt_id):
     (e.g. a reissue done after the route already finished — no driver
     will ever print it, so print-time sync never fires)."""
     try:
-        receipt = db.session.get(CODReceipt, receipt_id)
+        # Row lock: two concurrent posts must not both pass the
+        # "already posted" check and double-charge the customer.
+        # (SQLite in tests ignores FOR UPDATE, which is fine there.)
+        receipt = db.session.get(CODReceipt, receipt_id, with_for_update=True)
         if not receipt:
             return jsonify({'success': False, 'error': 'Receipt not found'}), 404
         if receipt.status == 'VOIDED':
