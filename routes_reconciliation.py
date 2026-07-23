@@ -882,6 +882,18 @@ def customer_balances_report():
     rows = q.all()
 
     customer_codes = [r[0] for r in rows]
+
+    # Magento group name overrides the Powersoft category for display (fallback kept).
+    # DISTINCT ON picks one canonical mapping per customer (latest import, lowest id).
+    magento_group_map = {
+        r[0]: r[1] for r in db.session.execute(db.text(
+            "SELECT DISTINCT ON (customer_code_365) customer_code_365, magento_group_name "
+            "FROM magento_customer_map WHERE magento_group_name IS NOT NULL "
+            "AND customer_code_365 = ANY(:codes) "
+            "ORDER BY customer_code_365, imported_at DESC, magento_customer_id"
+        ), {'codes': customer_codes})
+    }
+
     last_delivery_map = _get_last_delivery_info(customer_codes)
     latest_invoice_dates = _get_latest_invoice_dates(customer_codes)
     recent_invoice_totals = _get_recent_invoice_totals(customer_codes)
@@ -915,7 +927,7 @@ def customer_balances_report():
             'code': code,
             'name': name or code,
             'town': town or '',
-            'category': cat or '',
+            'category': magento_group_map.get(code) or cat or '',
             'category2': cat2 or '',
             'agent': agent or '',
             'phone': sms_num or mobile or tel or '',

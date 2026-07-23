@@ -87,16 +87,21 @@ def _resolve_compare(start: date, end: date, compare: str) -> tuple[date, date] 
 
 def _fetch_header(customer_code: str) -> dict:
     row = db.session.execute(text("""
-        SELECT customer_code_365 AS customer_code,
-               COALESCE(company_name, '') AS customer_name,
-               category_1_name AS classification,
-               town AS district,
-               agent_code_365 AS agent_username,
-               agent_name AS agent_name,
-               reporting_group,
-               customer_code_secondary AS magento_customer_id
-        FROM ps_customers
-        WHERE customer_code_365 = :c
+        SELECT c.customer_code_365 AS customer_code,
+               COALESCE(c.company_name, '') AS customer_name,
+               COALESCE(m.magento_group_name, c.category_1_name) AS classification,
+               c.town AS district,
+               c.agent_code_365 AS agent_username,
+               c.agent_name AS agent_name,
+               c.reporting_group,
+               COALESCE(m.magento_customer_id::text, c.customer_code_secondary) AS magento_customer_id
+        FROM ps_customers c
+        LEFT JOIN (
+            SELECT DISTINCT ON (customer_code_365) *
+            FROM magento_customer_map
+            ORDER BY customer_code_365, imported_at DESC, magento_customer_id
+        ) m ON m.customer_code_365 = c.customer_code_365
+        WHERE c.customer_code_365 = :c
         LIMIT 1
     """), {"c": customer_code}).mappings().first()
     out: dict = dict(row) if row else {"customer_code": customer_code, "customer_name": ""}

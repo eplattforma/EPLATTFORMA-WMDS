@@ -31,9 +31,15 @@ CREATE INDEX IF NOT EXISTS idx_mcm_code ON magento_customer_map (customer_code_3
 VIEW_SQL = """
 CREATE OR REPLACE VIEW vw_customer_magento AS
 SELECT c.customer_code_365, c.company_name,
-       m.magento_customer_id, m.magento_group_id, m.magento_group_name
+       m.magento_customer_id, m.magento_group_id, m.magento_group_name,
+       COALESCE(m.magento_group_id::text, c.category_code_1_365) AS customer_category,
+       COALESCE(m.magento_group_name, c.category_1_name)         AS customer_category_name
 FROM ps_customers c
-LEFT JOIN magento_customer_map m ON m.customer_code_365 = c.customer_code_365;
+LEFT JOIN (
+    SELECT DISTINCT ON (customer_code_365) *
+    FROM magento_customer_map
+    ORDER BY customer_code_365, imported_at DESC, magento_customer_id
+) m ON m.customer_code_365 = c.customer_code_365;
 """
 
 

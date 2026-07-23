@@ -113,11 +113,16 @@ def api_customer_header(customer_code):
             postal_code AS postcode,
             town AS city,
             agent_name,
-            category_1_name,
+            COALESCE(m.magento_group_name, category_1_name) AS category_1_name,
             credit_limit_amount,
-            customer_code_secondary AS magento_customer_id
+            COALESCE(m.magento_customer_id::text, customer_code_secondary) AS magento_customer_id
         FROM ps_customers
-        WHERE customer_code_365 = :code
+        LEFT JOIN (
+            SELECT DISTINCT ON (customer_code_365) *
+            FROM magento_customer_map
+            ORDER BY customer_code_365, imported_at DESC, magento_customer_id
+        ) m ON m.customer_code_365 = ps_customers.customer_code_365
+        WHERE ps_customers.customer_code_365 = :code
         LIMIT 1
     """)
     row = db.session.execute(sql, {"code": customer_code}).mappings().first()
