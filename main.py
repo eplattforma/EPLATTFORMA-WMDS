@@ -859,6 +859,12 @@ if _db_available and (not is_production or os.environ.get('RUN_MIGRATIONS') == '
         logging.error(f"Error ensuring dw_credit_note schema/view: {e}")
 
     try:
+        from migrations.magento_customer_map_schema import ensure_magento_customer_map_schema
+        ensure_magento_customer_map_schema()
+    except Exception as e:
+        logging.error(f"Error ensuring magento_customer_map schema/view: {e}")
+
+    try:
         from update_order_status_system import update_order_status_system
         update_order_status_system()
     except Exception as e:

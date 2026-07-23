@@ -285,6 +285,13 @@ def dw_menu():
                 </a>
             </div>
 
+            <div class="menu-option">
+                <a href="{{ url_for('datawarehouse.magento_map') }}">
+                    <h3>Magento Customer Map</h3>
+                    <p>Import the Magento customer export (CSV/XLSX) to map Magento customer IDs to PS365 codes. Reports codes missing from ps_customers.</p>
+                </a>
+            </div>
+
             <div class="menu-option" style="display:flex; align-items:center; justify-content:space-between;">
                 <div style="flex:1;">
                     <h3>Load OOS Items (Store 777)</h3>
@@ -1375,6 +1382,202 @@ def credit_notes():
         'datawarehouse/import_credit_notes.html',
         recent=recent,
         summary=summary,
+    )
+
+
+@dw_bp.route('/magento-map', methods=['GET', 'POST'])
+@login_required
+@require_permission('sync.run_manual')
+def magento_map():
+    """
+    Import the Magento customer export (CSV/XLSX) into magento_customer_map.
+    Each row needs: Magento customer ID, customer group, PS365 code.
+    Rows with a blank PS365 code are skipped. Upsert — re-running is safe.
+    """
+    import io, csv
+    from sqlalchemy import text
+
+    if current_user.role not in ('admin', 'warehouse_manager'):
+        flash('Access denied.', 'error')
+        return redirect(url_for('index'))
+
+    summary = None
+    mismatches = []
+
+    def _pick(headers, candidates):
+        """Return the first header matching a candidate (exact, lowercase)."""
+        for cand in candidates:
+            if cand in headers:
+                return cand
+        return None
+
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if not file or not file.filename:
+            flash('Please choose a file.', 'error')
+        else:
+            fname = file.filename.lower()
+            try:
+                raw = file.read()
+                rows = []
+
+                if fname.endswith('.xlsx'):
+                    import openpyxl
+                    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+                    ws = wb.active
+                    headers = [str(c.value).strip().lower() if c.value else '' for c in next(ws.iter_rows())]
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        rows.append(dict(zip(headers, row)))
+                elif fname.endswith('.csv'):
+                    text_data = raw.decode('utf-8-sig')
+                    reader = csv.DictReader(io.StringIO(text_data))
+                    reader.fieldnames = [f.strip().lower() for f in (reader.fieldnames or [])]
+                    for r in reader:
+                        rows.append({(k or '').strip().lower(): v for k, v in r.items()})
+                else:
+                    flash('Only .csv or .xlsx files are supported.', 'error')
+                    rows = None
+
+                if rows is not None:
+                    if not rows:
+                        flash('The file contains no data rows.', 'error')
+                    else:
+                        headers = list(rows[0].keys())
+                        id_col = _pick(headers, [
+                            'magento_customer_id', 'entity_id', 'customer_id',
+                            'customer id', 'id'])
+                        group_id_col = _pick(headers, [
+                            'magento_group_id', 'group_id', 'group id'])
+                        group_name_col = _pick(headers, [
+                            'magento_group_name', 'group_name', 'group name',
+                            'customer group', 'group'])
+                        code_col = _pick(headers, [
+                            'customer_code_365', 'ps365_code', 'ps365 code',
+                            'ps365', 'code_365', '365_code'])
+                        if not code_col:
+                            code_col = next((h for h in headers if '365' in h), None)
+
+                        if not id_col or not code_col:
+                            flash(
+                                'Could not find the required columns. Need a Magento '
+                                'customer ID column (e.g. entity_id / id) and a PS365 '
+                                f'code column (e.g. customer_code_365). Found headers: {", ".join(headers)}',
+                                'error')
+                        else:
+                            imported = skipped_blank = skipped_bad = 0
+                            upsert = text("""
+                                INSERT INTO magento_customer_map
+                                  (magento_customer_id, customer_code_365,
+                                   magento_group_id, magento_group_name,
+                                   source_filename, imported_at)
+                                VALUES (:mid, :code, :gid, :gname, :fname, now())
+                                ON CONFLICT (magento_customer_id) DO UPDATE SET
+                                  customer_code_365  = EXCLUDED.customer_code_365,
+                                  magento_group_id   = EXCLUDED.magento_group_id,
+                                  magento_group_name = EXCLUDED.magento_group_name,
+                                  source_filename    = EXCLUDED.source_filename,
+                                  imported_at        = now()
+                            """)
+                            seen_codes = set()
+                            for r in rows:
+                                code = str(r.get(code_col) or '').strip()
+                                if not code:
+                                    skipped_blank += 1
+                                    continue
+                                try:
+                                    mid = int(float(str(r.get(id_col)).strip()))
+                                except (TypeError, ValueError):
+                                    skipped_bad += 1
+                                    continue
+
+                                gid = None
+                                gname = None
+                                if group_id_col:
+                                    gval = str(r.get(group_id_col) or '').strip()
+                                    try:
+                                        gid = int(float(gval)) if gval else None
+                                    except ValueError:
+                                        gid = None
+                                if group_name_col and group_name_col != group_id_col:
+                                    gval = str(r.get(group_name_col) or '').strip()
+                                    if gval:
+                                        # single "group" column: numeric → id, else name
+                                        try:
+                                            if gid is None:
+                                                gid = int(float(gval))
+                                            else:
+                                                gname = gval
+                                        except ValueError:
+                                            gname = gval
+                                elif group_id_col and gid is None:
+                                    # group column held a name, not a number
+                                    gname = str(r.get(group_id_col) or '').strip() or None
+
+                                db.session.execute(upsert, {
+                                    'mid': mid, 'code': code, 'gid': gid,
+                                    'gname': gname, 'fname': file.filename,
+                                })
+                                seen_codes.add(code)
+                                imported += 1
+
+                            db.session.commit()
+
+                            # Mismatch report: PS365 codes in the file that
+                            # don't exist in ps_customers
+                            if seen_codes:
+                                existing = {
+                                    row[0] for row in db.session.execute(
+                                        text("SELECT customer_code_365 FROM ps_customers "
+                                             "WHERE customer_code_365 = ANY(:codes)"),
+                                        {'codes': list(seen_codes)},
+                                    )
+                                }
+                                mismatches = sorted(seen_codes - existing)
+
+                            summary = {
+                                'imported': imported,
+                                'skipped_blank': skipped_blank,
+                                'skipped_bad': skipped_bad,
+                                'mismatch_count': len(mismatches),
+                            }
+                            flash(
+                                f'Import complete: {imported} imported, '
+                                f'{skipped_blank} skipped (blank PS365 code), '
+                                f'{skipped_bad} skipped (bad Magento ID). '
+                                f'{len(mismatches)} PS365 codes not found in ps_customers.',
+                                'success' if not mismatches else 'warning')
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f'Magento map import error: {e}', exc_info=True)
+                flash(f'Upload failed: {e}', 'error')
+
+    from sqlalchemy import text as _text
+    stats = db.session.execute(_text("""
+        SELECT COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE NOT EXISTS (
+                   SELECT 1 FROM ps_customers c
+                   WHERE c.customer_code_365 = m.customer_code_365)) AS unmatched,
+               MAX(imported_at) AS last_import
+        FROM magento_customer_map m
+    """)).mappings().first()
+
+    recent = db.session.execute(_text("""
+        SELECT m.magento_customer_id, m.customer_code_365,
+               m.magento_group_id, m.magento_group_name,
+               m.source_filename, m.imported_at,
+               c.company_name
+        FROM magento_customer_map m
+        LEFT JOIN ps_customers c ON c.customer_code_365 = m.customer_code_365
+        ORDER BY m.imported_at DESC, m.magento_customer_id DESC
+        LIMIT 200
+    """)).mappings().all()
+
+    return render_template(
+        'datawarehouse/magento_customer_map.html',
+        summary=summary,
+        mismatches=mismatches,
+        stats=stats,
+        recent=recent,
     )
 
 
