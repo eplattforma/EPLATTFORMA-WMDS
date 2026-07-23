@@ -649,6 +649,20 @@ def setup_scheduler(app):
             )
             logger.info("✓ Receipt void PS365 check scheduled: Daily at 21:30 Cairo")
 
+            _add_job_smart(
+                func=_tracked,
+                kwargs={'job_id': 'magento_customer_map_sync',
+                        'job_name': 'Magento Customer Map Sync'},
+                trigger=CronTrigger(hour=16, minute=55),
+                id='magento_customer_map_sync',
+                name='Magento Customer Map Sync',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=21600,
+                coalesce=True,
+            )
+            logger.info("✓ Magento customer map sync scheduled: Daily at 16:55 Cairo")
+
             if is_production:
                 _add_job_smart(
                     func=_tracked,
@@ -1693,6 +1707,8 @@ JOB_DISPLAY_NAMES = {
     'stock_777_sync': 'PS365 Stock 777 Daily Sync',
     'ftp_login_sync': 'FTP Login Logs Sync',
     'log_cleanup': 'Job Runs Log Cleanup',
+    'receipt_void_check': 'Receipt Void PS365 Check',
+    'magento_customer_map_sync': 'Magento Customer Map Sync',
 }
 
 
@@ -1717,7 +1733,22 @@ def _register_job_funcs():
         'ftp_login_sync': _run_ftp_login_sync,
         'log_cleanup': _run_log_cleanup,
         'receipt_void_check': _run_receipt_void_check,
+        'magento_customer_map_sync': _run_magento_customer_map_sync,
     }
+
+
+def _run_magento_customer_map_sync():
+    """Body func for the daily Magento → PS365 customer mapping pull.
+
+    Pulls all customers from the Magento REST API and upserts them into
+    ``magento_customer_map`` (source_filename='magento_api'). Returns the
+    summary dict (pulled / written / skipped / mismatches) so ``_tracked``
+    persists it as the job_runs result_summary.
+    """
+    from app import app as _flask_app
+    with _flask_app.app_context():
+        from services.magento_customer_map_sync import sync_magento_customer_map
+        return sync_magento_customer_map()
 
 
 def _run_receipt_void_check():

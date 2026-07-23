@@ -35,7 +35,26 @@
 
     {# ── LEFT: Upload ─────────────────────────────────────────────── #}
     <div class="col-lg-5">
-      <div class="card border-0 shadow-sm h-100">
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">
+          <i data-feather="refresh-cw" class="me-2"></i>Sync from Magento API
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Pulls all customers live from the Magento REST API (PS365 code from the
+            <code>powersoft_code</code> attribute). Also runs automatically every day
+            at 16:55 — see Scheduler → “Magento Customer Map Sync”.
+          </p>
+          <form method="POST" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Syncing… (up to a minute)';">
+            <input type="hidden" name="action" value="sync_api">
+            <button type="submit" class="btn btn-success w-100">
+              <i data-feather="refresh-cw" class="me-1"></i>Sync from Magento Now
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm">
         <div class="card-header bg-transparent fw-semibold">
           <i data-feather="upload" class="me-2"></i>Upload Magento Export (CSV / XLSX)
         </div>

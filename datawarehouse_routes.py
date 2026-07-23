@@ -1411,7 +1411,29 @@ def magento_map():
                 return cand
         return None
 
-    if request.method == 'POST':
+    if request.method == 'POST' and request.form.get('action') == 'sync_api':
+        try:
+            from services.magento_customer_map_sync import sync_magento_customer_map
+            result = sync_magento_customer_map()
+            mismatches = result.get('mismatched_codes', [])
+            summary = {
+                'imported': result['written'],
+                'skipped_blank': result['skipped_blank_code'],
+                'skipped_bad': 0,
+                'mismatch_count': result['mismatch_count'],
+            }
+            flash(
+                f"Magento API sync complete: {result['total_pulled']} customers pulled, "
+                f"{result['written']} written, {result['skipped_blank_code']} skipped "
+                f"(blank PS365 code). {result['mismatch_count']} PS365 codes not found "
+                f"in ps_customers.",
+                'success' if not result['mismatch_count'] else 'warning')
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f'Magento API sync error: {e}', exc_info=True)
+            flash(f'Magento API sync failed: {e}', 'error')
+
+    elif request.method == 'POST':
         file = request.files.get('file')
         if not file or not file.filename:
             flash('Please choose a file.', 'error')

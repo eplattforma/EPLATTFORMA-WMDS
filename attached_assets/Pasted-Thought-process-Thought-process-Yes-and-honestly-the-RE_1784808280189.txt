@@ -1,0 +1,48 @@
+Thought process
+Thought process
+Yes — and honestly the REST API is the better call. It kills the manual export step entirely: Replit hits Magento directly on a schedule, so the mapping stays current without anyone touching a CSV. Same destination table (magento_customer_map), just a different source feeding it.
+
+Here's how it works and what to hand Replit.
+
+The endpoint
+Magento 2 exposes customers at:
+
+GET {magento_base_url}/rest/V1/customers/search?searchCriteria[pageSize]=200&searchCriteria[currentPage]=1
+Authorization: Bearer {integration_token}
+Each customer in the response gives you all three fields you need:
+
+id → the Magento ID (103)
+group_id → the Magento group (4)
+the PS365 code → lives inside custom_attributes as {attribute_code, value}, not a top-level field
+Instructions to paste into Replit
+Replace the file import with a Magento REST API pull into magento_customer_map.
+
+Auth: create a Magento Integration (Admin → System → Extensions → Integrations), grant it Customer read access, and copy the Access Token. Store it in Replit Secrets as MAGENTO_TOKEN and the store URL as MAGENTO_BASE_URL. Never put the token in code.
+
+Fetch loop: call GET {MAGENTO_BASE_URL}/rest/V1/customers/search with header Authorization: Bearer {MAGENTO_TOKEN} and query params searchCriteria[pageSize]=200 and searchCriteria[currentPage]=N, starting at N=1. Increment N until a page returns fewer than 200 items. That's all customers.
+
+Parse each customer:
+
+magento_customer_id = item.id
+magento_group_id = item.group_id
+customer_code_365 = the value in item.custom_attributes where attribute_code == '<PS365_ATTR>' (see below)
+skip the row if that PS365 value is empty
+Upsert with the same statement as before (ON CONFLICT (magento_customer_id) DO UPDATE ...), setting source_filename = 'magento_api'.
+
+Schedule it as a nightly job.
+
+After each run, log: total pulled, number written, and any PS365 codes not found in ps_customers.
+
+The table DDL and the vw_customer_magento view from before stay exactly the same — only the source changes.
+
+Two things to pin down
+The PS365 attribute code. This is the one thing that'll break silently. Pull a single record first — GET /rest/V1/customers/103 — and look at its custom_attributes array to find which attribute_code holds 77700101. That exact string goes into the script.
+
+The token is a secret — it goes in Replit Secrets, and you (not me) create the integration in Magento admin, since it involves granting access.
+
+Do you know your Magento base URL and whether an integration token already exists? If you can tell me the base URL, I can spell out the exact /customers/103 call so you can eyeball the attribute code before Replit builds anything.
+
+
+
+
+
