@@ -7,6 +7,21 @@ from app import db
 
 logger = logging.getLogger(__name__)
 
+# Effective category = Magento group (canonical mapping row: latest import,
+# lowest magento id) with fallback to the old Powersoft category.
+# Correlated subqueries so the same expression works in SELECT, WHERE and UPDATE.
+EFF_CAT_CODE_SQL = """COALESCE(
+    (SELECT m.magento_group_id::text FROM magento_customer_map m
+     WHERE m.customer_code_365 = ps_customers.customer_code_365
+     ORDER BY m.imported_at DESC, m.magento_customer_id LIMIT 1),
+    category_code_1_365)"""
+
+EFF_CAT_NAME_SQL = """COALESCE(
+    (SELECT m.magento_group_name FROM magento_customer_map m
+     WHERE m.customer_code_365 = ps_customers.customer_code_365
+     ORDER BY m.imported_at DESC, m.magento_customer_id LIMIT 1),
+    category_1_name)"""
+
 crg_bp = Blueprint('customer_reporting_groups', __name__,
                    url_prefix='/admin/customer-reporting-groups')
 
@@ -37,13 +52,15 @@ def api_metadata():
     """)).fetchall()
     groups = [r[0] for r in groups_rows]
 
-    cat1_rows = db.session.execute(text("""
-        SELECT DISTINCT category_code_1_365, category_1_name
+    # Filter by the effective category NAME: Magento group ids and old
+    # Powersoft codes overlap (e.g. group '4' vs category '4'), names don't.
+    cat1_rows = db.session.execute(text(f"""
+        SELECT DISTINCT {EFF_CAT_NAME_SQL} AS cat_name
         FROM ps_customers
-        WHERE category_code_1_365 IS NOT NULL AND category_code_1_365 <> ''
-        ORDER BY category_code_1_365
+        WHERE {EFF_CAT_NAME_SQL} IS NOT NULL AND {EFF_CAT_NAME_SQL} <> ''
+        ORDER BY cat_name
     """)).fetchall()
-    categories = [{"code": r[0], "name": r[1] or ""} for r in cat1_rows]
+    categories = [{"code": r[0], "name": ""} for r in cat1_rows]
 
     agent_rows = db.session.execute(text("""
         SELECT DISTINCT agent_code_365, agent_name
@@ -86,7 +103,7 @@ def _build_filter_clause(filters):
 
     cat = (filters.get("category") or "").strip()
     if cat:
-        clauses.append("category_code_1_365 = :cat")
+        clauses.append(f"{EFF_CAT_NAME_SQL} = :cat")
         params["cat"] = cat
 
     agent = (filters.get("agent") or "").strip()
@@ -137,7 +154,9 @@ def api_search():
     params["offset"] = offset
 
     data_sql = text(f"""
-        SELECT customer_code_365, company_name, category_code_1_365, category_1_name,
+        SELECT customer_code_365, company_name,
+               {EFF_CAT_CODE_SQL} AS category_code_1_365,
+               {EFF_CAT_NAME_SQL} AS category_1_name,
                agent_code_365, agent_name, town, active, reporting_group
         FROM ps_customers
         WHERE {where}
