@@ -1,0 +1,143 @@
+026-07-24 11:14:30.29
+d4c7f7b9
+User
+DEBUG:apscheduler.scheduler:Next wakeup is due at 2026-07-24 11:13:10.204160+03:00 (in 0.000000 seconds)
+
+2026-07-24 11:14:30.29
+d4c7f7b9
+User
+connection to server at "ep-raspy-mud-aebfnedn.c-2.us-east-2.aws.neon.tech" (3.137.42.68), port 5432 failed: timeout expired
+
+2026-07-24 11:14:30.29
+d4c7f7b9
+User
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+
+
+2026-07-24 11:14:30.29
+d4c7f7b9
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+2026-07-24 11:15:18.26
+d4c7f7b9
+User
+34.76.34.93 - - [24/Jul/2026:08:15:18 +0000] "GET /admin/dashboard HTTP/1.1" 302 251 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:19.39
+d4c7f7b9
+User
+34.62.90.41 - - [24/Jul/2026:08:15:19 +0000] "GET /admin/dashboard HTTP/1.1" 302 251 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:19.95
+d4c7f7b9
+User
+WARNING:apscheduler.executors.default:Run time of job "Retry PENDING_RETRY Payments to PS365 (trigger: cron[minute='*/5'], next run at: 2026-07-24 11:15:00 EEST)" was missed by 0:05:19.950812
+
+2026-07-24 11:15:19.99
+d4c7f7b9
+User
+34.38.227.90 - - [24/Jul/2026:08:15:19 +0000] "GET /login?next=%2Fadmin%2Fdashboard HTTP/1.1" 200 3646 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:20.04
+d4c7f7b9
+User
+WARNING:apscheduler.executors.default:Run time of job "Forecast Run Watchdog (auto-retry) (trigger: cron[minute='*/10'], next run at: 2026-07-24 11:20:00 EEST)" was missed by 0:05:20.047125
+
+2026-07-24 11:15:20.21
+d4c7f7b9
+User
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+
+2026-07-24 11:15:20.21
+d4c7f7b9
+User
+DEBUG:apscheduler.scheduler:Next wakeup is due at 2026-07-24 11:15:00+03:00 (in 0.000000 seconds)
+
+2026-07-24 11:15:20.29
+d4c7f7b9
+User
+INFO:apscheduler.executors.default:Running job "FTP Login Logs Sync (trigger: cron[minute='15,45'], next run at: 2026-07-24 11:45:00 EEST)" (scheduled at 2026-07-24 11:15:00+03:00)
+
+2026-07-24 11:15:20.35
+d4c7f7b9
+User
+34.38.227.90 - - [24/Jul/2026:08:15:20 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/login?next=%2Fadmin%2Fdashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:20.35
+d4c7f7b9
+User
+34.38.227.90 - - [24/Jul/2026:08:15:20 +0000] "GET /static/epiq-logo-dark.png HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/login?next=%2Fadmin%2Fdashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:20.37
+d4c7f7b9
+User
+INFO:apscheduler.executors.default:Running job "Retry PENDING_RETRY Payments to PS365 (trigger: cron[minute='*/5'], next run at: 2026-07-24 11:20:00 EEST)" (scheduled at 2026-07-24 11:15:00+03:00)
+
+2026-07-24 11:15:20.48
+d4c7f7b9
+User
+INFO:scheduler:============================================================
+
+2026-07-24 11:15:20.48
+d4c7f7b9
+User
+INFO:scheduler:============================================================
+
+2026-07-24 11:15:20.48
+d4c7f7b9
+User
+INFO:scheduler:STARTING FTP LOGIN LOGS SYNC
+
+2026-07-24 11:15:20.54
+d4c7f7b9
+User
+DEBUG:apscheduler.scheduler:Next wakeup is due at 2026-07-24 11:20:00+03:00 (in 279.453751 seconds)
+
+2026-07-24 11:15:20.97
+d4c7f7b9
+User
+INFO:services.ftp_login_sync:FTP connected to 195.201.199.118
+
+2026-07-24 11:15:21.90
+d4c7f7b9
+User
+INFO:services.ftp_login_sync:FTP login CSV: 874 rows downloaded
+
+2026-07-24 11:15:22.64
+d4c7f7b9
+User
+34.38.86.173 - - [24/Jul/2026:08:15:22 +0000] "POST /login HTTP/1.1" 302 219 "https://ep-picking-bro.replit.app/login?next=%2Fadmin%2Fdashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:25.22
+d4c7f7b9
+User
+34.38.86.173 - - [24/Jul/2026:08:15:25 +0000] "GET /admin/dashboard HTTP/1.1" 200 166304 "https://ep-picking-bro.replit.app/login?next=%2Fadmin%2Fdashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:25.59
+d4c7f7b9
+User
+34.38.227.90 - - [24/Jul/2026:08:15:25 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/admin/dashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+2026-07-24 11:15:40.07
+d4c7f7b9
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+2026-07-24 11:15:40.07
+d4c7f7b9
+User
+connection to server at "ep-raspy-mud-aebfnedn.c-2.us-east-2.aws.neon.tech" (3.132.12.55), port 5432 failed: timeout expired
+
+2026-07-24 11:15:40.07
+d4c7f7b9
+User
+ERROR:root:Error checking for long shift checkouts: (psycopg2.OperationalError) connection to server at "ep-raspy-mud-aebfnedn.c-2.us-east-2.aws.neon.tech" (3.147.243.31), port 5432 failed: timeout expired
+
+2026-07-24 11:15:40.07
+d4c7f7b9
+User
+connection to server at "ep-raspy-mud-aebfnedn.c-2.us-east-2.aws.neon.tech" (3.137.42.68), port 5432 failed: timeout expired
+
+2026-07-24 11:15:40.07
+d4c7f7b9
