@@ -146,7 +146,7 @@
                                 <td>
                                     {% set picked_count = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
                                     {% set total_count = invoice.items|length %}
-                                    {% set exception_count = invoice.exceptions|length %}
+                                    {% set exception_count = invoice.exceptions|rejectattr('is_resolved')|list|length %}
                                     
                                     <span data-bs-toggle="tooltip" title="{{ picked_count }} of {{ total_count }} items picked">
                                         {{ picked_count }} / {{ total_count }}

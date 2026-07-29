@@ -512,7 +512,10 @@ def admin_dashboard():
     exception_counts = db.session.query(
         PickingException.invoice_no,
         func.count(PickingException.id).label('count')
-    ).filter(PickingException.invoice_no.in_(invoice_nos)).group_by(PickingException.invoice_no).all()
+    ).filter(
+        PickingException.invoice_no.in_(invoice_nos),
+        PickingException.is_resolved.isnot(True)
+    ).group_by(PickingException.invoice_no).all()
     
     for invoice_no, count in exception_counts:
         invoice_exceptions[invoice_no] = count

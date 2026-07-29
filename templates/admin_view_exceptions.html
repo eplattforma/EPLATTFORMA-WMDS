@@ -83,8 +83,9 @@
 
 <!-- Exceptions List -->
 <div class="card shadow mb-4">
-    <div class="card-header bg-danger text-white">
-        <h5 class="mb-0"><i class="fas fa-exclamation-circle me-2"></i>Picking Exceptions ({{ exceptions|length }})</h5>
+    {% set open_count = exceptions|rejectattr('is_resolved')|list|length %}
+    <div class="card-header {% if open_count > 0 %}bg-danger{% else %}bg-success{% endif %} text-white">
+        <h5 class="mb-0"><i class="fas fa-{% if open_count > 0 %}exclamation-circle{% else %}check-circle{% endif %} me-2"></i>Picking Exceptions ({{ open_count }} open / {{ exceptions|length }} total)</h5>
     </div>
     <div class="card-body">
         {% if exceptions %}

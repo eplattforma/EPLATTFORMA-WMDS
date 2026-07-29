@@ -36,7 +36,8 @@ def open_orders():
         PickingException.invoice_no,
         func.count(PickingException.id).label('count')
     ).filter(
-        PickingException.invoice_no.in_(invoice_nos)
+        PickingException.invoice_no.in_(invoice_nos),
+        PickingException.is_resolved.isnot(True)
     ).group_by(PickingException.invoice_no).all()
     invoice_exceptions = {row.invoice_no: row.count for row in exception_counts}
     
