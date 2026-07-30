@@ -2955,10 +2955,56 @@ def resolve_picking_exception(exception_id):
         flash('Access denied.', 'danger')
         return redirect(url_for('index'))
 
+    if not validate_csrf_token():
+        flash('Invalid request. Please try again.', 'danger')
+        return redirect(url_for('index'))
+
     exc = PickingException.query.get_or_404(exception_id)
+
+    resolution_action = request.form.get('resolution_action', '').strip()
+    qty_raw = request.form.get('resolution_qty', '').strip()
+
+    if resolution_action not in ('credit_note', 'picked'):
+        flash('Please choose a resolution type (credit note or picked).', 'danger')
+        return redirect(url_for('admin_view_exceptions', invoice_no=exc.invoice_no))
+    try:
+        resolution_qty = int(qty_raw)
+    except (TypeError, ValueError):
+        flash('Please enter a valid quantity.', 'danger')
+        return redirect(url_for('admin_view_exceptions', invoice_no=exc.invoice_no))
+
+    item = InvoiceItem.query.filter_by(invoice_no=exc.invoice_no, item_code=exc.item_code).first()
+
+    if resolution_action == 'credit_note':
+        if resolution_qty < 1 or resolution_qty > exc.expected_qty:
+            flash(f'Credited quantity must be between 1 and {exc.expected_qty}.', 'danger')
+            return redirect(url_for('admin_view_exceptions', invoice_no=exc.invoice_no))
+        # If a previous 'picked' resolution corrected the item, revert to the originally recorded pick
+        if exc.resolution_action == 'picked' and item:
+            item.picked_qty = exc.picked_qty
+            item.is_picked = exc.picked_qty > 0
+            item.pick_status = 'picked' if exc.picked_qty > 0 else 'not_picked'
+    else:  # picked
+        if resolution_qty < 0 or resolution_qty > exc.expected_qty:
+            flash(f'Picked quantity must be between 0 and {exc.expected_qty}.', 'danger')
+            return redirect(url_for('admin_view_exceptions', invoice_no=exc.invoice_no))
+        # Correct the underlying invoice item; exc.picked_qty keeps the original recorded pick
+        if item:
+            item.picked_qty = resolution_qty
+            item.is_picked = resolution_qty > 0
+            item.pick_status = 'picked' if resolution_qty > 0 else 'not_picked'
+
+    exc.resolution_action = resolution_action
+    exc.resolution_qty = resolution_qty
+    from timezone_utils import get_utc_now
     exc.is_resolved = True
+    exc.resolved_by = current_user.username
+    exc.resolved_at = get_utc_now()
     db.session.commit()
-    flash(f'Exception for {exc.item_code} on {exc.invoice_no} marked as resolved.', 'success')
+    if resolution_action == 'credit_note':
+        flash(f'Exception for {exc.item_code} on {exc.invoice_no} resolved: credit note for {resolution_qty} unit(s).', 'success')
+    else:
+        flash(f'Exception for {exc.item_code} on {exc.invoice_no} resolved: picked quantity corrected to {resolution_qty}.', 'success')
 
     # Re-check warehouse readiness for the route this invoice belongs to
     try:

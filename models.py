@@ -233,6 +233,10 @@ class PickingException(db.Model):
     timestamp = db.Column(UTCDateTime(), default=get_utc_now)
     reason = db.Column(db.String(500), nullable=True)  # Optional reason for the exception
     is_resolved = db.Column(db.Boolean, default=False, nullable=True)
+    resolution_action = db.Column(db.String(20), nullable=True)  # 'credit_note' or 'picked'
+    resolution_qty = db.Column(db.Integer, nullable=True)  # credited qty or corrected picked qty
+    resolved_by = db.Column(db.String(64), nullable=True)
+    resolved_at = db.Column(UTCDateTime(), nullable=True)
 
 # Batch Picking Session Table
 class BatchPickingSession(db.Model, SoftDeleteMixin):

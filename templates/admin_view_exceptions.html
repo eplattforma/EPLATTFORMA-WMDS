@@ -103,6 +103,7 @@
                         <th>Picker</th>
                         <th>Reason</th>
                         <th>Status</th>
+                        <th>Resolution</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -131,25 +132,99 @@
                             <span class="badge bg-danger"><i class="fas fa-times me-1"></i>Open</span>
                             {% endif %}
                         </td>
-                        <td>
-                            {% if not exception.is_resolved %}
-                            <form method="POST"
-                                  action="{{ url_for('resolve_picking_exception', exception_id=exception.id) }}"
-                                  onsubmit="return confirm('Mark this exception as resolved?')">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-success text-nowrap">
-                                    <i class="fas fa-check me-1"></i>Resolve
-                                </button>
-                            </form>
+                        <td class="text-nowrap">
+                            {% if exception.resolution_action == 'credit_note' %}
+                            <span class="badge bg-warning text-dark" title="Resolved by {{ exception.resolved_by or '—' }}">
+                                <i class="fas fa-file-invoice-dollar me-1"></i>Credit note × {{ exception.resolution_qty }}
+                            </span>
+                            {% elif exception.resolution_action == 'picked' %}
+                            <span class="badge bg-info text-dark" title="Resolved by {{ exception.resolved_by or '—' }}">
+                                <i class="fas fa-box me-1"></i>Picked × {{ exception.resolution_qty }}
+                            </span>
+                            {% elif exception.is_resolved %}
+                            <span class="text-muted">—</span>
                             {% else %}
                             <span class="text-muted">—</span>
                             {% endif %}
+                        </td>
+                        <td class="text-nowrap">
+                            <button type="button" class="btn btn-sm {% if exception.is_resolved %}btn-outline-secondary{% else %}btn-success{% endif %}"
+                                    data-bs-toggle="modal" data-bs-target="#resolveModal{{ exception.id }}">
+                                {% if exception.is_resolved %}<i class="fas fa-pen me-1"></i>Edit{% else %}<i class="fas fa-check me-1"></i>Resolve{% endif %}
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% for exception in exceptions %}
+        {% set shortfall = exception.expected_qty - exception.picked_qty %}
+        <!-- Resolve/Edit Resolution Modal -->
+        <div class="modal fade" id="resolveModal{{ exception.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <form method="POST" action="{{ url_for('resolve_picking_exception', exception_id=exception.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                {% if exception.is_resolved %}Edit Resolution{% else %}Resolve Exception{% endif %} — {{ exception.item_code }}
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-3">
+                                Expected <strong>{{ exception.expected_qty }}</strong>, picked <strong>{{ exception.picked_qty }}</strong>
+                                (short by <strong>{{ shortfall }}</strong>).
+                            </p>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="resolution_action" value="credit_note"
+                                       id="creditNote{{ exception.id }}"
+                                       {% if exception.resolution_action != 'picked' %}checked{% endif %}
+                                       onchange="setResolutionQty({{ exception.id }}, {{ shortfall if shortfall > 0 else 1 }}, 1, {{ exception.expected_qty }})">
+                                <label class="form-check-label" for="creditNote{{ exception.id }}">
+                                    <strong>Credit note issued</strong> — customer is credited for the units not picked
+                                </label>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="radio" name="resolution_action" value="picked"
+                                       id="pickedRes{{ exception.id }}"
+                                       {% if exception.resolution_action == 'picked' %}checked{% endif %}
+                                       onchange="setResolutionQty({{ exception.id }}, {{ exception.expected_qty }}, 0, {{ exception.expected_qty }})">
+                                <label class="form-check-label" for="pickedRes{{ exception.id }}">
+                                    <strong>Actually picked</strong> — correct the picked quantity (updates the invoice item too)
+                                </label>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="resolutionQty{{ exception.id }}">Quantity</label>
+                                <input type="number" class="form-control" name="resolution_qty"
+                                       id="resolutionQty{{ exception.id }}"
+                                       value="{{ exception.resolution_qty if exception.resolution_qty is not none else (shortfall if shortfall > 0 else 1) }}"
+                                       min="0" max="{{ exception.expected_qty }}" required>
+                                <div class="form-text">
+                                    Credit note: units to credit. Actually picked: the corrected picked quantity.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-check me-1"></i>{% if exception.is_resolved %}Update Resolution{% else %}Resolve{% endif %}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+        <script>
+        function setResolutionQty(id, value, min, max) {
+            var input = document.getElementById('resolutionQty' + id);
+            input.value = value;
+            input.min = min;
+            input.max = max;
+        }
+        </script>
         {% else %}
         <div class="alert alert-info">
             <i class="fas fa-info-circle me-2"></i>No exceptions found for this invoice.

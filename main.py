@@ -907,6 +907,13 @@ try:
 except Exception as e:
     logging.warning(f"confirmed_unprinted schema migration skipped: {e}")
 
+try:
+    with app.app_context():
+        from migrations.picking_exception_resolution_schema import ensure_picking_exception_resolution_schema
+        ensure_picking_exception_resolution_schema(db)
+except Exception as e:
+    logging.warning(f"picking_exception resolution schema migration skipped: {e}")
+
 logging.warning("PHASE 6: all schema updates and DB init done")
 print("PHASE 6: all schema updates and DB init done", flush=True)
 
