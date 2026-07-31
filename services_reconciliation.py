@@ -23,6 +23,105 @@ logger = logging.getLogger(__name__)
 
 FINAL_DELIVERY_STATUSES = {'delivered', 'delivery_failed', 'partial', 'returned_to_warehouse', 'skipped'}
 
+LOCAL_TZ_NAME = 'Asia/Nicosia'
+
+
+def receipt_collection_date(created_at):
+    """Local (Cyprus) calendar date a receipt was collected on.
+    created_at is stored as naive UTC."""
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+    if created_at is None:
+        return None
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return created_at.astimezone(ZoneInfo(LOCAL_TZ_NAME)).date()
+
+
+def get_settlement_receipts(shipment_id: int) -> Dict:
+    """
+    Cash-day attribution of COD receipts for a route's settlement/reconciliation.
+
+    Rule: a receipt collected BEFORE its own route's delivery date (an "early
+    collection", e.g. a rerouted invoice delivered a day ahead) is counted on
+    the same driver's route for the day the cash was actually collected, so the
+    driver's daily cash hand-in matches the system. It stays attached to its
+    own route for invoice-level reporting, but is excluded from that route's
+    cash totals.
+
+    Returns dict with:
+      counted:  receipts whose cash counts on this route
+      incoming: early receipts from the driver's other routes, collected on
+                this route's day (subset of counted)
+      outgoing: this route's receipts collected early on another same-driver
+                route's day (excluded from counted)
+    """
+    shipment = db.session.get(Shipment, shipment_id)
+    if not shipment:
+        return {'counted': [], 'incoming': [], 'outgoing': []}
+
+    own = (CODReceipt.query
+           .filter_by(route_id=shipment_id)
+           .filter(CODReceipt.status != 'VOIDED')
+           .all())
+
+    # All of this driver's route dates, for batch lookups
+    driver_route_dates = {
+        row.delivery_date
+        for row in db.session.query(Shipment.delivery_date)
+        .filter(Shipment.driver_name == shipment.driver_name)
+        .all()
+    }
+
+    outgoing = []
+    kept = []
+    for r in own:
+        cdate = receipt_collection_date(r.created_at)
+        if (cdate and shipment.delivery_date
+                and cdate < shipment.delivery_date
+                and cdate in driver_route_dates):
+            outgoing.append(r)
+        else:
+            kept.append(r)
+
+    incoming = []
+    if shipment.delivery_date:
+        rows = (db.session.query(CODReceipt, Shipment.delivery_date)
+                .join(Shipment, Shipment.id == CODReceipt.route_id)
+                .filter(Shipment.driver_name == shipment.driver_name,
+                        Shipment.id != shipment_id,
+                        Shipment.delivery_date > shipment.delivery_date,
+                        CODReceipt.status != 'VOIDED')
+                .all())
+        for r, other_date in rows:
+            cdate = receipt_collection_date(r.created_at)
+            if cdate == shipment.delivery_date and other_date and cdate < other_date:
+                incoming.append(r)
+
+    return {'counted': kept + incoming, 'incoming': incoming, 'outgoing': outgoing}
+
+
+def describe_early_receipts(receipts: List) -> List[Dict]:
+    """Display info for early-collection receipts (for reconciliation views)."""
+    out = []
+    for r in receipts:
+        route = db.session.get(Shipment, r.route_id)
+        stop = db.session.get(RouteStop, r.route_stop_id) if r.route_stop_id else None
+        out.append({
+            'receipt_id': r.id,
+            'receipt_number': getattr(r, 'receipt_number', None) or r.id,
+            'route_id': r.route_id,
+            'route_name': route.route_name if route else None,
+            'route_date': route.delivery_date if route else None,
+            'customer_name': stop.stop_name if stop else None,
+            'invoice_nos': getattr(r, 'invoice_nos', None),
+            'collected_on': receipt_collection_date(r.created_at),
+            'expected_amount': float(r.expected_amount or 0),
+            'received_amount': float(r.received_amount or 0),
+            'payment_method': r.payment_method,
+        })
+    return out
+
 
 def get_shipment_invoices(shipment_id: int) -> List[Dict]:
     """Get all active invoices for a shipment via canonical route_stop_invoice join"""
@@ -307,22 +406,14 @@ def check_unresolved_discrepancies(shipment_id: int) -> List[Dict]:
 
 
 def get_cash_totals(shipment_id: int) -> Dict:
-    """Get cash totals from COD receipts"""
-    sql = text("""
-        SELECT
-            COALESCE(SUM(expected_amount), 0) AS cash_expected,
-            COALESCE(SUM(received_amount), 0) AS cash_collected,
-            COALESCE(SUM(variance), 0) AS cash_variance_sum,
-            COUNT(CASE WHEN ps365_synced_at IS NULL THEN 1 END) AS not_synced_count
-        FROM cod_receipts
-        WHERE route_id = :shipment_id
-    """)
-    result = db.session.execute(sql, {'shipment_id': shipment_id}).fetchone()
+    """Get cash totals from COD receipts, using cash-day attribution
+    (early collections count on the day route, see get_settlement_receipts)."""
+    receipts = get_settlement_receipts(shipment_id)['counted']
     return {
-        'cash_expected': Decimal(str(result.cash_expected or 0)),
-        'cash_collected': Decimal(str(result.cash_collected or 0)),
-        'cash_variance_sum': Decimal(str(result.cash_variance_sum or 0)),
-        'not_synced_count': result.not_synced_count or 0
+        'cash_expected': sum((Decimal(str(r.expected_amount or 0)) for r in receipts), Decimal('0')),
+        'cash_collected': sum((Decimal(str(r.received_amount or 0)) for r in receipts), Decimal('0')),
+        'cash_variance_sum': sum((Decimal(str(r.variance or 0)) for r in receipts), Decimal('0')),
+        'not_synced_count': sum(1 for r in receipts if r.ps365_synced_at is None)
     }
 
 
@@ -375,14 +466,6 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
             WHERE rs.shipment_id = :shipment_id
               AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
               AND d.is_resolved = false
-        ),
-        cash AS (
-            SELECT
-                COALESCE(SUM(expected_amount), 0) AS expected,
-                COALESCE(SUM(received_amount), 0) AS received,
-                COUNT(CASE WHEN ps365_synced_at IS NULL THEN 1 END) AS not_synced_count
-            FROM cod_receipts
-            WHERE route_id = :shipment_id
         )
         SELECT
             (SELECT COUNT(*) FROM inv) AS invoices_total,
@@ -392,13 +475,15 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
             (SELECT COUNT(*) FROM inv WHERE status IS NULL OR LOWER(status) NOT IN ('delivered','delivery_failed','partial','returned_to_warehouse','skipped','failed','returned')) AS pending,
             (SELECT cnt FROM pod_missing) AS missing_pod,
             (SELECT cnt FROM open_cases) AS open_cases,
-            (SELECT cnt FROM unresolved_disc) AS unresolved_discrepancies,
-            (SELECT expected FROM cash) AS cash_expected,
-            (SELECT received FROM cash) AS cash_received,
-            (SELECT not_synced_count FROM cash) AS receipts_not_synced
+            (SELECT cnt FROM unresolved_disc) AS unresolved_discrepancies
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id}).fetchone()
-    return dict(result._mapping)
+    summary = dict(result._mapping)
+    cash = get_cash_totals(shipment_id)
+    summary['cash_expected'] = cash['cash_expected']
+    summary['cash_received'] = cash['cash_collected']
+    summary['receipts_not_synced'] = cash['not_synced_count']
+    return summary
 
 
 def get_stop_details(shipment_id: int) -> List[Dict]:

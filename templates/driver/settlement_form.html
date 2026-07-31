@@ -93,6 +93,26 @@
                     </tr>
                 </tfoot>
             </table>
+            {% if early_incoming %}
+            <div class="alert alert-info mb-2">
+                <strong>Collected today for other routes (included in totals):</strong>
+                <ul class="mb-0">
+                    {% for er in early_incoming %}
+                    <li>{{ er.customer_name or '-' }} — €{{ "%.2f"|format(er.received_amount) }} ({{ er.payment_method|upper }}) — route #{{ er.route_id }} ({{ er.route_date }})</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if early_outgoing %}
+            <div class="alert alert-warning mb-2">
+                <strong>Collected early on a previous day (excluded from totals — already handed in):</strong>
+                <ul class="mb-0">
+                    {% for er in early_outgoing %}
+                    <li>{{ er.customer_name or '-' }} — €{{ "%.2f"|format(er.received_amount) }} ({{ er.payment_method|upper }}) — collected {{ er.collected_on }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
         </div>
     </div>
 

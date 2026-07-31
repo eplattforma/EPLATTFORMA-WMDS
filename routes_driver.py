@@ -2376,12 +2376,15 @@ def settlement_form(route_id):
     if route.driver_name != current_user.username and current_user.role != 'admin':
         abort(403, description="Not your route")
     
-    # Get all COD receipts for this route
+    # Get all COD receipts for this route (for display)
     cod_receipts = CODReceipt.query.filter_by(route_id=route_id).all()
     
-    # Calculate totals
-    total_expected = sum(r.expected_amount for r in cod_receipts)
-    total_received = sum(r.received_amount for r in cod_receipts)
+    # Totals use cash-day attribution (early collections count on the
+    # collection day's route) so the form matches what submit will compute.
+    import services_reconciliation as recon_svc
+    settlement = recon_svc.get_settlement_receipts(route_id)
+    total_expected = sum(r.expected_amount for r in settlement['counted'])
+    total_received = sum(r.received_amount for r in settlement['counted'])
     total_variance = total_received - total_expected
     
     # Get settlement info if exists
@@ -2415,6 +2418,8 @@ def settlement_form(route_id):
                          total_received=float(total_received),
                          total_variance=float(total_variance),
                          settlement_info=settlement_info,
+                         early_incoming=recon_svc.describe_early_receipts(settlement['incoming']),
+                         early_outgoing=recon_svc.describe_early_receipts(settlement['outgoing']),
                          unprinted_stops=unprinted_stops)
 
 @driver_bp.route('/routes/<int:route_id>/settlement/submit', methods=['POST'])
@@ -2483,8 +2488,14 @@ def submit_settlement(route_id):
             m = (m or "cash").lower()
             return m in ("cash", "cheque")
         
-        expected_cash = sum(Decimal(str(r.expected_amount or 0)) for r in cod_receipts if is_cashlike(r.payment_method))
-        collected_cash = sum(Decimal(str(r.received_amount or 0)) for r in cod_receipts if is_cashlike(r.payment_method))
+        # Cash-day attribution: receipts collected early (before this route's
+        # date) count on the same driver's route for the collection day, and
+        # early collections from other routes made today count here — so the
+        # driver's hand-in matches what was physically collected today.
+        from services_reconciliation import get_settlement_receipts
+        settlement_receipts = get_settlement_receipts(route_id)['counted']
+        expected_cash = sum(Decimal(str(r.expected_amount or 0)) for r in settlement_receipts if is_cashlike(r.payment_method))
+        collected_cash = sum(Decimal(str(r.received_amount or 0)) for r in settlement_receipts if is_cashlike(r.payment_method))
         
         # Store snapshots on the route at submission time
         route.cash_expected = expected_cash

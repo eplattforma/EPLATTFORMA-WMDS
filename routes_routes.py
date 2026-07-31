@@ -1911,12 +1911,13 @@ def reconciliation_report(shipment_id):
             'ps365_receipt': ps365_receipt
         })
     
-    # Calculate totals — voided receipts are displayed but never counted
-    all_cod_receipts = CODReceipt.query.filter_by(route_id=shipment_id).filter(
-        CODReceipt.status != 'VOIDED'
-    ).all()
-    total_expected = sum(r.expected_amount for r in all_cod_receipts)
-    total_received = sum(r.received_amount for r in all_cod_receipts)
+    # Calculate totals — voided receipts are displayed but never counted.
+    # Cash-day attribution: early collections count on the collection-day route.
+    import services_reconciliation as recon_svc
+    settlement = recon_svc.get_settlement_receipts(shipment_id)
+    counted_receipts = [r for r in settlement['counted'] if r.status != 'VOIDED']
+    total_expected = sum(r.expected_amount for r in counted_receipts)
+    total_received = sum(r.received_amount for r in counted_receipts)
     total_variance = total_received - total_expected
     
     # Settlement info
@@ -1942,6 +1943,8 @@ def reconciliation_report(shipment_id):
                          total_expected=float(total_expected),
                          total_received=float(total_received),
                          total_variance=float(total_variance),
+                         early_incoming=recon_svc.describe_early_receipts(settlement['incoming']),
+                         early_outgoing=recon_svc.describe_early_receipts(settlement['outgoing']),
                          settlement_info=settlement_info,
                          now_date=date_type.today())
 
@@ -2110,11 +2113,14 @@ def reconciliation_print(shipment_id):
     
     import services_reconciliation as recon
     invoice_report = recon.get_invoice_reconciliation_report(shipment_id) or []
+    settlement = recon.get_settlement_receipts(shipment_id)
     
     return render_template('route_reconciliation_print.html',
                          route=route,
                          stops_data=stops_data,
                          invoice_report=invoice_report,
+                         early_incoming=recon.describe_early_receipts(settlement['incoming']),
+                         early_outgoing=recon.describe_early_receipts(settlement['outgoing']),
                          now=datetime.now())
 
 

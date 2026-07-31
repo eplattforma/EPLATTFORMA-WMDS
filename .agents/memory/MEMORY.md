@@ -1,3 +1,4 @@
+- [Cash-day attribution for COD receipts](cash-day-attribution.md) — early-collected receipts count on the driver's collection-day route; never sum cod_receipts by route_id alone for settlements.
 - [Cooler planner test mock pattern](cooler-planner-test-mock.md) — auto mode uses fetchall(); manual mode uses fetchone(); test helper must set both correctly.
 - [SMTP Brevo relay setup](smtp-brevo-setup.md) — Brevo needs separate SMTP_FROM secret for the visible From address; SMTP_EMAIL is the auth key only.
 - [PS365 value date vs utc0](ps365-value-date.md) — sales reporting must use invoice_date_local; utc0 can differ by months and skews monthly net sales.

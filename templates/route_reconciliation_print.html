@@ -295,6 +295,66 @@
     </table>
     {% endif %}
 
+    {% if early_incoming %}
+    <div class="section-title">Early Collections Received on This Day (from other routes)</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Invoices</th>
+                <th>Belongs to Route</th>
+                <th style="width: 70px;">Method</th>
+                <th class="text-end" style="width: 80px;">Received</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for er in early_incoming %}
+            <tr>
+                <td>{{ er.customer_name or '-' }}</td>
+                <td>{{ er.invoice_nos | join(', ') if er.invoice_nos else '-' }}</td>
+                <td>#{{ er.route_id }} {{ er.route_name or '' }} ({{ er.route_date }})</td>
+                <td>{{ er.payment_method or 'cash' }}</td>
+                <td class="text-end">&euro;{{ "%.2f"|format(er.received_amount) }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+                <td colspan="4">Early collections counted in this day's cash</td>
+                <td class="text-end">&euro;{{ "%.2f"|format(early_incoming | sum(attribute='received_amount')) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if early_outgoing %}
+    <div class="section-title">Collected Early (cash counted on the collection day's route)</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Invoices</th>
+                <th style="width: 90px;">Collected On</th>
+                <th style="width: 70px;">Method</th>
+                <th class="text-end" style="width: 80px;">Received</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for er in early_outgoing %}
+            <tr>
+                <td>{{ er.customer_name or '-' }}</td>
+                <td>{{ er.invoice_nos | join(', ') if er.invoice_nos else '-' }}</td>
+                <td>{{ er.collected_on }}</td>
+                <td>{{ er.payment_method or 'cash' }}</td>
+                <td class="text-end">&euro;{{ "%.2f"|format(er.received_amount) }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+                <td colspan="4">Excluded from this route's cash (already handed in earlier)</td>
+                <td class="text-end">&euro;{{ "%.2f"|format(early_outgoing | sum(attribute='received_amount')) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
     <div class="sign-section">
         <div class="section-title">Confirmation &amp; Sign-Off</div>
 

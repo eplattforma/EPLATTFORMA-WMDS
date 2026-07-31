@@ -128,9 +128,13 @@ def get_route_reconciliation_summary(route_id):
         CODReceipt.route_id == route_id
     ).all() if route_id else []
     
-    # Calculate cash totals from COD receipts (actual data source)
-    cash_expected_from_receipts = sum(float(r.expected_amount or 0) for r in cod_receipts)
-    cash_collected_from_receipts = sum(float(r.received_amount or 0) for r in cod_receipts)
+    # Calculate cash totals with cash-day attribution: early collections
+    # (receipts collected before their route's date) count on the same
+    # driver's route for the collection day.
+    from services_reconciliation import get_settlement_receipts
+    settlement_receipts = get_settlement_receipts(route_id)['counted'] if route_id else []
+    cash_expected_from_receipts = sum(float(r.expected_amount or 0) for r in settlement_receipts)
+    cash_collected_from_receipts = sum(float(r.received_amount or 0) for r in settlement_receipts)
     cash_variance_from_receipts = cash_collected_from_receipts - cash_expected_from_receipts
     
     pod_records = PODRecord.query.filter(
