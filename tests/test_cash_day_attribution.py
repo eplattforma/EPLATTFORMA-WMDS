@@ -130,3 +130,37 @@ def test_late_evening_receipt_not_flagged_early(ctx):
     assert [x.id for x in res2['counted']] == [r.id]
     assert res2['outgoing'] == []
     assert recon.get_settlement_receipts(r_day1.id)['incoming'] == []
+
+
+def test_report_includes_receipt_over_collection(ctx):
+    """A receipt recording more cash than allocated to invoices must surface
+    the surplus in the stop's Received figure (real incident: €348.10 receipt
+    vs €314.90 allocations showed Received €314.90)."""
+    db = ctx
+    import services_reconciliation as recon
+    from models import CODInvoiceAllocation, Invoice
+
+    route = _mk_route(db, 'Ricardo', date(2026, 8, 3))
+    stop = _mk_stop(db, route)
+    from models import RouteStopInvoice
+    inv = Invoice(invoice_no='IN9001', total_grand=Decimal('314.90'),
+                  customer_code='C1', customer_name='PERIPTERO',
+                  upload_date=datetime(2026, 8, 1))
+    db.session.add(inv)
+    db.session.add(RouteStopInvoice(route_stop_id=stop.route_stop_id,
+                                    invoice_no='IN9001', status='delivered',
+                                    is_active=True))
+    receipt = _mk_receipt(db, route, stop, 348.10, datetime(2026, 8, 3, 9, 0))
+    receipt.expected_amount = Decimal('314.90')
+    db.session.add(CODInvoiceAllocation(cod_receipt_id=receipt.id,
+                                        invoice_no='IN9001', route_id=route.id,
+                                        expected_amount=Decimal('314.90'),
+                                        received_amount=Decimal('314.90'),
+                                        deduct_amount=Decimal('0'),
+                                        payment_method='cash', is_pending=False))
+    db.session.flush()
+
+    # Full report SQL uses LATERAL joins (Postgres-only); test the
+    # over-collection helper directly on SQLite.
+    over = recon.get_over_collections_by_stop(route.id)
+    assert over[stop.route_stop_id] == pytest.approx(33.20)

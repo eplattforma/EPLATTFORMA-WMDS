@@ -1146,6 +1146,7 @@ def submit_delivery(stop_id):
                 inv_rows.sort(key=lambda r: r['invoice_due'])
 
                 remaining = received
+                allocations_created = []
                 for row in inv_rows:
                     if len(invoice_nos) == 1:
                         invoice_received = received
@@ -1166,6 +1167,16 @@ def submit_delivery(stop_id):
                         cheque_date=cheque_date_alloc
                     )
                     db.session.add(allocation)
+                    allocations_created.append(allocation)
+
+                # Over-collection: if the driver received more than the sum of
+                # invoice dues, park the surplus on the last allocation so the
+                # allocations always sum to the receipt's received amount
+                # (otherwise the extra cash disappears from stop-level reports).
+                if len(invoice_nos) > 1 and remaining > 0 and allocations_created:
+                    allocations_created[-1].received_amount = (
+                        (allocations_created[-1].received_amount or Decimal('0')) + remaining
+                    )
         
         if signature_required and not has_signed_invoice:
             abort(400, description="Physical signed invoice is required for Credit / Pay Online / Post-dated cheque")

@@ -147,6 +147,30 @@ def get_shipment_invoices(shipment_id: int) -> List[Dict]:
     return [dict(row._mapping) for row in result]
 
 
+def get_over_collections_by_stop(shipment_id: int) -> Dict[int, float]:
+    """Over-collection per stop: a receipt may record more cash than was
+    allocated to its invoices (driver collected extra on top of the invoice
+    totals). Returns {route_stop_id: receipt_total - allocation_total} so the
+    surplus can be surfaced in "Received" figures."""
+    sql = text("""
+        SELECT cr.route_stop_id,
+               COALESCE(SUM(cr.received_amount), 0)
+             - COALESCE(SUM((
+                   SELECT SUM(ca.received_amount)
+                   FROM cod_invoice_allocations ca
+                   WHERE ca.cod_receipt_id = cr.id
+               )), 0) AS over_collected
+        FROM cod_receipts cr
+        WHERE cr.route_id = :shipment_id
+          AND cr.status != 'VOIDED'
+        GROUP BY cr.route_stop_id
+    """)
+    return {
+        row.route_stop_id: float(row.over_collected or 0)
+        for row in db.session.execute(sql, {'shipment_id': shipment_id})
+    }
+
+
 def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
     """Get invoice-level reconciliation report for a route.
     
@@ -278,8 +302,15 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             'is_credit': is_credit
         })
 
+    over_by_stop = get_over_collections_by_stop(shipment_id)
+
     rows = []
     for stop_id, data in stops_data.items():
+        over_collected = over_by_stop.get(stop_id, 0.0)
+        if abs(over_collected) < 0.005:
+            over_collected = 0.0
+        if over_collected:
+            data['total_received'] += over_collected
         # Stop-level summary
         stop_expected = sum(inv['expected'] for inv in data['invoices'])
         stop_discrepancy = sum(inv['discrepancy'] or 0 for inv in data['invoices'])
@@ -325,6 +356,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             'stop_credit': float(stop_credit),
             'stop_due': float(stop_due),
             'stop_uncollected': float(stop_uncollected),
+            'stop_over_collected': float(over_collected),
             'stop_discrepancy': float(stop_discrepancy),
             'stop_outstanding': float(stop_outstanding),
             'invoices': data['invoices']
