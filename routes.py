@@ -3092,9 +3092,12 @@ def admin_corrections():
         if customer_filter:
             query = query.filter(Invoice.customer_name.like(f'%{customer_filter}%'))
     
-    # Sort by date descending (newest first), then invoice number descending
+    # Sort by date descending (newest first), then invoice number descending.
+    # upload_date is stored as a YYYY-MM-DD string, which sorts correctly
+    # lexicographically — avoid Postgres-only to_date() so this also works
+    # on the SQLite test database.
     query = query.order_by(
-        db.func.to_date(Invoice.upload_date, 'YYYY-MM-DD').desc(),
+        Invoice.upload_date.desc(),
         Invoice.invoice_no.desc()
     )
     

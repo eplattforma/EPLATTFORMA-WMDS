@@ -162,6 +162,23 @@ def test_exception_report_header_open_vs_total(admin_auth, mixed_exception_invoi
     assert 'Resolved' in html
 
 
+def test_corrections_page_counts_only_unresolved(admin_auth, mixed_exception_invoice):
+    """Corrections page badge must show 3 unresolved (incl. NULL), never 4.
+
+    Also guards the upload_date ordering: the route must not use the
+    Postgres-only to_date(), or this render crashes on SQLite.
+    """
+    response = admin_auth.get('/admin/corrections?invoice_no=' + INVOICE_NO)
+    assert response.status_code == 200
+    html = response.data.decode('utf-8')
+
+    assert INVOICE_NO in html
+    # Badge tooltip renders "<count> exceptions reported"
+    assert '3 exceptions reported' in html
+    assert '4 exceptions reported' not in html
+    assert '1 exceptions reported' not in html
+
+
 def test_all_resolved_shows_zero_badges(admin_auth, app):
     """When every exception is resolved, no danger badge should render."""
     _register_filter_stubs(app)
