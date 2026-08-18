@@ -11,9 +11,10 @@
         body { font-family: Arial, sans-serif; margin: 0; padding: 0; color: #000; }
         .slip { max-width: 190mm; margin: 0 auto; padding: 4px; }
         .top { display: flex; justify-content: space-between; align-items: flex-start; }
-        .cust { font-size: 30px; font-weight: 700; line-height: 1.05; }
-        .stop { font-size: 20px; font-weight: 700; text-align: right; white-space: nowrap; }
-        .stop .route { font-size: 12px; font-weight: 400; }
+        .stop-label { font-size: 13px; font-weight: 700; color: #333; line-height: 1; }
+        .stop-num { font-size: 64px; font-weight: 800; line-height: 0.9; }
+        .cust { font-size: 22px; font-weight: 700; line-height: 1.05; margin-top: 4px; }
+        .rmeta { text-align: right; font-size: 13px; }
         .meta { display: flex; justify-content: space-between; font-size: 13px; margin-top: 2px; }
         .barcode { font-size: 40px; font-weight: 700; text-align: center; letter-spacing: 2px; margin: 8px 0 0; font-family: monospace; }
         .bc-num { text-align: center; font-family: monospace; font-size: 13px; margin-bottom: 8px; }
@@ -50,17 +51,18 @@
         </div>
 
         <div class="top">
-            <div class="cust">{{ invoice.customer_name }}</div>
-            <div class="stop">
-                Stop {% if route_info and route_info.stop_seq is not none %}{% if route_info.stop_seq == route_info.stop_seq|int %}{{ route_info.stop_seq|int }}{% else %}{{ route_info.stop_seq }}{% endif %}{% else %}—{% endif %}
-                <div class="route">Route {{ route_info.route_name if route_info else '—' }}</div>
+            <div>
+                <div class="stop-label">STOP</div>
+                <div class="stop-num">{% if route_info and route_info.stop_seq is not none %}{% if route_info.stop_seq == route_info.stop_seq|int %}{{ route_info.stop_seq|int }}{% else %}{{ route_info.stop_seq }}{% endif %}{% else %}—{% endif %}</div>
+            </div>
+            <div class="rmeta">
+                <div style="font-weight:700">Route {{ route_info.route_name if route_info else '—' }}</div>
+                <div>{% if route_info and route_info.delivery_date %}{{ route_info.delivery_date.strftime('%d/%m/%Y') }}{% else %}{{ now.strftime('%d/%m/%Y') }}{% endif %}</div>
+                <div>Driver: {{ route_info.driver_name if route_info and route_info.driver_name else '—' }}</div>
             </div>
         </div>
+        <div class="cust">{{ invoice.customer_name }}</div>
         <div class="meta">
-            <span>
-                {% if route_info and route_info.delivery_date %}{{ route_info.delivery_date.strftime('%d/%m/%Y') }}{% else %}{{ now.strftime('%d/%m/%Y') }}{% endif %}
-                &nbsp;·&nbsp; Driver: {{ route_info.driver_name if route_info and route_info.driver_name else '—' }}
-            </span>
             <span class="code">{{ invoice.customer_code_365 or invoice.customer_code or '' }}</span>
         </div>
 
@@ -70,10 +72,11 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width:16%">Code</th>
+                    <th style="width:15%">Code</th>
                     <th>Item</th>
-                    <th style="width:16%">Unit</th>
-                    <th class="qty" style="width:14%">Qty</th>
+                    <th style="width:20%">Location</th>
+                    <th style="width:15%">Unit</th>
+                    <th class="qty" style="width:12%">Qty</th>
                 </tr>
             </thead>
             <tbody>
@@ -81,6 +84,7 @@
                 <tr>
                     <td class="code">{{ it.item_code }}</td>
                     <td>{{ it.item_name }}{% if it.is_chilled %} <span class="chilled">CHILLED</span>{% endif %}</td>
+                    <td>{{ it.location }}</td>
                     <td>{{ it.unit_label }}</td>
                     <td class="qty">{% if it.qty_picked < it.qty %}<span class="short">{{ it.qty_picked }} / {{ it.qty }}</span>{% else %}{{ it.qty_picked }}{% endif %}</td>
                 </tr>

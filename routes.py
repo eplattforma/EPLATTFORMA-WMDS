@@ -4709,6 +4709,7 @@ def print_invoice(invoice_no):
         slip_items.append({
             'item_code': it.item_code,
             'item_name': it.item_name,
+            'location': it.location if it.location and it.location != 'None' else '',
             'unit_label': unit_label,
             'qty': qty_req,
             'qty_picked': qty_pic,
