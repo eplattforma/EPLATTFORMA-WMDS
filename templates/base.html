@@ -261,6 +261,18 @@
                                     <i class="fas fa-mug-hot me-2"></i>Idle — Dedicated Pickers
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'reports.order_performance' %}active{% endif %}" 
+                                   href="{{ url_for('reports.order_performance') }}">
+                                    <i class="fas fa-stopwatch me-2"></i>Order Performance
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'reports.picker_occupancy' %}active{% endif %}" 
+                                   href="{{ url_for('reports.picker_occupancy') }}">
+                                    <i class="fas fa-business-time me-2"></i>Occupancy — Dedicated Pickers
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     {% endif %}

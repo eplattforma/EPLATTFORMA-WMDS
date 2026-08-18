@@ -396,39 +396,35 @@ def shift_reports():
     except (ValueError, TypeError):
         dedicated_pickers = set()
 
-    # Gaps between picks, clamped to the WORKED window (check-in -> last
-    # pick of the shift). Historic shifts auto-closed at a fixed EOD time
-    # carry idle periods extending into the padded tail; never show that.
+    # Idle by the ORDER-BOUNDARY rule (vw_picker_idle_daily): an order ends
+    # at packing complete; time until the next order starts is idle. Bounded
+    # by the last packing of the day, so auto-close padding never inflates
+    # it, and batch picking (overlapping orders) is handled correctly.
     idle_by_shift = {}
-    shift_ids = [s.id for s in shifts if s.picker_username in dedicated_pickers]
-    if shift_ids:
+    dedicated_shifts = [s for s in shifts if s.picker_username in dedicated_pickers]
+    if dedicated_shifts:
         try:
             idle_rows = db.session.execute(_text("""
-                WITH la AS (
-                    SELECT s.id AS shift_id,
-                           MAX(itt.item_completed) AS last_pick
-                    FROM shifts s
-                    JOIN item_time_tracking itt
-                      ON itt.picker_username = s.picker_username
-                     AND itt.item_completed >= s.check_in_time
-                     AND itt.item_completed <= COALESCE(s.check_out_time, now())
-                    WHERE s.id = ANY(:ids)
-                    GROUP BY s.id
-                )
-                SELECT ip.shift_id,
-                       ROUND(SUM(GREATEST(0, EXTRACT(EPOCH FROM (
-                           LEAST(ip.end_time, la.last_pick)
-                           - GREATEST(ip.start_time, s.check_in_time)
-                       )))) / 60.0)::int
-                FROM idle_periods ip
-                JOIN la ON la.shift_id = ip.shift_id
-                JOIN shifts s ON s.id = ip.shift_id
-                WHERE ip.end_time IS NOT NULL
-                GROUP BY ip.shift_id
-            """), {'ids': shift_ids}).fetchall()
-            idle_by_shift = {r[0]: r[1] for r in idle_rows}
+                SELECT picker, work_date, idle_between_orders_min
+                FROM vw_picker_idle_daily
+                WHERE work_date BETWEEN :d1 AND :d2
+            """), {
+                'd1': min(s.check_in_time.date() for s in dedicated_shifts),
+                'd2': max(s.check_in_time.date() for s in dedicated_shifts),
+            }).fetchall()
+            idle_by_day = {(r[0], r[1]): int(r[2] or 0) for r in idle_rows}
+            # The figure is per picker-DAY; when a picker has several shifts
+            # on one day, attach it only to the earliest shift so the day's
+            # idle is never double-counted across rows.
+            idle_by_shift = {}
+            seen_days = set()
+            for s in sorted(dedicated_shifts, key=lambda x: x.check_in_time):
+                key = (s.picker_username, s.check_in_time.date())
+                if key in idle_by_day and key not in seen_days:
+                    idle_by_shift[s.id] = idle_by_day[key]
+                    seen_days.add(key)
         except Exception:
-            logging.exception("shift_reports: clamped idle query failed")
+            logging.exception("shift_reports: order-boundary idle query failed")
             db.session.rollback()
             idle_by_shift = {}
     

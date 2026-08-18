@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Occupancy — Dedicated Pickers - EPIQ{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <h4 class="mb-0"><i class="fas fa-business-time me-2"></i>Occupancy — Dedicated Pickers</h4>
+        <span class="text-muted small">
+            Occupied = an order is open (first pick → packing complete); idle = time when no order is open
+        </span>
+    </div>
+
+    {% if view_error %}
+    <div class="alert alert-warning">
+        Could not load the occupancy views. They may not be created yet on this database.
+        <div class="small text-muted mt-1">{{ view_error }}</div>
+    </div>
+    {% endif %}
+
+    {% if not dedicated %}
+    <div class="alert alert-info">
+        No dedicated pickers configured. Set the <code>dedicated_pickers</code> setting
+        (a list of usernames) to choose who appears in this report.
+    </div>
+    {% else %}
+    <div class="mb-3 text-muted small">
+        Dedicated pickers:
+        {% for p in dedicated %}<span class="badge bg-secondary me-1">{{ p }}</span>{% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+            <label class="form-label small mb-1">From</label>
+            <input type="date" class="form-control form-control-sm" name="start_date" value="{{ start_date.isoformat() }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1">To</label>
+            <input type="date" class="form-control form-control-sm" name="end_date" value="{{ end_date.isoformat() }}">
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
+        </div>
+    </form>
+
+    {% if timelines %}
+    <div class="card mb-4">
+        <div class="card-header py-2"><strong>Daily timeline</strong>
+            <span class="text-muted small ms-2">green = orders worked · grey = idle · red = idle block ≥ 20 min</span>
+        </div>
+        <div class="card-body py-3">
+            {% for t in timelines %}
+            <div class="mb-3">
+                <div class="d-flex justify-content-between small mb-1">
+                    <span><strong>{{ t.picker }}</strong> — {{ t.work_date }}</span>
+                    <span class="text-muted">{{ t.first }} → {{ t.last }} ·
+                        {% if t.occupancy_pct is not none %}
+                        <span class="badge {% if t.occupancy_pct >= 75 %}bg-success{% elif t.occupancy_pct >= 50 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                            {{ t.occupancy_pct|int }}% occupied
+                        </span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="d-flex rounded overflow-hidden" style="height: 18px; background: var(--bs-secondary-bg, #e9ecef);">
+                    {% for s in t.segments %}
+                    <div style="width: {{ '%.2f'|format(s.pct) }}%;
+                                background: {% if s.kind == 'busy' %}#28a745{% elif s.kind == 'long' %}#dc3545{% else %}#adb5bd{% endif %};"
+                         {% if s.label is defined %}title="Idle {{ s.label }}"{% endif %}></div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Occupancy per picker per day</strong>
+            <span class="text-muted small">{{ rows|length }} row(s)</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Picker</th>
+                        <th>First order</th>
+                        <th>Last order end</th>
+                        <th class="text-end">Span (min)</th>
+                        <th class="text-end">Occupied (min)</th>
+                        <th class="text-end">Idle (min)</th>
+                        <th class="text-end">Occupancy</th>
+                        <th class="text-end">Idle gaps</th>
+                        <th class="text-end">Longest idle (min)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ r.work_date }}</td>
+                        <td>{{ r.picker }}</td>
+                        <td>{{ r.first_order.strftime('%H:%M') }}</td>
+                        <td>{{ r.last_order_end.strftime('%H:%M') }}</td>
+                        <td class="text-end">{{ r.span_min|int }}</td>
+                        <td class="text-end">{{ r.occupied_min|int }}</td>
+                        <td class="text-end">{{ r.idle_min|int }}</td>
+                        <td class="text-end">
+                            {% if r.occupancy_pct is not none %}
+                            <span class="badge {% if r.occupancy_pct >= 75 %}bg-success{% elif r.occupancy_pct >= 50 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                {{ r.occupancy_pct|int }}%
+                            </span>
+                            {% else %}<span class="text-muted">-</span>{% endif %}
+                        </td>
+                        <td class="text-end">{{ r.idle_gaps }}</td>
+                        <td class="text-end">{{ r.longest_idle_min|int if r.longest_idle_min is not none else '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="10" class="text-center text-muted py-3">No data in this date range.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header py-2"><strong>Idle gaps — longest first</strong>
+            <span class="text-muted small ms-2">blocks ≥ 20 min highlighted</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Picker</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th class="text-end">Idle (min)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for g in gap_rows %}
+                    <tr {% if g.long_block %}class="table-danger"{% endif %}>
+                        <td>{{ g.work_date }}</td>
+                        <td>{{ g.picker }}</td>
+                        <td>{{ g.idle_from.strftime('%H:%M') }}</td>
+                        <td>{{ g.idle_to.strftime('%H:%M') }}</td>
+                        <td class="text-end">
+                            {% if g.long_block %}<span class="badge bg-danger">{{ g.idle_min }}</span>
+                            {% else %}{{ g.idle_min }}{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center text-muted py-3">No idle gaps in this date range.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="text-muted small mb-4">
+        <i class="fas fa-info-circle me-1"></i>
+        An order occupies the picker from its first pick to packing complete. Overlapping (batch-picked)
+        orders are merged, so idle only counts time when <strong>no</strong> order is open. Accurate only
+        once pickers tap "Packing complete" when packing is actually finished.
+    </div>
+</div>
+{% endblock %}

@@ -85,6 +85,124 @@ GROUP BY 1, 2
 ORDER BY idle_date DESC
 """
 
+# Order-boundary idle: an order occupies the picker from its first pick to
+# packing_complete_time; overlapping (batch-picked) orders are merged into
+# islands, and idle = gaps between islands. Bounded by the last packing of
+# the day, so auto-close padding never enters it.
+_ORDER_ISLANDS_CTE = r"""
+WITH iv AS (
+  SELECT t.picker_username, t.item_started::date AS d, t.invoice_no,
+         min(t.item_started)                                      AS s,
+         coalesce(i.packing_complete_time, max(t.item_completed)) AS e
+  FROM item_time_tracking t
+  JOIN invoices i ON i.invoice_no = t.invoice_no
+  WHERE t.picker_username <> 'administrator' AND t.was_skipped = false
+    AND t.item_started IS NOT NULL
+  GROUP BY t.picker_username, t.item_started::date, t.invoice_no,
+           i.packing_complete_time
+  HAVING coalesce(i.packing_complete_time, max(t.item_completed)) IS NOT NULL),
+o AS (SELECT picker_username, d, s, e,
+        max(e) OVER (PARTITION BY picker_username, d ORDER BY s
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) pm
+      FROM iv),
+g AS (SELECT picker_username, d, s, e,
+        sum(CASE WHEN pm IS NULL OR s > pm THEN 1 ELSE 0 END)
+          OVER (PARTITION BY picker_username, d ORDER BY s) grp
+      FROM o),
+isl AS (SELECT picker_username, d, min(s) a, max(e) b
+        FROM g GROUP BY picker_username, d, grp)
+"""
+
+VW_PICKER_IDLE_DAILY_SQL = r"""
+CREATE OR REPLACE VIEW vw_picker_idle_daily AS
+""" + _ORDER_ISLANDS_CTE + r"""
+SELECT picker_username AS picker, d AS work_date,
+  round((EXTRACT(epoch FROM (max(b)-min(a)))/60.0)::numeric,0)  AS span_min,
+  round((sum(EXTRACT(epoch FROM (b-a)))/60.0)::numeric,0)       AS in_order_min,
+  round(((EXTRACT(epoch FROM (max(b)-min(a)))
+          - sum(EXTRACT(epoch FROM (b-a))))/60.0)::numeric,0)   AS idle_between_orders_min
+FROM isl
+GROUP BY picker_username, d
+"""
+
+VW_PICKER_OCCUPANCY_DAILY_SQL = r"""
+CREATE OR REPLACE VIEW vw_picker_occupancy_daily AS
+""" + _ORDER_ISLANDS_CTE + r""",
+gaps AS (SELECT picker_username, d, a, b,
+        EXTRACT(epoch FROM (a - lag(b) OVER (
+            PARTITION BY picker_username, d ORDER BY a)))/60.0 AS gap
+      FROM isl)
+SELECT picker_username AS picker, d AS work_date,
+  min(a) AS first_order, max(b) AS last_order_end,
+  EXTRACT(epoch FROM (max(b)-min(a)))                           AS span_sec,
+  round((EXTRACT(epoch FROM (max(b)-min(a)))/60.0)::numeric,0)  AS span_min,
+  round((sum(EXTRACT(epoch FROM (b-a)))/60.0)::numeric,0)       AS occupied_min,
+  round(((EXTRACT(epoch FROM (max(b)-min(a)))
+          - sum(EXTRACT(epoch FROM (b-a))))/60.0)::numeric,0)   AS idle_min,
+  round((100.0*sum(EXTRACT(epoch FROM (b-a)))
+         / nullif(EXTRACT(epoch FROM (max(b)-min(a))),0))::numeric,0) AS occupancy_pct,
+  count(*) FILTER (WHERE gap > 1)  AS idle_gaps,
+  round(max(gap)::numeric,0)       AS longest_idle_min
+FROM gaps
+GROUP BY picker_username, d
+"""
+
+VW_IDLE_GAPS_SQL = r"""
+CREATE OR REPLACE VIEW vw_idle_gaps AS
+""" + _ORDER_ISLANDS_CTE + r""",
+gg AS (SELECT picker_username, d, a AS gap_end,
+        lag(b) OVER (PARTITION BY picker_username, d ORDER BY a) AS gap_start
+      FROM isl)
+SELECT picker_username AS picker, d AS work_date,
+  gap_start AS idle_from, gap_end AS idle_to,
+  round((EXTRACT(epoch FROM (gap_end - gap_start))/60.0)::numeric,1) AS idle_min,
+  (EXTRACT(epoch FROM (gap_end - gap_start))/60.0 >= 20)             AS long_block
+FROM gg
+WHERE gap_start IS NOT NULL AND gap_end > gap_start
+"""
+
+# Per-order performance: hands-on work vs estimate, with interruptions
+# (long walking gaps) stripped out so the pace judgement is fair, plus
+# packing time vs its estimate and a "closed too fast" adoption flag.
+VW_ORDER_PERFORMANCE_SQL = r"""
+CREATE OR REPLACE VIEW vw_order_performance AS
+SELECT
+  t.invoice_no,
+  t.picker_username                                          AS picker,
+  min(t.item_started)::date                                  AS pick_date,
+  count(*)                                                   AS lines,
+  sum(t.quantity_picked)                                     AS units,
+  round((sum(t.expected_time)/60.0)::numeric,1)              AS estimated_min,
+  round((sum(t.picking_time + LEAST(t.walking_time,120))/60.0)::numeric,1)
+                                                             AS working_min,
+  round((sum(GREATEST(t.walking_time-120,0))/60.0)::numeric,1)
+                                                             AS interruption_min,
+  round((sum(t.total_item_time)/60.0)::numeric,1)            AS elapsed_min,
+  round((100.0*sum(t.expected_time)
+         / nullif(sum(t.picking_time + LEAST(t.walking_time,120)),0))::numeric,0)
+                                                             AS pace_vs_estimate_pct,
+  CASE WHEN i.packing_complete_time IS NULL OR i.picking_complete_time IS NULL
+       THEN NULL
+       ELSE round((GREATEST(EXTRACT(epoch FROM
+           (i.packing_complete_time - i.picking_complete_time)),0)/60.0)::numeric,1)
+  END                                                        AS packing_min,
+  round(((45 + 3*count(*))/60.0)::numeric,1)                 AS packing_estimate_min,
+  CASE WHEN i.packing_complete_time IS NULL OR i.picking_complete_time IS NULL
+       THEN NULL
+       ELSE (EXTRACT(epoch FROM
+           (i.packing_complete_time - i.picking_complete_time))
+             < 0.3*(45 + 3*count(*)))
+  END                                                        AS packing_suspiciously_fast
+FROM item_time_tracking t
+JOIN invoices i ON i.invoice_no = t.invoice_no
+WHERE t.picker_username <> 'administrator'
+  AND t.was_skipped = false
+  AND t.total_item_time > 0
+  AND t.expected_time  > 0
+GROUP BY t.invoice_no, t.picker_username,
+         i.packing_complete_time, i.picking_complete_time
+"""
+
 BACKFILL_LEVEL_SQL = r"""
 UPDATE item_time_tracking
 SET level = substring(location from '\d{2}-\d{2}-([A-Z])')
@@ -116,6 +234,15 @@ def ensure_picking_report_views():
         conn.execute(text("DROP VIEW IF EXISTS vw_picker_daily"))
         conn.execute(text(VW_PICKER_DAILY_SQL))
         conn.execute(text(VW_IDLE_DEDICATED_SQL))
+        conn.execute(text(VW_PICKER_IDLE_DAILY_SQL))
+        # DROP first: these evolved column types (time -> timestamp) which
+        # CREATE OR REPLACE VIEW cannot do on an existing view.
+        conn.execute(text("DROP VIEW IF EXISTS vw_picker_occupancy_daily"))
+        conn.execute(text(VW_PICKER_OCCUPANCY_DAILY_SQL))
+        conn.execute(text("DROP VIEW IF EXISTS vw_idle_gaps"))
+        conn.execute(text(VW_IDLE_GAPS_SQL))
+        conn.execute(text("DROP VIEW IF EXISTS vw_order_performance"))
+        conn.execute(text(VW_ORDER_PERFORMANCE_SQL))
 
         already_done = conn.execute(
             text("SELECT 1 FROM settings WHERE key = :k AND value = 'true'"),

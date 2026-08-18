@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Order Performance - EPIQ{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <h4 class="mb-0"><i class="fas fa-stopwatch me-2"></i>Order Performance</h4>
+        <span class="text-muted small">
+            Picker vs estimate, order by order — interruptions stripped so the pace is fair
+        </span>
+    </div>
+
+    {% if view_error %}
+    <div class="alert alert-warning">
+        Could not load the order performance view. It may not be created yet on this database.
+        <div class="small text-muted mt-1">{{ view_error }}</div>
+    </div>
+    {% endif %}
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+            <label class="form-label small mb-1">From</label>
+            <input type="date" class="form-control form-control-sm" name="start_date" value="{{ start_date.isoformat() }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1">To</label>
+            <input type="date" class="form-control form-control-sm" name="end_date" value="{{ end_date.isoformat() }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1">Picker</label>
+            <select class="form-select form-select-sm" name="picker">
+                <option value="">All pickers</option>
+                {% for p in pickers %}
+                <option value="{{ p }}" {% if p == picker_filter %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1">Sort by</label>
+            <select class="form-select form-select-sm" name="sort">
+                <option value="date" {% if sort == 'date' %}selected{% endif %}>Date (newest first)</option>
+                <option value="pace" {% if sort == 'pace' %}selected{% endif %}>Pace vs estimate (slowest first)</option>
+                <option value="interruptions" {% if sort == 'interruptions' %}selected{% endif %}>Interruptions (biggest first)</option>
+                <option value="packing" {% if sort == 'packing' %}selected{% endif %}>Packing time (longest first)</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
+        </div>
+    </form>
+
+    {% for g in groups %}
+    <div class="card mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong><i class="fas fa-user me-1"></i>{{ g.picker }}</strong>
+            <span class="small">
+                {{ g.rows|length }} order(s) ·
+                estimate {{ '%.0f'|format(g.est) }} min ·
+                working {{ '%.0f'|format(g.work) }} min ·
+                interruptions {{ '%.0f'|format(g.intr) }} min ·
+                {% if g.pace is not none %}
+                <span class="badge {% if g.pace >= 100 %}bg-success{% elif g.pace >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                    pace {{ g.pace }}%
+                </span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Invoice</th>
+                        <th class="text-end">Lines</th>
+                        <th class="text-end">Units</th>
+                        <th class="text-end" title="Sum of the corridor estimates for the order">Estimate (min)</th>
+                        <th class="text-end" title="Hands-on picking; walking capped at 2 min per line">Working (min)</th>
+                        <th class="text-end" title="Time lost to long gaps that landed on this order">Interruptions (min)</th>
+                        <th class="text-end" title="100 = exactly on estimate; above 100 = beat it">Pace vs estimate</th>
+                        <th class="text-end" title="Time from picking complete to packing complete">Packing (min)</th>
+                        <th class="text-end">Packing est. (min)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in g.rows %}
+                    <tr>
+                        <td>{{ r.pick_date }}</td>
+                        <td>{{ r.invoice_no }}</td>
+                        <td class="text-end">{{ r.lines }}</td>
+                        <td class="text-end">{{ r.units|int }}</td>
+                        <td class="text-end">{{ r.estimated_min }}</td>
+                        <td class="text-end">{{ r.working_min }}</td>
+                        <td class="text-end">
+                            {% if r.interruption_min and r.interruption_min > 0 %}
+                                <span class="badge bg-warning text-dark">{{ r.interruption_min }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if r.pace_vs_estimate_pct is not none %}
+                                <span class="badge {% if r.pace_vs_estimate_pct >= 100 %}bg-success{% elif r.pace_vs_estimate_pct >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ r.pace_vs_estimate_pct|int }}%
+                                </span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if r.packing_min is none %}<span class="text-muted" title="Packing not completed / not recorded">-</span>
+                            {% else %}{{ r.packing_min }}{% endif %}
+                            {% if r.packing_suspiciously_fast %}
+                                <i class="fas fa-bolt text-danger ms-1"
+                                   title="Closed far faster than the packing estimate — probably tapped 'complete' before packing was finished"></i>
+                            {% endif %}
+                        </td>
+                        <td class="text-end text-muted">{{ r.packing_estimate_min }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">No orders in this date range.</div>
+    {% endfor %}
+
+    <div class="text-muted small mb-4">
+        <i class="fas fa-info-circle me-1"></i>
+        <strong>Working time</strong> = hands-on picking (walking capped at 2 min per line, so a single long gap
+        doesn't wreck the order). <strong>Interruptions</strong> = time lost to long gaps on that order.
+        <strong>Pace vs estimate</strong>: 100% = exactly on the corridor estimate, above 100% = beat it.
+        <i class="fas fa-bolt text-danger"></i> flags orders closed far faster than the packing estimate.
+    </div>
+</div>
+{% endblock %}

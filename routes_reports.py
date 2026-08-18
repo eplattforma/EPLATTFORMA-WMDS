@@ -1112,3 +1112,209 @@ def idle_dedicated():
         end_date=end_date,
         view_error=view_error,
     )
+
+
+@reports_bp.route("/order-performance")
+@login_required
+def order_performance():
+    """Per-order picker performance vs estimate (vw_order_performance).
+
+    Working time strips long walking gaps (interruptions) so pace vs
+    estimate is a fair judgement; packing time vs its estimate flags
+    orders closed suspiciously fast (tap-before-packing habit).
+    """
+    if current_user.role not in ["admin", "warehouse_manager"]:
+        flash("Access denied. Admin privileges required.", "danger")
+        return redirect(url_for("index"))
+
+    from app import db
+    from sqlalchemy import text
+
+    today = datetime.utcnow().date()
+    default_start = today - timedelta(days=13)
+
+    def _parse_date(value, fallback):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return fallback
+
+    start_date = _parse_date(request.args.get("start_date"), default_start)
+    end_date = _parse_date(request.args.get("end_date"), today)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    picker_filter = (request.args.get("picker") or "").strip()
+    sort = request.args.get("sort") or "date"
+    sort_col = {
+        "date": "pick_date DESC",
+        "pace": "pace_vs_estimate_pct ASC NULLS LAST",
+        "interruptions": "interruption_min DESC",
+        "packing": "packing_min DESC",
+    }.get(sort, "pick_date DESC")
+
+    sql = f"""
+        SELECT invoice_no, picker, pick_date, lines, units,
+               estimated_min, working_min, interruption_min, elapsed_min,
+               pace_vs_estimate_pct, packing_min, packing_estimate_min,
+               packing_suspiciously_fast
+        FROM vw_order_performance
+        WHERE pick_date BETWEEN :start_date AND :end_date
+        {"AND picker = :picker" if picker_filter else ""}
+        ORDER BY picker, {sort_col}, invoice_no
+    """
+    params = {"start_date": start_date, "end_date": end_date}
+    if picker_filter:
+        params["picker"] = picker_filter
+
+    rows = []
+    pickers = []
+    view_error = None
+    try:
+        rows = db.session.execute(text(sql), params).mappings().all()
+        pickers = [
+            r[0] for r in db.session.execute(text(
+                "SELECT DISTINCT picker FROM vw_order_performance ORDER BY picker"
+            )).fetchall()
+        ]
+    except Exception as e:
+        logger.exception("Order performance report query failed")
+        view_error = str(e)
+
+    # Group rows by picker with a totals line per picker
+    groups = []
+    for r in rows:
+        if not groups or groups[-1]["picker"] != r["picker"]:
+            groups.append({"picker": r["picker"], "rows": [],
+                           "est": 0.0, "work": 0.0, "intr": 0.0})
+        g = groups[-1]
+        g["rows"].append(r)
+        g["est"] += float(r["estimated_min"] or 0)
+        g["work"] += float(r["working_min"] or 0)
+        g["intr"] += float(r["interruption_min"] or 0)
+    for g in groups:
+        g["pace"] = round(100.0 * g["est"] / g["work"]) if g["work"] else None
+
+    return render_template(
+        "order_performance.html",
+        groups=groups,
+        pickers=pickers,
+        start_date=start_date,
+        end_date=end_date,
+        picker_filter=picker_filter,
+        sort=sort,
+        view_error=view_error,
+    )
+
+
+@reports_bp.route("/occupancy")
+@login_required
+def picker_occupancy():
+    """Occupancy & idle report (order-boundary rule), dedicated pickers only.
+
+    Occupied = time when any order is open (first pick -> packing complete,
+    merged across overlapping batch orders); idle = gaps in between.
+    Includes an idle-gap list and a per-day timeline strip.
+    """
+    if current_user.role not in ["admin", "warehouse_manager"]:
+        flash("Access denied. Admin privileges required.", "danger")
+        return redirect(url_for("index"))
+
+    import json as _json
+    from app import db
+    from sqlalchemy import text
+    from models import Setting
+
+    today = datetime.utcnow().date()
+    default_start = today - timedelta(days=13)
+
+    def _parse_date(value, fallback):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return fallback
+
+    start_date = _parse_date(request.args.get("start_date"), default_start)
+    end_date = _parse_date(request.args.get("end_date"), today)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    try:
+        dedicated = _json.loads(Setting.get(db.session, "dedicated_pickers", "[]"))
+    except (ValueError, TypeError):
+        dedicated = []
+
+    rows = []
+    gap_rows = []
+    view_error = None
+    try:
+        if dedicated:
+            rows = db.session.execute(text("""
+                SELECT picker, work_date, first_order, last_order_end,
+                       span_sec, span_min, occupied_min, idle_min, occupancy_pct,
+                       idle_gaps, longest_idle_min
+                FROM vw_picker_occupancy_daily
+                WHERE work_date BETWEEN :d1 AND :d2
+                  AND picker = ANY(:pickers)
+                ORDER BY work_date DESC, picker
+            """), {"d1": start_date, "d2": end_date,
+                   "pickers": dedicated}).mappings().all()
+            gap_rows = db.session.execute(text("""
+                SELECT picker, work_date, idle_from, idle_to, idle_min, long_block
+                FROM vw_idle_gaps
+                WHERE work_date BETWEEN :d1 AND :d2
+                  AND picker = ANY(:pickers)
+                ORDER BY idle_min DESC
+            """), {"d1": start_date, "d2": end_date,
+                   "pickers": dedicated}).mappings().all()
+    except Exception as e:
+        logger.exception("Occupancy report query failed")
+        view_error = str(e)
+
+    # Timeline strips: for each picker/day, green segments = order islands
+    # (span minus the idle gaps), blank/red = idle. Full timestamps are used
+    # for the math (handles cross-midnight islands + exact spans); percentages
+    # are computed against the exact span, not the rounded minute figure.
+    gaps_by_day = {}
+    for g in gap_rows:
+        gaps_by_day.setdefault((g["picker"], g["work_date"]), []).append(g)
+
+    timelines = []
+    for r in rows:
+        span_sec = float(r["span_sec"] or 0)
+        if span_sec <= 0:
+            continue
+        segs = []
+        cursor = r["first_order"]
+        for g in sorted(gaps_by_day.get((r["picker"], r["work_date"]), []),
+                        key=lambda x: x["idle_from"]):
+            gs, ge = g["idle_from"], g["idle_to"]
+            if gs > cursor:
+                segs.append({"kind": "busy",
+                             "pct": 100.0 * (gs - cursor).total_seconds() / span_sec})
+            segs.append({"kind": "long" if g["long_block"] else "idle",
+                         "pct": 100.0 * (ge - gs).total_seconds() / span_sec,
+                         "label": "%s–%s (%d min)" % (
+                             gs.strftime("%H:%M"),
+                             ge.strftime("%H:%M"),
+                             g["idle_min"])})
+            if ge > cursor:
+                cursor = ge
+        if r["last_order_end"] > cursor:
+            segs.append({"kind": "busy",
+                         "pct": 100.0 * (r["last_order_end"] - cursor).total_seconds() / span_sec})
+        timelines.append({"picker": r["picker"], "work_date": r["work_date"],
+                          "first": r["first_order"].strftime("%H:%M"),
+                          "last": r["last_order_end"].strftime("%H:%M"),
+                          "occupancy_pct": r["occupancy_pct"], "segments": segs})
+
+    return render_template(
+        "picker_occupancy.html",
+        rows=rows,
+        gap_rows=gap_rows,
+        timelines=timelines,
+        dedicated=dedicated,
+        start_date=start_date,
+        end_date=end_date,
+        view_error=view_error,
+    )
