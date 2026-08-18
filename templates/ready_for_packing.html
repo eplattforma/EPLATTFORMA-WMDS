@@ -1,103 +1,55 @@
 {% extends 'base.html' %}
 
-{% block title %}Ready for Packing - {{ invoice.invoice_no }}{% endblock %}
+{% block title %}Ready to Pack - {{ invoice.invoice_no }}{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="row">
-        <div class="col-md-8 offset-md-2">
-            <div class="card border-primary">
-                <div class="card-header bg-primary text-white">
-                    <h4>Picking Complete - Ready for Packing</h4>
-                </div>
-                <div class="card-body">
-                    <div class="alert alert-success">
-                        <h5><i class="fas fa-check-circle"></i> All items have been picked successfully!</h5>
-                        <p>Please proceed to the packing station to complete the order.</p>
-                    </div>
-                    
-                    <div class="invoice-details mb-4">
-                        <h5 class="border-bottom pb-2">Order Details</h5>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <p><strong>Invoice #:</strong> {{ invoice.invoice_no }}</p>
-                                <p><strong>Customer:</strong> {{ invoice.customer_name }}</p>
-                                {% if invoice.routing %}
-                                <p><strong>Routing:</strong> {{ invoice.routing }}</p>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <p><strong>Total Lines:</strong> {{ invoice.total_lines }}</p>
-                                <p><strong>Total Items:</strong> {{ invoice.total_items|int }}</p>
-                                <p><strong>Total Weight:</strong> {{ "%.2f"|format(invoice.total_weight) }} kg</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    {% if exceptions %}
-                    <div class="exceptions mb-4">
-                        <h5 class="border-bottom pb-2 text-danger">
-                            <i class="fas fa-exclamation-triangle"></i> Picking Exceptions ({{ exceptions|length }})
-                        </h5>
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-sm">
-                                <thead class="table-danger">
-                                    <tr>
-                                        <th>Item Code</th>
-                                        <th>Expected Qty</th>
-                                        <th>Picked Qty</th>
-                                        <th>Reason</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for exception in exceptions %}
-                                    <tr>
-                                        <td>{{ exception.item_code }}</td>
-                                        <td>{{ exception.expected_qty|int }}</td>
-                                        <td>{{ exception.picked_qty|int }}</td>
-                                        <td>{{ exception.reason }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    {% endif %}
-                    
-                    <div class="mt-4 mb-4">
-                        <a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no, from_packing='true') }}" 
-                           class="btn btn-info" target="_blank">
-                            <i class="fas fa-print"></i> Print Picking Report
-                        </a>
-                    </div>
-                    
-                    <div class="packing-confirmation mt-4">
-                        <h5 class="border-bottom pb-2">Packing Confirmation</h5>
-                        <p>Please confirm that you have:</p>
-                        <ul class="list-group mb-3">
-                            <li class="list-group-item"><i class="fas fa-box"></i> Placed all items in appropriate packaging</li>
-                            <li class="list-group-item"><i class="fas fa-tag"></i> Attached shipping labels</li>
-                            <li class="list-group-item"><i class="fas fa-clipboard-check"></i> Verified all items are included</li>
-                            <li class="list-group-item"><i class="fas fa-truck-loading"></i> Moved the package to the shipping area</li>
-                        </ul>
-                        
-                        <div class="d-flex justify-content-between mt-4">
-                            <div>
-                                <a href="{{ url_for('picker_dashboard') }}" class="btn btn-secondary me-2">
-                                    <i class="fas fa-times"></i> Cancel
-                                </a>
-                                <form action="{{ url_for('mark_as_packed', invoice_no=invoice.invoice_no) }}" 
-                                      method="post" class="d-inline">
-                                    <button type="submit" class="btn btn-success">
-                                        <i class="fas fa-check"></i> Confirm Packing Complete
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="pack-screen">
+  <div class="hdr">
+    <div class="ok"><i class="fas fa-check-circle"></i> Picked — ready to pack</div>
+    <div class="cust">{{ invoice.customer_name }}</div>
+    <div class="meta">Route {{ route_name or '—' }} · Stop {{ stop_number or '—' }} · {{ driver_name or '—' }}</div>
+  </div>
+
+  <div class="totals">
+    <div><b>{{ invoice.total_lines }}</b><span>lines</span></div>
+    <div><b>{{ invoice.total_items|int }}</b><span>pieces</span></div>
+    <div><b>{{ invoice.total_weight|round(0)|int }}</b><span>kg</span></div>
+  </div>
+
+  {% if short_picks or exceptions %}
+  <div class="pack-alert">
+    <i class="fas fa-exclamation-triangle"></i>
+    <div>
+      {% for it in short_picks %}<div><b>Short:</b> {{ it.item_name }} — {{ it.picked_qty|int }} of {{ (it.expected_pick_pieces or it.qty)|int }}</div>{% endfor %}
+      {% for ex in exceptions %}<div><b>Issue:</b> {{ ex.item_name or ex.item_code }} — {{ ex.reason }}</div>{% endfor %}
+      <div class="hint">Check before sealing.</div>
     </div>
+  </div>
+  {% endif %}
+
+  <a class="btn-print" href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no, from_packing='true') }}" target="_blank">
+    <i class="fas fa-print"></i> Print delivery slip</a>
+
+  <form method="POST" action="{{ url_for('mark_as_packed', invoice_no=invoice.invoice_no) }}">
+    <button type="submit" class="btn-packed"><i class="fas fa-box"></i> Mark as packed</button>
+  </form>
+  <a class="back" href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}">Back to picking</a>
 </div>
+
+<style>
+  .pack-screen{max-width:460px;margin:16px auto;padding:0 12px;font-family:Arial,sans-serif}
+  .pack-screen .hdr{background:#EAF3DE;border-radius:12px;padding:14px 16px}
+  .pack-screen .ok{color:#3B6D11;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
+  .pack-screen .cust{font-size:24px;font-weight:700;margin-top:6px}
+  .pack-screen .meta{color:#555;font-size:13px;margin-top:2px}
+  .pack-screen .totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+  .pack-screen .totals div{background:#f4f2ec;border-radius:8px;text-align:center;padding:12px 4px}
+  .pack-screen .totals b{display:block;font-size:22px;color:#222}
+  .pack-screen .totals span{font-size:12px;color:#555}
+  .pack-screen .pack-alert{background:#FAEEDA;border-radius:8px;padding:12px;display:flex;gap:8px;color:#854F0B;font-size:13px;margin-bottom:12px}
+  .pack-screen .pack-alert .hint{color:#7a6a3a;margin-top:4px}
+  .pack-screen .btn-print{display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border:1px solid #bbb;border-radius:10px;text-decoration:none;color:#222;font-size:15px;margin-bottom:10px;background:#fff}
+  .pack-screen .btn-packed{width:100%;height:54px;border:none;border-radius:10px;background:#1D9E75;color:#fff;font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
+  .pack-screen .back{display:block;text-align:center;margin-top:12px;color:#666;font-size:13px;text-decoration:none}
+</style>
 {% endblock %}
