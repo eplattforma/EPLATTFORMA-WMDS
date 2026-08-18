@@ -315,7 +315,7 @@
                         <td class="text-center">{{ (invoice.total_weight or 0)|round(0)|int }}</td>
                         <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
                         <td>{% if invoice.assigned_to %}{{ invoice.assigned_to }}{% endif %}</td>
-                        <td><div class="btn-group btn-group-sm" role="group"><a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm" title="Print"><i class="fas fa-print"></i></a><button class="btn btn-outline-primary btn-sm" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')" title="Quick View"><i class="fas fa-eye"></i></button>{% if invoice.status not in ['ready_for_dispatch', 'shipped', 'delivered'] %}<button class="btn btn-primary btn-sm assign-picker-btn" data-invoice-no="{{ invoice.invoice_no }}" data-bs-toggle="modal" data-bs-target="#assignPickerModal" title="Assign picker"><i class="fas fa-user-plus"></i></button>{% if invoice.assigned_to %}<form method="post" action="{{ url_for('unassign_picker') }}" class="d-inline"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-danger btn-sm" title="Unassign"><i class="fas fa-user-minus"></i></button></form>{% endif %}{% if invoice.status in ['not_started', 'picking'] %}<form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline" onsubmit="return confirm('Autocomplete order {{ invoice.invoice_no }}?')"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-warning btn-sm" title="Complete"><i class="fas fa-magic"></i></button></form>{% endif %}{% endif %}{% if invoice_exceptions[invoice.invoice_no] > 0 %}<a href="{{ url_for('admin_view_exceptions', invoice_no=invoice.invoice_no) }}" class="btn btn-danger btn-sm" title="Exceptions"><i class="fas fa-exclamation-triangle"></i></a>{% endif %}</div></td>
+                        <td><div class="btn-group btn-group-sm" role="group"><a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm" title="Print"><i class="fas fa-print"></i></a><button class="btn btn-outline-success btn-sm" onclick="sendLabelPrint(this, '{{ invoice.invoice_no }}')" title="Print box label"><i class="fas fa-tag"></i></button><button class="btn btn-outline-primary btn-sm" onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')" title="Quick View"><i class="fas fa-eye"></i></button>{% if invoice.status not in ['ready_for_dispatch', 'shipped', 'delivered'] %}<button class="btn btn-primary btn-sm assign-picker-btn" data-invoice-no="{{ invoice.invoice_no }}" data-bs-toggle="modal" data-bs-target="#assignPickerModal" title="Assign picker"><i class="fas fa-user-plus"></i></button>{% if invoice.assigned_to %}<form method="post" action="{{ url_for('unassign_picker') }}" class="d-inline"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-danger btn-sm" title="Unassign"><i class="fas fa-user-minus"></i></button></form>{% endif %}{% if invoice.status in ['not_started', 'picking'] %}<form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline" onsubmit="return confirm('Autocomplete order {{ invoice.invoice_no }}?')"><input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}"><button type="submit" class="btn btn-warning btn-sm" title="Complete"><i class="fas fa-magic"></i></button></form>{% endif %}{% endif %}{% if invoice_exceptions[invoice.invoice_no] > 0 %}<a href="{{ url_for('admin_view_exceptions', invoice_no=invoice.invoice_no) }}" class="btn btn-danger btn-sm" title="Exceptions"><i class="fas fa-exclamation-triangle"></i></a>{% endif %}</div></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -967,6 +967,28 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+function sendLabelPrint(btn, invoiceNo) {
+    var icon = btn.querySelector('i');
+    btn.disabled = true;
+    if (icon) icon.className = 'fas fa-spinner fa-spin';
+    fetch('/print/box-label/' + encodeURIComponent(invoiceNo), {
+        method: 'POST',
+        headers: {'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content}
+    }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok: r.ok && j.ok, err: j.error}; }); })
+    .then(function(res){
+        if (icon) icon.className = res.ok ? 'fas fa-check' : 'fas fa-times';
+        if (!res.ok) { btn.title = res.err || 'Print failed'; btn.classList.remove('btn-outline-success'); btn.classList.add('btn-outline-danger'); }
+        setTimeout(function(){
+            if (icon) icon.className = 'fas fa-tag';
+            btn.disabled = false;
+            btn.classList.remove('btn-outline-danger'); btn.classList.add('btn-outline-success');
+        }, 2500);
+    }).catch(function(){
+        if (icon) icon.className = 'fas fa-times';
+        setTimeout(function(){ if (icon) icon.className = 'fas fa-tag'; btn.disabled = false; }, 2500);
+    });
+}
 </script>
 
 <div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assignModalLabel" aria-hidden="true">
