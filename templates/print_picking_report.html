@@ -54,6 +54,12 @@
             <div>
                 <div class="stop-label">STOP</div>
                 <div class="stop-num">{% if route_info and route_info.stop_seq is not none %}{% if route_info.stop_seq == route_info.stop_seq|int %}{{ route_info.stop_seq|int }}{% else %}{{ route_info.stop_seq }}{% endif %}{% else %}—{% endif %}</div>
+                {% if stop_index and stop_total and stop_total > 1 %}
+                <div style="font-size:14px;font-weight:700;margin-top:2px;">Order {{ stop_index }} of {{ stop_total }}</div>
+                {% endif %}
+                {% if has_cooler %}
+                <div style="display:inline-block;background:#000;color:#fff;font-weight:700;font-size:12px;padding:2px 8px;margin-top:4px;">COOLER BOX</div>
+                {% endif %}
             </div>
             <div class="rmeta">
                 <div style="font-weight:700">Route {{ route_info.route_name if route_info else '—' }}</div>

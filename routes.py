@@ -4673,54 +4673,21 @@ def print_invoice(invoice_no):
     manual_count = len(manually_picked)
     batch_count = len(batch_items)
     
-    # Build the flat delivery-slip item list: one row per invoice line,
-    # picked qty taken from batch records when the line was batch-picked.
-    from models import DwItem
-    batch_qty_by_code = {}
-    for bi in batch_items:
-        batch_qty_by_code[bi['item_code']] = batch_qty_by_code.get(bi['item_code'], 0) + (bi['qty'] or 0)
-
-    _codes = [it.item_code for it in all_items]
-    chilled_codes = set()
-    if _codes:
-        chilled_codes = {
-            r.item_code_365 for r in DwItem.query.filter(
-                DwItem.item_code_365.in_(_codes),
-                DwItem.wms_temperature_sensitivity == 'cool_required'
-            ).all()
-        }
-
-    slip_items = []
-    for it in all_items:
-        qty_req = int(it.expected_pick_pieces or it.qty or 0)
-        # InvoiceItem.picked_qty is the line-level source of truth (batch
-        # allocation writes it too). Only fall back to summed batch records
-        # when picked_qty was never set for a batch-picked line.
-        if it.picked_qty is not None:
-            qty_pic = int(it.picked_qty)
-        elif it.item_code in batch_qty_by_code:
-            qty_pic = int(batch_qty_by_code[it.item_code])
-        else:
-            qty_pic = 0
-        if it.unit_type and it.unit_type.lower() in ['virtual pack', 'item']:
-            unit_label = it.unit_type
-        else:
-            unit_label = f"{it.unit_type}({it.pack})" if it.pack else (it.unit_type or '')
-        slip_items.append({
-            'item_code': it.item_code,
-            'item_name': it.item_name,
-            'location': it.location if it.location and it.location != 'None' else '',
-            'unit_label': unit_label,
-            'qty': qty_req,
-            'qty_picked': qty_pic,
-            'is_chilled': it.item_code in chilled_codes,
-        })
+    # Build the flat delivery-slip item list + stop/cooler context (shared
+    # with the print-bridge PDF generators in services/print_data.py).
+    from services.print_data import build_slip_items, get_stop_position, invoice_has_cooler_box
+    slip_items = build_slip_items(invoice, all_items=all_items)
+    stop_index, stop_total = get_stop_position(invoice)
+    has_cooler = invoice_has_cooler_box(invoice_no)
 
     # Choose the appropriate template based on the order status and user role
     if invoice.status in ['Ready for Packing', 'ready_for_dispatch', 'awaiting_packing'] or (current_user.role in ('picker', 'warehouse_manager') and invoice.status in ['In Progress', 'picking']):
         # Use the picking report template for packing preparation
         return render_template('print_picking_report.html', 
                              slip_items=slip_items,
+                             stop_index=stop_index,
+                             stop_total=stop_total,
+                             has_cooler=has_cooler,
                              invoice=invoice, 
                              items=all_items,         # All items with batch_id flag
                              manually_picked=manually_picked,  # Only manually picked items

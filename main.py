@@ -304,6 +304,8 @@ app.register_blueprint(payment_terms_bp)
 
 from routes_driver import driver_bp
 app.register_blueprint(driver_bp)
+from routes_printing import printing_bp
+app.register_blueprint(printing_bp)
 
 from routes_payments import payments_bp
 app.register_blueprint(payments_bp)
@@ -913,6 +915,13 @@ try:
         ensure_picking_exception_resolution_schema(db)
 except Exception as e:
     logging.warning(f"picking_exception resolution schema migration skipped: {e}")
+
+try:
+    with app.app_context():
+        from migrations.print_jobs_schema import ensure_print_jobs_schema
+        ensure_print_jobs_schema(db)
+except Exception as e:
+    logging.warning(f"print_jobs schema migration skipped: {e}")
 
 logging.warning("PHASE 6: all schema updates and DB init done")
 print("PHASE 6: all schema updates and DB init done", flush=True)
