@@ -16,7 +16,8 @@
         .cust { font-size: 22px; font-weight: 700; line-height: 1.05; margin-top: 4px; }
         .rmeta { text-align: right; font-size: 13px; }
         .meta { display: flex; justify-content: space-between; font-size: 13px; margin-top: 2px; }
-        .barcode { font-size: 40px; font-weight: 700; text-align: center; letter-spacing: 2px; margin: 8px 0 0; font-family: monospace; }
+        .barcode { text-align: center; margin: 8px 0 0; line-height: 0; }
+        .barcode svg { max-width: 100%; height: auto; }
         .bc-num { text-align: center; font-family: monospace; font-size: 13px; margin-bottom: 8px; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th { text-align: left; border-bottom: 1.5px solid #000; padding: 4px 6px; font-size: 11px; }
@@ -72,7 +73,9 @@
             <span class="code">{{ invoice.customer_code_365 or invoice.customer_code or '' }}</span>
         </div>
 
-        <div class="barcode">*{{ invoice.invoice_no }}*</div>
+        <div class="barcode">
+            <svg id="barcode"></svg>
+        </div>
         <div class="bc-num">{{ invoice.invoice_no }}</div>
 
         <table>
@@ -109,8 +112,19 @@
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/JsBarcode.code39.min.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            JsBarcode("#barcode", "{{ invoice.invoice_no }}", {
+                format: "CODE39",
+                width: 2.5,
+                height: 70,
+                displayValue: false,
+                margin: 10,
+                background: "#ffffff",
+                lineColor: "#000000"
+            });
+
             if (window.location.search.includes('autoprint=true')) {
                 window.print();
             }
