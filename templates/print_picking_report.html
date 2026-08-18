@@ -75,6 +75,7 @@
 
         <div class="barcode">
             <svg id="barcode"></svg>
+            <div id="barcode-fallback" style="display:none; font-size:36px; font-weight:800; font-family:monospace; letter-spacing:4px; padding:16px 0;">{{ invoice.invoice_no }}</div>
         </div>
         <div class="bc-num">{{ invoice.invoice_no }}</div>
 
@@ -112,18 +113,29 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/JsBarcode.code39.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/JsBarcode.code39.min.js') }}" onerror="showBarcodeFallback()"></script>
     <script>
+        function showBarcodeFallback() {
+            var svg = document.getElementById('barcode');
+            if (svg) { svg.style.display = 'none'; }
+            var fallback = document.getElementById('barcode-fallback');
+            if (fallback) { fallback.style.display = 'block'; }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
-            JsBarcode("#barcode", "{{ invoice.invoice_no }}", {
-                format: "CODE39",
-                width: 2.5,
-                height: 70,
-                displayValue: false,
-                margin: 10,
-                background: "#ffffff",
-                lineColor: "#000000"
-            });
+            try {
+                JsBarcode("#barcode", "{{ invoice.invoice_no }}", {
+                    format: "CODE39",
+                    width: 2.5,
+                    height: 70,
+                    displayValue: false,
+                    margin: 10,
+                    background: "#ffffff",
+                    lineColor: "#000000"
+                });
+            } catch (e) {
+                showBarcodeFallback();
+            }
 
             if (window.location.search.includes('autoprint=true')) {
                 window.print();
