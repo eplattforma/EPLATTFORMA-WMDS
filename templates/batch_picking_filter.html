@@ -231,7 +231,7 @@
                                                 <td>{{ invoice.invoice_no }}</td>
                                                 <td>{{ invoice.customer_name }}</td>
                                                 <td>
-                                                    <span class="badge bg-{{ 'warning' if invoice.status == 'In Progress' else 'secondary' }}">
+                                                    <span class="badge bg-{{ 'warning' if invoice.status == 'picking' else 'secondary' }}">
                                                         {{ invoice.status }}
                                                     </span>
                                                 </td>

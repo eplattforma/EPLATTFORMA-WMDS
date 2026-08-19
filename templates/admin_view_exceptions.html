@@ -44,14 +44,16 @@
                     <tr>
                         <th>Status:</th>
                         <td>
-                            {% if invoice.status == 'Completed' %}
-                            <span class="badge bg-success">Completed</span>
-                            {% elif invoice.status == 'In Progress' %}
-                            <span class="badge bg-warning text-dark">In Progress</span>
-                            {% elif invoice.status == 'Ready for Packing' %}
-                            <span class="badge bg-info">Ready for Packing</span>
-                            {% else %}
+                            {% if invoice.status == 'ready_for_dispatch' %}
+                            <span class="badge bg-success">Ready for Dispatch</span>
+                            {% elif invoice.status == 'picking' %}
+                            <span class="badge bg-warning text-dark">Picking</span>
+                            {% elif invoice.status == 'awaiting_packing' %}
+                            <span class="badge bg-info">Awaiting Packing</span>
+                            {% elif invoice.status == 'not_started' %}
                             <span class="badge bg-secondary">Not Started</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ invoice.status|title }}</span>
                             {% endif %}
                         </td>
                     </tr>

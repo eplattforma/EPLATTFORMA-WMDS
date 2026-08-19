@@ -51,7 +51,7 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="btn-group">
-                {% if invoice.status not in ['shipped', 'cancelled', 'Completed'] %}
+                {% if invoice.status not in ['ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled'] %}
                 <a href="{{ url_for('admin_reset_invoice_progress', invoice_no=invoice.invoice_no) }}" 
                    class="btn btn-warning" onclick="return confirm('Are you sure you want to reset the progress of this invoice? This will set all items back to Not Picked.')">
                     <i class="fas fa-undo me-1"></i> Reset Progress
@@ -132,7 +132,7 @@
                                     {% endif %}
                                 </td>
                                 <td class="align-middle">
-                                    {% if invoice.status == 'In Progress' %}
+                                    {% if invoice.status == 'picking' %}
                                     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#itemResetModal{{ loop.index }}">
                                         <i class="fas fa-redo-alt"></i> Reset
                                     </button>
@@ -269,7 +269,7 @@
                             </div>
                             
                             <!-- Item Reset Modal -->
-                            {% if invoice.status == 'In Progress' %}
+                            {% if invoice.status == 'picking' %}
                             <div class="modal fade" id="itemResetModal{{ loop.index }}" tabindex="-1" aria-labelledby="itemResetModalLabel{{ loop.index }}" aria-hidden="true">
                                 <div class="modal-dialog modal-dialog-centered">
                                     <div class="modal-content">

@@ -120,19 +120,19 @@
                                     <div class="progress" style="height: 10px;">
                                         {% if invoice.status == 'ready_for_dispatch' %}
                                             {% set progress = 100 %}
-                                        {% elif invoice.status == 'not started' %}
+                                        {% elif invoice.status == 'not_started' %}
                                             {% set progress = 0 %}
                                         {% elif invoice.current_item_index == 0 and invoice.items|selectattr('is_picked', 'equalto', true)|list|length == 0 %}
                                             {% set progress = 0 %}
                                         {% else %}
                                             {% set progress = (invoice.current_item_index / invoice.total_lines * 100) if invoice.total_lines and invoice.total_lines > 0 else 0 %}
                                         {% endif %}
-                                        <div class="progress-bar {% if invoice.status == 'Completed' %}bg-success{% elif progress == 0 %}bg-secondary{% else %}bg-info{% endif %}" 
+                                        <div class="progress-bar {% if invoice.status == 'ready_for_dispatch' %}bg-success{% elif progress == 0 %}bg-secondary{% else %}bg-info{% endif %}" 
                                              role="progressbar" style="width: {{ progress }}%;" 
                                              aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"></div>
                                     </div>
                                     <small class="text-muted">
-                                        {% if invoice.status == 'Completed' %}
+                                        {% if invoice.status == 'ready_for_dispatch' %}
                                             {{ invoice.total_lines or 0 }} / {{ invoice.total_lines or 0 }} items
                                         {% elif invoice.status == 'not_started' %}
                                             0 / {{ invoice.total_lines or 0 }} items
