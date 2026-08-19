@@ -16,46 +16,50 @@ def build_box_label_pdf(invoice, stop_number=None, route_name=None,
                         driver_name=None, delivery_date=None,
                         stop_index=None, stop_total=None,
                         has_cooler=False) -> bytes:
-    # The Deli label stock is fed as a 105×70 mm landscape page. The design
-    # coordinates below already use that orientation, so no transform is needed.
+    # The Deli label stock is a 105×70 mm landscape page, but the printer
+    # feeds it inverted, so flip the whole design 180° once. Thermal printers
+    # cannot print the outer ~4-5 mm, so keep everything inside a 5 mm margin.
     W, H = 105 * mm, 70 * mm
+    M = 5 * mm
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
+    c.translate(W, H)
+    c.rotate(180)
 
     # STOP number — hero element
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(6 * mm, H - 9 * mm, "STOP")
-    c.setFont("Helvetica-Bold", 52)
-    c.drawString(5 * mm, H - 30 * mm, str(stop_number if stop_number is not None else "-"))
+    c.drawString(M, H - M - 9, "STOP")
+    c.setFont("Helvetica-Bold", 44)
+    c.drawString(M - 1, H - M - 46, str(stop_number if stop_number is not None else "-"))
 
     # Right column: customer / route / date / driver
     cust = (invoice.customer_name or "")
-    c.setFont("Helvetica-Bold", 13 if len(cust) <= 26 else 10)
-    c.drawRightString(W - 6 * mm, H - 9 * mm, cust[:40])
+    c.setFont("Helvetica-Bold", 12 if len(cust) <= 26 else 9)
+    c.drawRightString(W - M, H - M - 7, cust[:40])
     c.setFont("Helvetica", 8)
     date_str = delivery_date.strftime("%d/%m/%Y") if delivery_date else ""
-    c.drawRightString(W - 6 * mm, H - 15 * mm, f"Route {route_name or '-'} · {date_str}")
-    c.drawRightString(W - 6 * mm, H - 20 * mm, str(driver_name or ""))
+    c.drawRightString(W - M, H - M - 19, f"Route {route_name or '-'} · {date_str}")
+    c.drawRightString(W - M, H - M - 29, str(driver_name or ""))
 
     # Order X of Y
     if stop_index and stop_total and stop_total > 1:
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(6 * mm, H - 38 * mm, f"Order {stop_index} of {stop_total}")
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(M, H - M - 60, f"Order {stop_index} of {stop_total}")
 
     # COOLER BOX marker
     if has_cooler:
         c.setFillColorRGB(0, 0, 0)
-        c.rect(W - 40 * mm, H - 30 * mm, 34 * mm, 7 * mm, fill=1)
+        c.rect(W - M - 34 * mm, H - M - 42, 34 * mm, 7 * mm, fill=1)
         c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawCentredString(W - 23 * mm, H - 25.5 * mm, "COOLER BOX")
+        c.setFont("Helvetica-Bold", 10)
+        c.drawCentredString(W - M - 17 * mm, H - M - 40, "COOLER BOX")
         c.setFillColorRGB(0, 0, 0)
 
     # Code 39 barcode + human-readable number
-    bc = code39.Standard39(invoice.invoice_no, barHeight=13 * mm, stop=1, checksum=0)
-    bc.drawOn(c, (W - bc.width) / 2, 12 * mm)
-    c.setFont("Courier", 10)
-    c.drawCentredString(W / 2, 7 * mm, invoice.invoice_no)
+    bc = code39.Standard39(invoice.invoice_no, barHeight=12 * mm, stop=1, checksum=0)
+    bc.drawOn(c, (W - bc.width) / 2, M + 14)
+    c.setFont("Courier", 9)
+    c.drawCentredString(W / 2, M + 2, invoice.invoice_no)
 
     c.showPage()
     c.save()
