@@ -51,6 +51,22 @@
         </h1>
     </div>
     <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end">
+        {% if current_user.role == 'picker' %}
+        <div class="d-flex flex-wrap justify-content-md-end gap-2 me-3">
+            {% if active_shift %}
+            <a href="{{ url_for('shift_check_out') }}" class="btn btn-outline-danger">
+                <i class="fas fa-sign-out-alt me-1"></i>Check Out
+            </a>
+            {% else %}
+            <a href="{{ url_for('shift_check_in') }}" class="btn btn-primary">
+                <i class="fas fa-sign-in-alt me-1"></i>Check In
+            </a>
+            {% endif %}
+            <a href="{{ url_for('my_shift_report') }}" class="btn btn-outline-primary">
+                <i class="fas fa-chart-line me-1"></i>My Report
+            </a>
+        </div>
+        {% endif %}
         {% if picker_unvalidated_issues_count > 0 %}
         <a href="{{ url_for('delivery_issues.picker_review_issues') }}" 
            class="btn btn-warning d-flex flex-column align-items-center justify-content-center position-relative" 
