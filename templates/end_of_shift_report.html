@@ -112,9 +112,12 @@
       {% if oc.span_min and oc.occupied_min is not none %}
       <div class="progress mt-3" style="height: 22px;" title="Green: in orders, yellow: breaks, grey: unclassified idle">
         {% set span = oc.span_min | float %}
-        <div class="progress-bar bg-success" style="width: {{ (100.0 * oc.occupied_min / span) | round(0) }}%">in orders</div>
-        {% if oc.break_min %}<div class="progress-bar bg-warning text-dark" style="width: {{ (100.0 * [oc.break_min, span - oc.occupied_min] | min / span) | round(0) }}%">break</div>{% endif %}
-        {% if oc.unclassified_idle_min %}<div class="progress-bar bg-secondary" style="width: {{ (100.0 * oc.unclassified_idle_min / span) | round(0) }}%">idle</div>{% endif %}
+        {% set occupied = oc.occupied_min | float %}
+        {% set breaks = oc.break_min | float %}
+        {% set unclassified_idle = oc.unclassified_idle_min | float %}
+        <div class="progress-bar bg-success" style="width: {{ (100.0 * occupied / span) | round(0) }}%">in orders</div>
+        {% if breaks %}<div class="progress-bar bg-warning text-dark" style="width: {{ (100.0 * [breaks, span - occupied] | min / span) | round(0) }}%">break</div>{% endif %}
+        {% if unclassified_idle %}<div class="progress-bar bg-secondary" style="width: {{ (100.0 * unclassified_idle / span) | round(0) }}%">idle</div>{% endif %}
       </div>
       {% endif %}
       {% endif %}
