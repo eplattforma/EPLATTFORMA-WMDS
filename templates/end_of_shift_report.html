@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Shift Performance Report{% endblock %}
+
+{% macro na(value, suffix='') -%}
+  {%- if value is none -%}<span class="text-muted">no data</span>{%- else -%}{{ value }}{{ suffix }}{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">
+      <i class="fas fa-chart-line me-2"></i>Shift Performance Report
+    </h2>
+    <form method="get" class="d-flex gap-2 align-items-center">
+      {% if is_manager_view %}
+      <select name="picker" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+        {% for p in pickers %}
+        <option value="{{ p }}" {% if p == selected_picker %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <input type="date" name="date" class="form-control form-control-sm" style="width:auto"
+             value="{{ report.work_date.isoformat() if report else '' }}" onchange="this.form.submit()">
+      <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="fas fa-sync"></i></button>
+    </form>
+  </div>
+
+  {% if not report %}
+  <div class="alert alert-info">No pickers with recorded pick data found.</div>
+  {% else %}
+
+  <div class="mb-3 text-muted">
+    <strong>{{ report.picker }}</strong> &middot; {{ report.work_date.strftime('%A, %d %B %Y') }}
+    {% if report.occupancy and report.occupancy.auto_closed %}
+    <span class="badge bg-warning text-dark ms-2" title="Shift was closed automatically; shift duration may be padded.">auto-closed shift</span>
+    {% endif %}
+  </div>
+
+  {% if report.errors %}
+  <div class="alert alert-danger">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    Part of this report could not be loaded ({{ report.errors | join(', ') }}).
+    The figures below may be incomplete — this is a system problem, not a performance result.
+  </div>
+  {% endif %}
+
+  {# ---- Insights ---- #}
+  {% if report.insights %}
+  <div class="mb-4">
+    {% for kind, msg in report.insights %}
+    <div class="alert py-2 mb-2
+        {% if kind == 'good' %}alert-success{% elif kind == 'watch' %}alert-warning{% elif kind == 'note' %}alert-secondary{% else %}alert-info{% endif %}">
+      {{ msg }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not report.speed %}
+  <div class="alert alert-info">
+    No completed picks were recorded for this day, so speed, occupancy and quality metrics are unavailable.
+  </div>
+  {% else %}
+
+  {# ---- 1. Speed & throughput ---- #}
+  <div class="card mb-4">
+    <div class="card-header"><i class="fas fa-tachometer-alt me-2"></i>Speed &amp; Throughput</div>
+    <div class="card-body">
+      <div class="row text-center g-3">
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(report.speed.items_completed) }}</div><div class="text-muted small">Items picked</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(report.speed.total_quantity) }}</div><div class="text-muted small">Units</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(report.speed.orders_completed) }}</div><div class="text-muted small">Orders</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(report.speed.items_per_hour) }}</div><div class="text-muted small">Items / active hour</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(report.speed.median_time_per_item_sec, 's') }}</div><div class="text-muted small">Median time / item</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(report.speed.avg_time_per_item_sec, 's') }}</div><div class="text-muted small">Avg time / item</div></div>
+      </div>
+      <hr>
+      <div class="row text-center g-3">
+        <div class="col-6 col-md-3">
+          <div class="fs-4 fw-bold {% if report.speed.efficiency_ratio is not none and report.speed.efficiency_ratio <= 1.0 %}text-success{% elif report.speed.efficiency_ratio is not none and report.speed.efficiency_ratio > 1.25 %}text-danger{% endif %}">
+            {{ na(report.speed.efficiency_ratio, '×') }}
+          </div>
+          <div class="text-muted small">Actual ÷ estimated time (lower is better)</div>
+        </div>
+        <div class="col-6 col-md-3"><div class="fs-4 fw-bold">{{ na(report.speed.picking_min, ' min') }}</div><div class="text-muted small">Picking time</div></div>
+        <div class="col-6 col-md-3"><div class="fs-4 fw-bold">{{ na(report.speed.walking_min, ' min') }}</div><div class="text-muted small">Walking time</div></div>
+        <div class="col-6 col-md-3"><div class="fs-4 fw-bold">{{ na(report.speed.confirmation_min, ' min') }}</div><div class="text-muted small">Confirmation time</div></div>
+      </div>
+    </div>
+  </div>
+
+  {# ---- 2. Occupancy & utilization ---- #}
+  <div class="card mb-4">
+    <div class="card-header"><i class="fas fa-business-time me-2"></i>Occupancy &amp; Utilization</div>
+    <div class="card-body">
+      {% if not report.occupancy or report.occupancy.span_min is none %}
+      <div class="text-muted">Order-level occupancy data is unavailable for this day.</div>
+      {% else %}
+      {% set oc = report.occupancy %}
+      <div class="row text-center g-3">
+        <div class="col-6 col-md-2">
+          <div class="fs-3 fw-bold {% if oc.occupancy_pct is not none and oc.occupancy_pct < 60 %}text-warning{% elif oc.occupancy_pct is not none %}text-success{% endif %}">{{ na(oc.occupancy_pct, '%') }}</div>
+          <div class="text-muted small">Occupancy</div>
+        </div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(oc.span_min, ' min') }}</div><div class="text-muted small">Working span</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(oc.occupied_min, ' min') }}</div><div class="text-muted small">In orders</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(oc.break_min, ' min') }}</div><div class="text-muted small">Breaks</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(oc.unclassified_idle_min, ' min') }}</div><div class="text-muted small">Unclassified idle</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(oc.longest_idle_min, ' min') }}</div><div class="text-muted small">Longest gap</div></div>
+      </div>
+      {% if oc.span_min and oc.occupied_min is not none %}
+      <div class="progress mt-3" style="height: 22px;" title="Green: in orders, yellow: breaks, grey: unclassified idle">
+        {% set span = oc.span_min | float %}
+        <div class="progress-bar bg-success" style="width: {{ (100.0 * oc.occupied_min / span) | round(0) }}%">in orders</div>
+        {% if oc.break_min %}<div class="progress-bar bg-warning text-dark" style="width: {{ (100.0 * [oc.break_min, span - oc.occupied_min] | min / span) | round(0) }}%">break</div>{% endif %}
+        {% if oc.unclassified_idle_min %}<div class="progress-bar bg-secondary" style="width: {{ (100.0 * oc.unclassified_idle_min / span) | round(0) }}%">idle</div>{% endif %}
+      </div>
+      {% endif %}
+      {% endif %}
+
+      {% if report.shifts %}
+      <hr>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Check-in</th><th>Check-out</th><th>Status</th><th>Duration</th><th>Breaks</th></tr></thead>
+        <tbody>
+          {% for s in report.shifts %}
+          <tr>
+            <td>{{ s.check_in_time.strftime('%H:%M') if s.check_in_time else '—' }}</td>
+            <td>{{ s.check_out_time.strftime('%H:%M') if s.check_out_time else '—' }}</td>
+            <td>{{ s.status }}{% if s.auto_closed %} <span class="badge bg-warning text-dark">auto</span>{% endif %}</td>
+            <td>{{ na(s.total_duration_minutes, ' min') }}</td>
+            <td>{{ s.break_min }} min</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- 3. Quality & accuracy ---- #}
+  <div class="card mb-4">
+    <div class="card-header"><i class="fas fa-check-circle me-2"></i>Quality &amp; Accuracy</div>
+    <div class="card-body">
+      {% set q = report.quality %}
+      <div class="row text-center g-3">
+        <div class="col-6 col-md-2">
+          <div class="fs-3 fw-bold {% if q.accuracy_pct is not none and q.accuracy_pct >= 98 %}text-success{% elif q.accuracy_pct is not none %}text-warning{% endif %}">{{ na(q.accuracy_pct, '%') }}</div>
+          <div class="text-muted small">Accuracy</div>
+        </div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(q.error_count) }}</div><div class="text-muted small">Pick errors</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold">{{ na(q.items_skipped) }}</div><div class="text-muted small">Skipped ({{ na(q.skip_rate_pct, '%') }})</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold text-success">{{ na(q.on_target_picks) }}</div><div class="text-muted small">On-target picks</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold text-warning">{{ na(q.slow_picks) }}</div><div class="text-muted small">Slow (1–2× est.)</div></div>
+        <div class="col-6 col-md-2"><div class="fs-3 fw-bold text-danger">{{ na(q.very_slow_picks) }}</div><div class="text-muted small">Very slow (&gt;2× est.)</div></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ---- 4. 7-day trend ---- #}
+  <div class="card mb-4">
+    <div class="card-header"><i class="fas fa-history me-2"></i>Last 7 Days</div>
+    <div class="card-body">
+      {% if not report.trends %}
+      <div class="text-muted">No pick data recorded in the last 7 days.</div>
+      {% else %}
+      {% if report.trend_summary %}
+      <p class="text-muted mb-2">
+        Worked {{ report.trend_summary.days }} day(s):
+        avg {{ report.trend_summary.avg_items | int }} items/day,
+        avg {{ na(report.trend_summary.avg_time_sec, 's') }} per item
+        {% if report.trend_summary.items_variance_pct is not none %}
+        &middot; day-to-day spread {{ report.trend_summary.items_variance_pct | int }}%
+        {% endif %}
+      </p>
+      {% endif %}
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Date</th><th class="text-end">Items</th><th class="text-end">Avg time/item</th><th class="text-end">On-target</th><th class="text-end">Accuracy</th></tr></thead>
+        <tbody>
+          {% for t in report.trends %}
+          <tr {% if t.work_date == report.work_date %}class="table-active fw-bold"{% endif %}>
+            <td>
+              {% if is_manager_view %}
+              <a href="{{ url_for('picker_performance_report', picker=report.picker, date=t.work_date.isoformat()) }}">{{ t.work_date.strftime('%a %d %b') }}</a>
+              {% else %}
+              <a href="{{ url_for('my_shift_report', date=t.work_date.isoformat()) }}">{{ t.work_date.strftime('%a %d %b') }}</a>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ na(t.items) }}</td>
+            <td class="text-end">{{ na(t.avg_time_sec, 's') }}</td>
+            <td class="text-end">{{ na(t.pct_on_target, '%') }}</td>
+            <td class="text-end">{{ na(t.accuracy_pct, '%') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if is_manager_view %}
+  <div class="mb-4">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('shift_reports') }}"><i class="fas fa-arrow-left me-1"></i>Shift Reports</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('reports.picking_performance') }}"><i class="fas fa-list me-1"></i>Per-pick Detail</a>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endblock %}

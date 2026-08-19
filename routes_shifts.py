@@ -130,7 +130,7 @@ def shift_check_out():
                     shift.total_duration_minutes / 60 if shift.total_duration_minutes else 0
                 ), 'success')
                 
-                return redirect(url_for('picker_dashboard'))
+                return redirect(url_for('my_shift_report'))
             else:
                 flash('An error occurred during check-out. Please try again.', 'danger')
     
@@ -214,7 +214,7 @@ def manage_break():
 @login_required
 def start_break_route():
     """Handle start break request"""
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role != 'picker':
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -241,7 +241,7 @@ def start_break_route():
 @login_required
 def end_break_route():
     """Handle end break request"""
-    if current_user.role not in ('picker', 'warehouse_manager'):
+    if current_user.role != 'picker':
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -778,3 +778,48 @@ def admin_export_shifts():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment;filename=shift_report_{date_str}.csv'}
     )
+
+# ---------------------------------------------------------------------------
+# Unified end-of-shift performance report
+# ---------------------------------------------------------------------------
+from services.picker_shift_report import build_shift_report, pickers_with_data
+
+
+def _parse_report_date(raw):
+    if raw:
+        try:
+            return datetime.strptime(raw, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    return get_local_now().date()
+
+
+@app.route('/shift/my-report', methods=['GET'])
+@login_required
+def my_shift_report():
+    """A picker's own end-of-shift report (shown after check-out)."""
+    if current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+    work_date = _parse_report_date(request.args.get('date'))
+    report = build_shift_report(current_user.username, work_date)
+    return render_template('end_of_shift_report.html',
+                           report=report, is_manager_view=False,
+                           pickers=[], selected_picker=current_user.username)
+
+
+@app.route('/shift/performance-report', methods=['GET'])
+@login_required
+def picker_performance_report():
+    """Manager view: end-of-shift report for any picker and date."""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+    pickers = pickers_with_data()
+    selected_picker = request.args.get('picker') or (pickers[0] if pickers else None)
+    work_date = _parse_report_date(request.args.get('date'))
+    report = (build_shift_report(selected_picker, work_date)
+              if selected_picker else None)
+    return render_template('end_of_shift_report.html',
+                           report=report, is_manager_view=True,
+                           pickers=pickers, selected_picker=selected_picker)

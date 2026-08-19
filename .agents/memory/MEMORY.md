@@ -9,4 +9,5 @@
 - [PS365 receipt tests need stubs](ps365-receipt-tests.md) — live PS365 secrets exist in tests; stub requests.post and the FOR UPDATE reference sequence (SQLite can't parse it).
 - [Flask test blueprint rendering](flask-test-blueprint-rendering.md) — register all needed blueprints in the FIRST fixture (Flask blocks late registration); base.html renders need permission helpers + lenient url_for.
 - [Receipt suite cross-file pollution](receipt-suite-cross-file-pollution.md) — run test_receipt_controls.py standalone; whole-dir collection leaks DB state and fakes 8-14 failures.
+- [Picking reports local-day bucketing](picking-report-local-day.md) — item timestamps are naive UTC; daily reports must bucket by the configured system timezone, not item_started::date.
 - [Deli label orientation](deli-label-orientation.md) — Deli DL-750W box labels use a 105×70 mm landscape PDF with no coordinate rotation.
