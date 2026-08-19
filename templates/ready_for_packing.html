@@ -29,8 +29,6 @@
 
   <button type="button" class="btn-print" onclick="printDoc('delivery-slip', this)">
     <i class="fas fa-print"></i> Print delivery slip</button>
-  <button type="button" class="btn-print" onclick="printDoc('box-label', this)">
-    <i class="fas fa-tag"></i> Print box label</button>
   <div id="print-status" class="print-status"></div>
 
   <form method="POST" action="{{ url_for('mark_as_packed', invoice_no=invoice.invoice_no) }}">
@@ -48,7 +46,7 @@ function printDoc(kind, btn) {
     .then(function(r){ return r.json(); })
     .then(function(d){
       status.textContent = d.ok
-        ? (kind === 'box-label' ? 'Label sent to printer' : 'Slip sent to printer')
+        ? 'Slip sent to printer'
         : ('Could not print: ' + (d.error || 'unknown error'));
       status.className = 'print-status ' + (d.ok ? 'ok' : 'err');
     })

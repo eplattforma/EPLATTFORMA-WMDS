@@ -1,9 +1,10 @@
 """Print bridge: queue endpoints + office-PC agent poll.
 
-The pack screen enqueues jobs (delivery slip → Konica, box label →
-Deli 750W). A small agent on the office PC polls /print/agent/poll with
-the PRINT_AGENT_TOKEN secret, receives a base64 PDF plus doc_type, sends
-it to the matching printer, then acks the job.
+Picker pack screens enqueue delivery slips for the Konica, while the
+manager Picking Dashboard enqueues box labels for the Deli 750W. A small
+agent on the office PC polls /print/agent/poll with the
+PRINT_AGENT_TOKEN secret, receives a base64 PDF plus doc_type, sends it
+to the matching printer, then acks the job.
 """
 import base64
 import hmac
@@ -41,11 +42,32 @@ def enqueue_print(kind, invoice_no):
         return jsonify({'ok': False, 'error': 'Invalid CSRF token'}), 400
     if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
         return jsonify({'ok': False, 'error': 'Access denied'}), 403
+    if doc_type == 'label' and current_user.role == 'picker':
+        return jsonify({'ok': False, 'error': 'Box labels print from the Picking Dashboard'}), 403
     invoice = Invoice.query.get(invoice_no)
     if not invoice:
         return jsonify({'ok': False, 'error': 'Invoice not found'}), 404
     if current_user.role == 'picker' and invoice.assigned_to != current_user.username:
         return jsonify({'ok': False, 'error': 'Not your invoice'}), 403
+
+    if doc_type == 'label':
+        # Avoid stacking duplicate labels while the office agent has not yet
+        # finished the first one. The agent calls this state "printing".
+        existing = db.session.execute(db.text("""
+            SELECT id FROM print_jobs
+            WHERE invoice_no = :inv
+              AND doc_type = 'label'
+              AND status IN ('queued', 'printing')
+            ORDER BY id DESC
+            LIMIT 1
+        """), {'inv': invoice_no}).fetchone()
+        if existing:
+            return jsonify({
+                'ok': True,
+                'job_id': existing[0],
+                'doc_type': doc_type,
+                'duplicate': True,
+            })
 
     row = db.session.execute(db.text("""
         INSERT INTO print_jobs (invoice_no, doc_type, status, requested_by)

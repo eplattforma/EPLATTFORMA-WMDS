@@ -16,9 +16,13 @@ def build_box_label_pdf(invoice, stop_number=None, route_name=None,
                         driver_name=None, delivery_date=None,
                         stop_index=None, stop_total=None,
                         has_cooler=False) -> bytes:
+    # Keep the existing design coordinates landscape (105×70), but rotate
+    # them onto the physical portrait page used by the label feed.
     W, H = 105 * mm, 70 * mm
     buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=(W, H))
+    c = canvas.Canvas(buf, pagesize=(H, W))
+    c.translate(0, W)
+    c.rotate(-90)
 
     # STOP number — hero element
     c.setFont("Helvetica-Bold", 9)

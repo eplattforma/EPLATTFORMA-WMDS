@@ -376,6 +376,7 @@
                         <th class="text-center" style="width: 60px;">Weight</th>
                         <th class="text-center" style="width: 84px;">Time</th>
                         <th style="min-width: 92px;">Assigned</th>
+                        <th class="text-center" style="width: 54px;">Label</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -399,6 +400,7 @@
                         <td class="text-center">{{ (invoice.total_weight or 0)|round(0)|int }}</td>
                         <td class="text-center" style="min-width:75px;">{% set _e=(invoice.total_exp_time or 0)|round(0)|int %}{% if picking_times and invoice.invoice_no in picking_times %}{% set _a=picking_times[invoice.invoice_no] %}<span class="badge bg-info">{{ _a|round(0)|int }}m</span>{% if _e>0 %}<div class="{{ 'text-success' if _a<=_e else ('text-warning' if _a<=_e*1.25 else 'text-danger') }}" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% else %}<span class="text-muted">—</span>{% if _e>0 %}<div class="text-secondary" style="font-size:.72rem;line-height:1.3;">Est {{ _e }}m</div>{% endif %}{% endif %}</td>
                         <td>{% if invoice.assigned_to %}{{ invoice.assigned_to }}{% endif %}</td>
+                        <td class="text-center"><button class="btn btn-outline-success btn-sm" onclick="sendLabelPrint(this, '{{ invoice.invoice_no }}')" title="Print box label"><i class="fas fa-tag"></i></button></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -968,26 +970,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-function sendLabelPrint(btn, invoiceNo) {
-    var icon = btn.querySelector('i');
+function showLabelToast(message, ok) {
+    var toast = document.createElement('div');
+    toast.className = 'position-fixed bottom-0 end-0 m-3 px-3 py-2 rounded shadow text-white';
+    toast.style.zIndex = '2000';
+    toast.style.backgroundColor = ok ? '#198754' : '#dc3545';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(function(){ toast.remove(); }, 3000);
+}
+
+async function sendLabelPrint(btn, invoiceNo) {
+    if (btn.dataset.busy) return;
+    btn.dataset.busy = '1';
     btn.disabled = true;
-    if (icon) icon.className = 'fas fa-spinner fa-spin';
-    fetch('/print/box-label/' + encodeURIComponent(invoiceNo), {
-        method: 'POST',
-        headers: {'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content}
-    }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok: r.ok && j.ok, err: j.error}; }); })
-    .then(function(res){
-        if (icon) icon.className = res.ok ? 'fas fa-check' : 'fas fa-times';
-        if (!res.ok) { btn.title = res.err || 'Print failed'; btn.classList.remove('btn-outline-success'); btn.classList.add('btn-outline-danger'); }
-        setTimeout(function(){
-            if (icon) icon.className = 'fas fa-tag';
-            btn.disabled = false;
-            btn.classList.remove('btn-outline-danger'); btn.classList.add('btn-outline-success');
-        }, 2500);
-    }).catch(function(){
-        if (icon) icon.className = 'fas fa-times';
-        setTimeout(function(){ if (icon) icon.className = 'fas fa-tag'; btn.disabled = false; }, 2500);
-    });
+    var original = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Sending…';
+
+    try {
+        var response = await fetch('/print/box-label/' + encodeURIComponent(invoiceNo), {
+            method: 'POST',
+            headers: {'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content}
+        });
+        var result = await response.json().catch(function(){ return {}; });
+        if (response.ok && result.ok) {
+            btn.innerHTML = '<i class="fas fa-check me-1"></i>Sent ✓';
+            showLabelToast('Label sent to printer', true);
+        } else {
+            btn.innerHTML = '<i class="fas fa-times me-1"></i>Failed — try again';
+            showLabelToast(result.error || 'Could not send label', false);
+        }
+    } catch (error) {
+        btn.innerHTML = '<i class="fas fa-times me-1"></i>Failed — try again';
+        showLabelToast('Could not reach the printer service', false);
+    }
+
+    setTimeout(function(){
+        btn.innerHTML = original;
+        btn.disabled = false;
+        delete btn.dataset.busy;
+    }, 5000);
 }
 </script>
 
