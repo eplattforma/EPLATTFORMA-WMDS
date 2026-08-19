@@ -27,51 +27,102 @@
   </div>
   {% endif %}
 
-  <button type="button" class="btn-print" onclick="printDoc('delivery-slip', this)">
+  <button type="button" class="btn-print" data-printed="{{ '1' if already_printed else '' }}"
+          onclick="printSlip({{ invoice.invoice_no|tojson }}, this)">
     <i class="fas fa-print"></i> Print delivery slip</button>
-  <div id="print-status" class="print-status"></div>
+  <div id="printMsg" class="banner" aria-live="polite"></div>
 
   <form method="POST" action="{{ url_for('mark_as_packed', invoice_no=invoice.invoice_no) }}">
     <button type="submit" class="btn-packed"><i class="fas fa-box"></i> Mark as packed</button>
   </form>
-  <a class="back" href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}">Back to picking</a>
-  <a class="back" href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no, from_packing='true') }}" target="_blank">View slip on screen</a>
+  <div class="secondary">
+    <a class="lnk" href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}">Back to picking</a>
+    <a class="lnk" href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no, from_packing='true') }}" target="_blank">View slip on screen</a>
+  </div>
 </div>
 
 <script>
-function printDoc(kind, btn) {
-  var status = document.getElementById('print-status');
+function setPrintBanner(kind, message) {
+  var banner = document.getElementById('printMsg');
+  banner.className = 'banner ' + kind;
+  banner.textContent = message;
+}
+
+function waitForPrint(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+async function printSlip(invoiceNo, btn) {
+  if (btn.dataset.busy) return;
+  if (btn.dataset.printed === '1' &&
+      !confirm('This delivery slip has already been printed.\nDo you want to print it again?')) {
+    return;
+  }
+
+  btn.dataset.busy = '1';
   btn.disabled = true;
-  fetch('/print/' + kind + '/{{ invoice.invoice_no }}', {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token() }}'}})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      status.textContent = d.ok
-        ? 'Slip sent to printer'
-        : ('Could not print: ' + (d.error || 'unknown error'));
-      status.className = 'print-status ' + (d.ok ? 'ok' : 'err');
-    })
-    .catch(function(){ status.textContent = 'Could not reach the server'; status.className = 'print-status err'; })
-    .finally(function(){ btn.disabled = false; });
+  var original = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sending…';
+
+  try {
+    var response = await fetch('/print/delivery-slip/' + encodeURIComponent(invoiceNo), {
+      method: 'POST',
+      headers: {'X-CSRFToken': '{{ csrf_token() }}'}
+    });
+    var job = await response.json().catch(function() { return {}; });
+    if (!response.ok || !job.ok || !job.job_id) {
+      throw new Error(job.error || 'Could not send delivery slip');
+    }
+
+    btn.dataset.printed = '1';
+    setPrintBanner('sending', 'Sent — printing…');
+
+    for (var attempt = 0; attempt < 10; attempt += 1) {
+      await waitForPrint(1500);
+      var statusResponse = await fetch('/print/job/' + job.job_id + '/status');
+      var status = await statusResponse.json().catch(function() { return {}; });
+      if (!statusResponse.ok) continue;
+      if (status.status === 'done') {
+        setPrintBanner('ok', '✓ Printed on office Konica');
+        return;
+      }
+      if (status.status === 'error') {
+        delete btn.dataset.printed;
+        setPrintBanner('fail', 'Print failed — try again');
+        return;
+      }
+    }
+    setPrintBanner('sending', 'Sent to printer');
+  } catch (error) {
+    setPrintBanner('fail', error.message || 'Failed — try again');
+  } finally {
+    btn.innerHTML = original;
+    btn.disabled = false;
+    delete btn.dataset.busy;
+  }
 }
 </script>
 
 <style>
   .pack-screen{max-width:460px;margin:16px auto;padding:0 12px;font-family:Arial,sans-serif}
-  .pack-screen .hdr{background:#EAF3DE;border-radius:12px;padding:14px 16px}
-  .pack-screen .ok{color:#3B6D11;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
-  .pack-screen .cust{font-size:24px;font-weight:700;margin-top:6px}
-  .pack-screen .meta{color:#555;font-size:13px;margin-top:2px}
+  .pack-screen .hdr{background:#EAF3DE;border-radius:12px;padding:14px}
+  .pack-screen .hdr .ok{color:#2f6b2f !important;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
+  .pack-screen .hdr .cust{color:#14311c !important;font-size:20px;font-weight:800;line-height:1.12;margin-top:6px}
+  .pack-screen .hdr .meta{color:#3d5c45 !important;font-size:12px;margin-top:2px}
   .pack-screen .totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
   .pack-screen .totals div{background:#f4f2ec;border-radius:8px;text-align:center;padding:12px 4px}
   .pack-screen .totals b{display:block;font-size:22px;color:#222}
   .pack-screen .totals span{font-size:12px;color:#555}
   .pack-screen .pack-alert{background:#FAEEDA;border-radius:8px;padding:12px;display:flex;gap:8px;color:#854F0B;font-size:13px;margin-bottom:12px}
   .pack-screen .pack-alert .hint{color:#7a6a3a;margin-top:4px}
-  .pack-screen .btn-print{display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border:1px solid #bbb;border-radius:10px;text-decoration:none;color:#222;font-size:15px;margin-bottom:10px;background:#fff;width:100%}
-  .pack-screen .print-status{text-align:center;font-size:13px;min-height:18px;margin-bottom:8px}
-  .pack-screen .print-status.ok{color:#1D9E75}
-  .pack-screen .print-status.err{color:#A32D2D}
-  .pack-screen .btn-packed{width:100%;height:54px;border:none;border-radius:10px;background:#1D9E75;color:#fff;font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
-  .pack-screen .back{display:block;text-align:center;margin-top:12px;color:#666;font-size:13px;text-decoration:none}
+  .pack-screen .btn-print{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:48px;border:2px solid #2f6bd8;background:#fff;color:#1c4fa3;border-radius:10px;font-size:15px;font-weight:700;margin-bottom:10px}
+  .pack-screen .btn-packed{width:100%;height:56px;border:none;background:#1f9e6f;color:#fff;border-radius:10px;font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px}
+  .pack-screen .banner{border-radius:8px;padding:9px 12px;font-size:13px;font-weight:600;margin:8px 0 12px}
+  .pack-screen .banner:empty{display:none}
+  .pack-screen .banner.sending{background:#fff7e6;color:#8a5a00;border:1px solid #e0b050}
+  .pack-screen .banner.ok{background:#12351f;color:#bfe9c8;border:1px solid #2f6b2f}
+  .pack-screen .banner.fail{background:#3a1414;color:#f3b0b0;border:1px solid #a33}
+  .pack-screen .secondary{display:flex;gap:10px;margin-top:14px}
+  .pack-screen .lnk{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;border:1px solid #3a4759;border-radius:10px;color:#c7d2e0;font-size:14px;text-decoration:none}
 </style>
 {% endblock %}

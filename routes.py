@@ -4784,10 +4784,27 @@ def ready_for_packing(invoice_no):
                 driver_name = sh.driver_name
             stop_number = int(rs.seq_no) if rs.seq_no == int(rs.seq_no) else rs.seq_no
 
+    # A queued or completed slip is treated as already printed so a second
+    # tap asks for confirmation rather than silently producing duplicates.
+    try:
+        already_printed = db.session.execute(text("""
+            SELECT 1
+            FROM print_jobs
+            WHERE invoice_no = :invoice_no
+              AND doc_type = 'slip'
+              AND status IN ('queued', 'printing', 'done')
+            LIMIT 1
+        """), {'invoice_no': invoice_no}).first() is not None
+    except Exception as exc:
+        # The page must still work while an older database is being migrated.
+        db.session.rollback()
+        current_app.logger.warning("Could not load print history for %s: %s", invoice_no, exc)
+        already_printed = False
+
     return render_template('ready_for_packing.html', invoice=invoice, exceptions=exceptions,
                            short_picks=short_picks, route_name=route_name,
                            stop_number=stop_number, driver_name=driver_name,
-                           now=datetime.now())
+                           already_printed=already_printed, now=datetime.now())
 
 # Mark Packing as Complete
 @app.route('/picker/invoice/<invoice_no>/mark-as-packed', methods=['POST'])

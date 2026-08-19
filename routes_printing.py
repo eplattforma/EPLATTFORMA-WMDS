@@ -77,6 +77,31 @@ def enqueue_print(kind, invoice_no):
     return jsonify({'ok': True, 'job_id': row[0], 'doc_type': doc_type})
 
 
+@printing_bp.route('/print/job/<int:job_id>/status')
+@login_required
+def print_job_status(job_id):
+    """Return a print job's state to the user who is allowed to print it."""
+    from models import db, Invoice
+
+    if current_user.role not in ('picker', 'warehouse_manager', 'admin'):
+        return jsonify({'error': 'Access denied'}), 403
+
+    row = db.session.execute(db.text("""
+        SELECT invoice_no, status
+        FROM print_jobs
+        WHERE id = :job_id
+    """), {'job_id': job_id}).fetchone()
+    if not row:
+        return jsonify({'error': 'Print job not found'}), 404
+
+    if current_user.role == 'picker':
+        invoice = Invoice.query.get(row.invoice_no)
+        if not invoice or invoice.assigned_to != current_user.username:
+            return jsonify({'error': 'Not your invoice'}), 403
+
+    return jsonify({'status': row.status})
+
+
 @printing_bp.route('/print/agent/poll', methods=['GET', 'POST'])
 def agent_poll():
     from models import db, Invoice
