@@ -277,22 +277,24 @@ def shift_reports():
     end_date_str = request.args.get('end_date', '')
     picker_filter = request.args.get('picker', '')
     
-    # Parse dates - default to last 7 days
+    # Parse dates - default to last 7 days (use local date so the window
+    # matches the local-day bucketing used in the reporting views)
+    local_today = get_local_now().date()
     if not start_date_str:
-        start_date = date.today() - timedelta(days=7)
+        start_date = local_today - timedelta(days=7)
     else:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         except ValueError:
-            start_date = date.today() - timedelta(days=7)
-    
+            start_date = local_today - timedelta(days=7)
+
     if not end_date_str:
-        end_date = date.today()
+        end_date = local_today
     else:
         try:
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
         except ValueError:
-            end_date = date.today()
+            end_date = local_today
     
     # Build date range for queries
     start_datetime = datetime.combine(start_date, datetime.min.time())
@@ -476,9 +478,10 @@ def admin_shift_management():
         except ValueError:
             flash('Invalid end date format. Please use YYYY-MM-DD.', 'warning')
     
-    # Default to the last 7 days if no dates specified
+    # Default to the last 7 days if no dates specified (use local date so the
+    # window matches the local-day bucketing used in the reporting views)
     if not start_date and not end_date:
-        end_date = date.today()
+        end_date = get_local_now().date()
         start_date = end_date - timedelta(days=7)
     
     # Build the query
