@@ -7,4 +7,4 @@ Deli DL-750W box labels: the office pipeline prints pages turned 90° counter-cl
 
 **Why:** A published plain 105×70 landscape PDF printed needing a clockwise turn to read (confirmed by the user on paper), so the driver rotates CCW; the pre-rotated clockwise design cancels it. Earlier `translate(0,105*mm); rotate(-90)` produced the same wrong direction.
 
-**How to apply:** Preserve the portrait pagesize, the +90° transform, and the 5 mm margin. If a physical print comes out 180° upside-down, swap only the transform to `c.translate(0, 105*mm); c.rotate(-90)`. Driver: gap sensing 70 mm feed, Rotate 180 OFF, 100% scale; agent keeps `-print-settings "noscale"`.
+**How to apply:** Preserve the portrait pagesize, the +90° transform, and the 5 mm margin. Driver media MUST be set to 70×105 **portrait** (confirmed good on paper 20/08/2026: single label, upright text); the landscape media setting re-rotates and splits the print across two labels. Rotate 180 OFF, 100% scale; agent keeps `-print-settings "noscale"`.
