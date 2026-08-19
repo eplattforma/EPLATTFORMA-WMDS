@@ -16,7 +16,74 @@ STATUS_MAP = {
     "SHIPPED": "shipped",
     "READY_FOR_DISPATCH": "ready_for_dispatch",
     "ASSIGNED": "ready_for_dispatch",  # Legacy status, maps to ready_for_dispatch
+    # Retired warehouse status names (pre-canonical era). Old production rows
+    # may still carry these; map them to their canonical equivalents.
+    "IN PROGRESS": "picking",
+    "IN_PROGRESS": "picking",
+    "COMPLETED": "ready_for_dispatch",
+    "READY FOR PACKING": "awaiting_packing",
+    "READY_FOR_PACKING": "awaiting_packing",
 }
+
+# Legacy spellings as they appear verbatim in old rows, keyed by the canonical
+# status they map to. Used to expand SQL IN-filters so legacy rows are not
+# silently hidden from dashboards.
+LEGACY_INVOICE_STATUS_ALIASES = {
+    "picking": ["In Progress"],
+    "ready_for_dispatch": ["Completed", "Assigned"],
+    "awaiting_packing": ["Ready for Packing"],
+}
+
+
+def expand_legacy_aliases(statuses):
+    """Return the given canonical status list plus any retired spellings that
+    normalize to one of them, for use in SQL IN-filters.
+
+    Case variants (Title Case, UPPERCASE, lowercase, and underscore forms)
+    are included because SQL equality is case-sensitive on PostgreSQL while
+    normalize_status() accepts any casing."""
+    expanded = list(statuses)
+    seen = set(expanded)
+    for canonical in statuses:
+        for alias in LEGACY_INVOICE_STATUS_ALIASES.get(canonical, []):
+            for variant in (
+                alias,
+                alias.upper(),
+                alias.lower(),
+                alias.replace(' ', '_'),
+                alias.upper().replace(' ', '_'),
+                alias.lower().replace(' ', '_'),
+            ):
+                if variant not in seen:
+                    seen.add(variant)
+                    expanded.append(variant)
+    return expanded
+
+
+def heal_legacy_invoice_statuses(invoices):
+    """Rewrite any retired status spellings (e.g. 'In Progress', 'Completed')
+    on the given Invoice rows to their canonical lowercase equivalents so old
+    production rows stop taking legacy branches. Commits only when a row was
+    actually changed. Safe to call with an empty list."""
+    from app import app, db  # lazy import to avoid circular imports
+    from timezone_utils import utc_now_for_db
+    healed = False
+    for inv in invoices:
+        canonical = normalize_status(inv.status)
+        if canonical and canonical != inv.status:
+            app.logger.info(
+                f"Healing legacy invoice status on {inv.invoice_no}: "
+                f"'{inv.status}' -> '{canonical}'"
+            )
+            inv.status = canonical
+            inv.status_updated_at = utc_now_for_db()
+            healed = True
+    if healed:
+        try:
+            db.session.commit()
+        except Exception as _heal_err:
+            db.session.rollback()
+            app.logger.warning(f"Legacy status heal commit failed: {_heal_err}")
 
 # Terminal statuses that mean delivery is complete (one way or another)
 TERMINAL_DELIVERY_STATUSES = {"delivered", "delivery_failed", "returned_to_warehouse"}

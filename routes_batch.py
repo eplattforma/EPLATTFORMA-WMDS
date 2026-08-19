@@ -1213,13 +1213,16 @@ def filter_invoices_for_batch():
         query = query.filter(Invoice.status == 'not_started')
     else:
         # Include partially picked invoices too
-        query = query.filter(Invoice.status.in_(['not_started', 'picking', 'awaiting_batch_items']))
+        from delivery_status import expand_legacy_aliases
+        query = query.filter(Invoice.status.in_(expand_legacy_aliases(['not_started', 'picking', 'awaiting_batch_items'])))
     
     # Only include each invoice once
     query = query.group_by(Invoice.invoice_no)
     
     # Execute the query
     invoices = query.all()
+    from delivery_status import heal_legacy_invoice_statuses
+    heal_legacy_invoice_statuses(invoices)
     
     # Calculate eligible item counts for each invoice based on selected zones and corridors
     # Filter out invoices that have no eligible items in the selected corridors
@@ -1654,13 +1657,16 @@ def filter_invoices_by_zone():
         query = query.filter(Invoice.status == 'not_started')
     else:
         # Include partially picked invoices too
-        query = query.filter(Invoice.status.in_(['not_started', 'picking', 'awaiting_batch_items']))
+        from delivery_status import expand_legacy_aliases
+        query = query.filter(Invoice.status.in_(expand_legacy_aliases(['not_started', 'picking', 'awaiting_batch_items'])))
     
     # Group by invoice
     query = query.group_by(Invoice.invoice_no, Invoice.customer_name, Invoice.routing)
     
     # Execute the query
     invoices = query.all()
+    from delivery_status import heal_legacy_invoice_statuses
+    heal_legacy_invoice_statuses(invoices)
     
     # Format the results
     result = [

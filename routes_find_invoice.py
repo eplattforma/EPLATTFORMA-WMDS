@@ -79,8 +79,9 @@ def search_completed():
     sort = data.get("sort", "completed_desc")
     
     # Build base query - only completed/delivered invoices
+    from delivery_status import expand_legacy_aliases
     query = db.session.query(Invoice).filter(
-        Invoice.status.in_(['ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled'])
+        Invoice.status.in_(expand_legacy_aliases(['ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled']))
     )
     
     # Apply preset date filters
@@ -173,7 +174,9 @@ def search_completed():
     
     # Status filter
     if status_filter:
-        query = query.filter(Invoice.status == status_filter)
+        # Include retired spellings that normalize to the requested status
+        # (e.g. filtering 'ready_for_dispatch' must also match old 'Completed' rows)
+        query = query.filter(Invoice.status.in_(expand_legacy_aliases([status_filter])))
     
     # Apply sorting
     if sort == "completed_desc":
@@ -193,6 +196,8 @@ def search_completed():
     # Apply pagination
     offset = (page - 1) * size
     invoices = query.offset(offset).limit(size).all()
+    from delivery_status import heal_legacy_invoice_statuses
+    heal_legacy_invoice_statuses(invoices)
     
     # Get route info for all invoices
     route_ids = [inv.route_id for inv in invoices if inv.route_id]

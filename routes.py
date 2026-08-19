@@ -26,6 +26,7 @@ from image_handler import get_product_image
 from import_handler import process_excel_file
 from timezone_utils import get_local_time, format_local_time, localize_datetime, get_local_now, get_utc_now, format_utc_datetime_to_local, utc_now_for_db
 from utils.shipping_utils import get_ready_to_ship_orders, ship_invoices
+from delivery_status import normalize_status, expand_legacy_aliases, heal_legacy_invoice_statuses as _heal_legacy_invoice_statuses
 
 # Register data warehouse blueprint
 from datawarehouse_routes import dw_bp
@@ -399,7 +400,10 @@ def admin_dashboard():
     # Filter for open warehouse orders only (Not Started, Picking, Awaiting Batch Items, Awaiting Packing, Ready for Dispatch)
     # Exclude returned_to_warehouse - those orders should not appear on picking dashboard
     open_warehouse_statuses = ['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing', 'ready_for_dispatch']
-    all_invoices = Invoice.query.filter(Invoice.status.in_(open_warehouse_statuses)).all()
+    all_invoices = Invoice.query.filter(
+        Invoice.status.in_(expand_legacy_aliases(open_warehouse_statuses))
+    ).all()
+    _heal_legacy_invoice_statuses(all_invoices)
     
     # Separate warehouse orders (not assigned to routes) from route-assigned orders
     # An invoice is assigned to a route if it has a route_id set
@@ -493,7 +497,7 @@ def admin_dashboard():
     invoices.extend(unassigned_invoices)
     
     all_active_invoices = list(warehouse_invoices) + list(route_assigned_invoices)
-    completed_invoices = [invoice for invoice in all_active_invoices if invoice.status == 'Completed']
+    completed_invoices = [invoice for invoice in all_active_invoices if invoice.status == 'ready_for_dispatch']
     
     pickers = get_picking_eligible_users()
     drivers = User.query.filter_by(role='driver').all()
@@ -3353,8 +3357,9 @@ def picker_dashboard():
     # awaiting_batch_items is handled by batch picking — not shown to individual pickers
     # Once an order reaches 'ready_for_dispatch', the picker's job is complete
     invoices_raw = Invoice.query.filter_by(assigned_to=current_user.username).filter(
-        Invoice.status.in_(['not_started', 'picking', 'awaiting_packing'])
+        Invoice.status.in_(expand_legacy_aliases(['not_started', 'picking', 'awaiting_packing']))
     ).all()
+    _heal_legacy_invoice_statuses(invoices_raw)
     
     invoices = []
     from sqlalchemy import text
@@ -4664,7 +4669,8 @@ def print_invoice(invoice_no):
     has_cooler = invoice_has_cooler_box(invoice_no)
 
     # Choose the appropriate template based on the order status and user role
-    if invoice.status in ['Ready for Packing', 'ready_for_dispatch', 'awaiting_packing'] or (current_user.role in ('picker', 'warehouse_manager') and invoice.status in ['In Progress', 'picking']):
+    _inv_status = normalize_status(invoice.status)
+    if _inv_status in ('ready_for_dispatch', 'awaiting_packing') or (current_user.role in ('picker', 'warehouse_manager') and _inv_status == 'picking'):
         # Use the picking report template for packing preparation
         return render_template('print_picking_report.html', 
                              slip_items=slip_items,

@@ -154,6 +154,44 @@
             </div>
         </div>
 
+        <!-- Awaiting Packing Column -->
+        <div class="col-md-2 col-lg-2">
+            <div class="card h-100">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-box-open me-2"></i>Awaiting Packing
+                        <span class="badge bg-light text-dark ms-2">{{ orders_by_status['awaiting_packing']|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body p-2" style="max-height: 600px; overflow-y: auto;">
+                    {% for order in orders_by_status['awaiting_packing'] %}
+                    <div class="card mb-2 border-secondary">
+                        <div class="card-body p-3">
+                            <h6 class="card-title">{{ order.invoice_no }}</h6>
+                            <p class="card-text small mb-1">{{ order.customer_name }}
+                                {% if order.customer_code_365 %}
+                                <br><span class="text-muted" style="font-size: 0.85em;">Code: {{ order.customer_code_365 }}</span>
+                                {% endif %}
+                            </p>
+                            <p class="card-text small text-muted mb-2">
+                                <i class="fas fa-route me-1"></i>Route: {{ order.routing or 'N/A' }}
+                                <br><i class="fas fa-weight me-1"></i>{{ order.total_weight|round(1) }} kg
+                            </p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-success">
+                                    <i class="fas fa-check me-1"></i>{{ picked_lines_count[order.invoice_no] }}/{{ total_lines_count[order.invoice_no] }} picked
+                                </small>
+                                {% if invoice_exceptions[order.invoice_no] > 0 %}
+                                <span class="badge bg-warning">{{ invoice_exceptions[order.invoice_no] }} notes</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
         <!-- Ready for Dispatch Column -->
         <div class="col-md-2 col-lg-2">
             <div class="card h-100">

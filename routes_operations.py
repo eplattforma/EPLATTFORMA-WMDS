@@ -24,8 +24,10 @@ def open_orders():
         return redirect(url_for('index'))
     
     # Get all invoices with warehouse statuses
-    warehouse_statuses = ['not_started', 'picking', 'awaiting_batch_items', 'ready_for_dispatch', 'returned_to_warehouse']
-    open_orders = Invoice.query.filter(Invoice.status.in_(warehouse_statuses)).all()
+    from delivery_status import expand_legacy_aliases, heal_legacy_invoice_statuses
+    warehouse_statuses = ['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing', 'ready_for_dispatch', 'returned_to_warehouse']
+    open_orders = Invoice.query.filter(Invoice.status.in_(expand_legacy_aliases(warehouse_statuses))).all()
+    heal_legacy_invoice_statuses(open_orders)
     
     # Extract invoice numbers for bulk queries
     invoice_nos = [inv.invoice_no for inv in open_orders]
@@ -67,6 +69,7 @@ def open_orders():
         'not_started': [o for o in open_orders if o.status == 'not_started'],
         'picking': [o for o in open_orders if o.status == 'picking'],
         'awaiting_batch_items': [o for o in open_orders if o.status == 'awaiting_batch_items'],
+        'awaiting_packing': [o for o in open_orders if o.status == 'awaiting_packing'],
         'ready_for_dispatch': [o for o in open_orders if o.status == 'ready_for_dispatch'],
         'returned_to_warehouse': [o for o in open_orders if o.status == 'returned_to_warehouse']
     }

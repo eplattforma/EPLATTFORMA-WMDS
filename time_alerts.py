@@ -30,7 +30,8 @@ def check_order_time_alerts(invoice_no, picker_username):
     
     # Get the invoice
     invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()
-    if not invoice or invoice.status not in ['In Progress']:
+    from delivery_status import normalize_status
+    if not invoice or normalize_status(invoice.status) != 'picking':
         return None
     
     # Find when picking started
