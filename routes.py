@@ -3620,9 +3620,10 @@ def start_picking(invoice_no):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
-    # Check if picker has an active shift (admins bypass the shift gate)
+    # Only picker-role staff use shift tracking. Other roles may pick without
+    # check-in/check-out or an activity-mode gate.
     active_shift = get_active_shift(current_user.username)
-    if not active_shift and current_user.role != 'admin':
+    if current_user.role == 'picker' and not active_shift:
         flash('You must check in for a shift before picking.', 'warning')
         return redirect(url_for('shift_check_in'))
     
@@ -3848,9 +3849,10 @@ def pick_item(invoice_no):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
-    # Check if picker has an active shift (admins bypass the shift gate)
+    # Only picker-role staff use shift tracking. Other roles may pick without
+    # check-in/check-out or an activity-mode gate.
     active_shift = get_active_shift(current_user.username)
-    if not active_shift and current_user.role != 'admin':
+    if current_user.role == 'picker' and not active_shift:
         flash('You must check in for a shift before picking.', 'warning')
         return redirect(url_for('shift_check_in'))
     
@@ -4877,6 +4879,10 @@ def mark_as_packed(invoice_no):
     db.session.commit()
     
     flash('Order has been marked as packed and completed successfully.', 'success')
+    # Non-pickers do not participate in shift/activity tracking and go
+    # directly back to their next available order.
+    if current_user.role != 'picker':
+        return redirect(url_for('picker_dashboard'))
     return redirect(url_for('picking_completed', invoice_no=invoice_no))
 
 # Error handlers

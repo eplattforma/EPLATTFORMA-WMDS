@@ -112,6 +112,7 @@
                     </li>
                     {% endif %}
                     {% if has_permission('menu.routes') %}
+                    {% if current_user.role == 'picker' %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.endpoint in ['routes.dashboard', 'delivery_issues.review_issues', 'find_invoice.find_invoice_route'] or (request.endpoint and 'reconciliation' in request.endpoint and request.endpoint != 'reconciliation.customer_balances_report') %}active{% endif %}" 
                            href="#" id="deliveryDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -155,6 +156,7 @@
                             </li>
                         </ul>
                     </li>
+                    {% endif %}
                     {% endif %}
                     {% if has_permission('menu.crm') %}
                     <li class="nav-item dropdown">
