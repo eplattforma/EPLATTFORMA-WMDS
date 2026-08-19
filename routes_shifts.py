@@ -130,7 +130,7 @@ def shift_check_out():
                     shift.total_duration_minutes / 60 if shift.total_duration_minutes else 0
                 ), 'success')
                 
-                return redirect(url_for('my_shift_report'))
+                return redirect(url_for('picker_dashboard'))
             else:
                 flash('An error occurred during check-out. Please try again.', 'danger')
     
@@ -268,7 +268,7 @@ def end_break_route():
 @login_required
 def shift_reports():
     """Detailed time and productivity reports"""
-    if current_user.role not in ['admin', 'warehouse_manager']:
+    if current_user.role != 'admin':
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -797,22 +797,20 @@ def _parse_report_date(raw):
 @app.route('/shift/my-report', methods=['GET'])
 @login_required
 def my_shift_report():
-    """A picker's own end-of-shift report (shown after check-out)."""
-    if current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
+    """Legacy personal-report URL; shift reports are administrator-only."""
+    if current_user.role != 'admin':
+        flash('Shift reports are available to administrators only.', 'danger')
         return redirect(url_for('index'))
-    work_date = _parse_report_date(request.args.get('date'))
-    report = build_shift_report(current_user.username, work_date)
-    return render_template('end_of_shift_report.html',
-                           report=report, is_manager_view=False,
-                           pickers=[], selected_picker=current_user.username)
+    return redirect(url_for('picker_performance_report',
+                            picker=request.args.get('picker', ''),
+                            date=request.args.get('date', '')))
 
 
 @app.route('/shift/performance-report', methods=['GET'])
 @login_required
 def picker_performance_report():
     """Manager view: end-of-shift report for any picker and date."""
-    if current_user.role not in ['admin', 'warehouse_manager']:
+    if current_user.role != 'admin':
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('index'))
     pickers = pickers_with_data()

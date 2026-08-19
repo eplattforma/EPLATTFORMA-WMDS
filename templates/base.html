@@ -243,6 +243,7 @@
                                     <i class="fas fa-brain me-2"></i>AI Insights
                                 </a>
                             </li>
+                            {% if current_user.role == 'admin' %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'shift_reports' %}active{% endif %}" 
                                    href="{{ url_for('shift_reports') }}">
@@ -261,6 +262,7 @@
                                     <i class="fas fa-chart-line me-2"></i>Shift Performance Report
                                 </a>
                             </li>
+                            {% endif %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'reports.idle_dedicated' %}active{% endif %}" 
                                    href="{{ url_for('reports.idle_dedicated') }}">
@@ -399,7 +401,7 @@
                     </li>
                     {% if current_user.role == 'picker' %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['shift_check_in', 'shift_check_out', 'manage_break', 'my_shift_report'] %}active{% endif %}"
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['shift_check_in', 'shift_check_out', 'manage_break'] %}active{% endif %}"
                            href="#" id="shiftDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-user-clock me-1"></i>My Shift
                         </a>
@@ -420,13 +422,6 @@
                                 <a class="dropdown-item {% if request.endpoint == 'manage_break' %}active{% endif %}" 
                                    href="{{ url_for('manage_break') }}">
                                     <i class="fas fa-coffee me-2"></i>Break Management
-                                </a>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint == 'my_shift_report' %}active{% endif %}"
-                                   href="{{ url_for('my_shift_report') }}">
-                                    <i class="fas fa-chart-line me-2"></i>My Shift Report
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
