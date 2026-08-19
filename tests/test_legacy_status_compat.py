@@ -191,3 +191,85 @@ def test_admin_dashboard_heals_and_shows_legacy_row(app, client, admin_auth):
 
     with app.app_context():
         assert Invoice.query.get('LEG-020').status == 'picking'
+
+
+def _login_picker(client):
+    resp = client.post('/login', data={
+        'username': 'test_picker_user',
+        'password': 'test_password',
+    })
+    assert resp.status_code == 302
+    return client
+
+
+def test_picker_dashboard_heals_and_shows_legacy_row(app, client):
+    """A legacy 'In Progress' invoice assigned to the picker must appear on
+    the picker dashboard and be healed to canonical 'picking'."""
+    from app import db
+    from models import Invoice
+    with app.app_context():
+        inv = _make_invoice(db, 'LEG-050', 'In Progress')
+        inv.assigned_to = 'test_picker_user'
+        db.session.commit()
+
+    _register_template_stubs(app)
+    _login_picker(client)
+
+    resp = client.get('/picker/dashboard')
+    assert resp.status_code == 200
+    assert b'LEG-050' in resp.data
+
+    with app.app_context():
+        assert Invoice.query.get('LEG-050').status == 'picking'
+
+
+def _capture_print_template(monkeypatch):
+    """Patch routes.render_template to record which template the print
+    route selects, without rendering the heavy print templates."""
+    import routes as routes_module
+    captured = {}
+
+    def _fake_render(template_name, **ctx):
+        captured['template'] = template_name
+        return 'OK'
+
+    monkeypatch.setattr(routes_module, 'render_template', _fake_render)
+    return captured
+
+
+def test_print_route_legacy_status_uses_picking_report(app, client, admin_auth, monkeypatch):
+    """The packing-route visibility branch normalizes the status: a legacy
+    'Ready for Packing' invoice must select the picking report template."""
+    from app import db
+    with app.app_context():
+        _make_invoice(db, 'LEG-060', 'Ready for Packing')
+
+    captured = _capture_print_template(monkeypatch)
+    resp = client.get('/admin/invoice/LEG-060/print')
+    assert resp.status_code == 200
+    assert captured['template'] == 'print_picking_report.html'
+
+
+def test_print_route_legacy_completed_uses_picking_report(app, client, admin_auth, monkeypatch):
+    """Legacy 'Completed' normalizes to ready_for_dispatch, which also uses
+    the picking report template."""
+    from app import db
+    with app.app_context():
+        _make_invoice(db, 'LEG-061', 'Completed')
+
+    captured = _capture_print_template(monkeypatch)
+    resp = client.get('/admin/invoice/LEG-061/print')
+    assert resp.status_code == 200
+    assert captured['template'] == 'print_picking_report.html'
+
+
+def test_print_route_shipped_uses_shipping_label(app, client, admin_auth, monkeypatch):
+    """Sanity: a shipped invoice takes the other branch (shipping label)."""
+    from app import db
+    with app.app_context():
+        _make_invoice(db, 'LEG-062', 'shipped')
+
+    captured = _capture_print_template(monkeypatch)
+    resp = client.get('/admin/invoice/LEG-062/print')
+    assert resp.status_code == 200
+    assert captured['template'] == 'print_invoice.html'
