@@ -1,5 +1,6 @@
 import os
 import logging
+import uuid
 from datetime import datetime
 from flask import render_template, redirect, url_for, flash, request, session, jsonify, current_app
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -21,6 +22,12 @@ from utils.shift_tracking import (
     check_in_picker, check_out_picker, start_break, end_break, 
     record_activity, check_for_idle_pickers, check_for_missed_checkouts,
     admin_adjust_shift, get_active_shift, get_picker_on_break
+)
+from services.activity_tracking import (
+    active_timeline,
+    activity_schema_available,
+    get_activity_service,
+    tracking_enabled,
 )
 from image_handler import get_product_image
 from import_handler import process_excel_file
@@ -3545,6 +3552,20 @@ def picker_dashboard():
     
     batch_data.sort(key=batch_sort_key)
     
+    # The activity timeline is deliberately opt-in.  Until its PostgreSQL
+    # migration is applied, preserve the existing picker-only shift behaviour.
+    activity_mode_ready = activity_schema_available()
+    activity_tracking_enabled = (
+        tracking_enabled(current_user.username)
+        if activity_mode_ready
+        else current_user.role == 'picker'
+    )
+    activity_session = (
+        active_timeline(current_user.username)
+        if activity_tracking_enabled and activity_mode_ready
+        else None
+    )
+
     # Get active shift for this picker
     active_shift = get_active_shift(current_user.username)
     
@@ -3552,7 +3573,7 @@ def picker_dashboard():
     on_break = get_picker_on_break(current_user.username)
     
     # Record the activity for idle detection if user has an active shift
-    if active_shift:
+    if active_shift and not activity_tracking_enabled:
         record_activity(current_user.username, 'screen_interaction', 
                        details='Viewing picker dashboard')
     
@@ -3609,7 +3630,10 @@ def picker_dashboard():
                           on_break_start_time_formatted=on_break_start_time_formatted,
                           shift_duration_minutes=shift_duration_minutes,
                           picker_unvalidated_issues_count=picker_unvalidated_issues_count,
-                          picking_times=picking_times)
+                           picking_times=picking_times,
+                           activity_mode_ready=activity_mode_ready,
+                           activity_tracking_enabled=activity_tracking_enabled,
+                           activity_session=activity_session.to_dict() if activity_session else None)
 
 # Batch picking dashboard removed - will be rebuilt
 
@@ -3620,10 +3644,16 @@ def start_picking(invoice_no):
         flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
-    # Only picker-role staff use shift tracking. Other roles may pick without
-    # check-in/check-out or an activity-mode gate.
+    # Activity tracking is per-user once the optional PostgreSQL timeline is
+    # installed.  Before that migration, keep the existing picker-only rule.
     active_shift = get_active_shift(current_user.username)
-    if current_user.role == 'picker' and not active_shift:
+    activity_mode_ready = activity_schema_available()
+    activity_tracking_required = (
+        tracking_enabled(current_user.username)
+        if activity_mode_ready
+        else current_user.role == 'picker'
+    )
+    if activity_tracking_required and not active_shift:
         flash('You must check in for a shift before picking.', 'warning')
         return redirect(url_for('shift_check_in'))
     
@@ -3648,6 +3678,22 @@ def start_picking(invoice_no):
         start_log.details = f'Started picking order {invoice_no}'
         db.session.add(start_log)
         db.session.commit()
+
+        if activity_mode_ready and activity_tracking_required and active_shift:
+            try:
+                get_activity_service().declare(
+                    active_shift.id,
+                    current_user.username,
+                    'picking',
+                    str(uuid.uuid4()),
+                )
+            except Exception as exc:
+                current_app.logger.error(
+                    "Activity timeline could not switch to picking for %s: %s",
+                    current_user.username,
+                    exc,
+                )
+                flash('Order started, but activity tracking needs attention.', 'warning')
         
         # End any active idle periods when picker starts picking
         if active_shift:
@@ -4877,10 +4923,28 @@ def mark_as_packed(invoice_no):
     completion_log.details = f'Completed order {invoice_no}'
     db.session.add(completion_log)
     db.session.commit()
+
+    if activity_schema_available() and tracking_enabled(current_user.username):
+        active_shift = get_active_shift(current_user.username)
+        if active_shift:
+            try:
+                get_activity_service().packing_complete(
+                    active_shift.id, current_user.username, str(uuid.uuid4())
+                )
+            except Exception as exc:
+                current_app.logger.error(
+                    "Activity timeline could not record packing completion for %s: %s",
+                    current_user.username,
+                    exc,
+                )
+                flash('Order completed, but activity tracking needs attention.', 'warning')
     
     flash('Order has been marked as packed and completed successfully.', 'success')
-    # Non-pickers do not participate in shift/activity tracking and go
-    # directly back to their next available order.
+    # People without the per-user tracking obligation return directly to work.
+    # A tracked admin or warehouse manager follows the same completion flow as
+    # any tracked picker.
+    if activity_schema_available() and tracking_enabled(current_user.username):
+        return redirect(url_for('picker_dashboard'))
     if current_user.role != 'picker':
         return redirect(url_for('picker_dashboard'))
     return redirect(url_for('picking_completed', invoice_no=invoice_no))

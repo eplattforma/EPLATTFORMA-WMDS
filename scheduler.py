@@ -563,6 +563,31 @@ def setup_scheduler(app):
 
             _add_job_smart(
                 func=_tracked,
+                kwargs={'job_id': 'activity_timeline_reaper',
+                        'job_name': 'Activity Timeline Device Reaper'},
+                trigger=CronTrigger(minute="*/5"),
+                id='activity_timeline_reaper',
+                name='Activity Timeline Device Reaper',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=300,
+                coalesce=True,
+            )
+            _add_job_smart(
+                func=_tracked,
+                kwargs={'job_id': 'activity_timeline_writeoff',
+                        'job_name': 'Activity Timeline Stale Write-off'},
+                trigger=CronTrigger(hour=2, minute=0),
+                id='activity_timeline_writeoff',
+                name='Activity Timeline Stale Write-off',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=21600,
+                coalesce=True,
+            )
+
+            _add_job_smart(
+                func=_tracked,
                 kwargs={'job_id': 'erp_item_cost_refresh', 'job_name': 'Cost Update'},
                 trigger=CronTrigger(hour=9, minute=0),
                 id='erp_item_cost_refresh',
@@ -1709,6 +1734,8 @@ JOB_DISPLAY_NAMES = {
     'log_cleanup': 'Job Runs Log Cleanup',
     'receipt_void_check': 'Receipt Void PS365 Check',
     'magento_customer_map_sync': 'Magento Customer Map Sync',
+    'activity_timeline_reaper': 'Activity Timeline Device Reaper',
+    'activity_timeline_writeoff': 'Activity Timeline Stale Write-off',
 }
 
 
@@ -1734,7 +1761,40 @@ def _register_job_funcs():
         'log_cleanup': _run_log_cleanup,
         'receipt_void_check': _run_receipt_void_check,
         'magento_customer_map_sync': _run_magento_customer_map_sync,
+        'activity_timeline_reaper': _run_activity_timeline_reaper,
+        'activity_timeline_writeoff': _run_activity_timeline_writeoff,
     }
+
+
+def _run_activity_timeline_reaper():
+    """Close activity timelines whose device heartbeat has gone stale.
+
+    The job is harmless before the explicit PostgreSQL migration: it records a
+    normal skipped run instead of treating a deliberately-disabled feature as
+    a scheduler failure.
+    """
+    from services.activity_tracking import (
+        activity_schema_available,
+        get_activity_service,
+    )
+
+    if not activity_schema_available():
+        raise JobSkipped("activity timeline schema is not installed")
+    closed = get_activity_service().reap_stale_shifts()
+    logger.info("Activity timeline reaper closed %s stale shift(s)", len(closed))
+
+
+def _run_activity_timeline_writeoff():
+    """Apply the database's age-based write-off policy to unresolved time."""
+    from services.activity_tracking import (
+        activity_schema_available,
+        get_activity_service,
+    )
+
+    if not activity_schema_available():
+        raise JobSkipped("activity timeline schema is not installed")
+    written_off = get_activity_service().auto_write_off()
+    logger.info("Activity timeline wrote off %s stale segment(s)", written_off)
 
 
 def _run_magento_customer_map_sync():

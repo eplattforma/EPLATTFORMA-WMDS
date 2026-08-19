@@ -287,6 +287,7 @@ from routes_delivery_dashboard import bp as delivery_dashboard_bp
 from routes_driver_api import driver_api_bp
 from routes_receipts import bp as receipts_bp
 from routes_find_invoice import bp as find_invoice_bp
+from routes_activity import activity_bp
 
 app.register_blueprint(batch_bp, url_prefix='')
 app.register_blueprint(delivery_issues_bp, url_prefix='')
@@ -298,6 +299,7 @@ app.register_blueprint(help_bp, url_prefix='')
 app.register_blueprint(driver_api_bp)
 app.register_blueprint(receipts_bp)
 app.register_blueprint(find_invoice_bp)
+app.register_blueprint(activity_bp)
 
 from routes_payment_terms import bp as payment_terms_bp
 app.register_blueprint(payment_terms_bp)

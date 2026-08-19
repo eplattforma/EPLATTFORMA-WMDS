@@ -16,6 +16,11 @@ from utils.shift_tracking import (
     record_activity, admin_adjust_shift, get_active_shift, get_picker_on_break,
     get_shift_report, get_picker_shifts
 )
+from services.activity_tracking import (
+    activity_schema_available,
+    get_activity_service,
+    tracking_enabled,
+)
 from location_utils import validate_location
 from sqlalchemy import func
 
@@ -52,12 +57,27 @@ def check_for_idle_users():
         logging.error(f"Error in idle detection: {str(e)}")
 
 # Shift management routes
+def _can_use_shift_tracking():
+    """Use the per-user timeline gate after its schema is installed.
+
+    The fallback keeps existing picker shifts working until an administrator has
+    explicitly applied the PostgreSQL-only migration.
+    """
+    if activity_schema_available():
+        if tracking_enabled(current_user.username):
+            return True
+        # A master-switch rollback should never trap someone in an already
+        # active shift.  They may check out, but cannot start a new one.
+        return get_active_shift(current_user.username) is not None
+    return current_user.role == 'picker'
+
+
 @app.route('/shift/check-in', methods=['GET', 'POST'])
 @login_required
 def shift_check_in():
     """Shift check-in page for pickers"""
-    if current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
+    if not _can_use_shift_tracking():
+        flash('Activity tracking is not enabled for your account.', 'danger')
         return redirect(url_for('index'))
     
     # Get the active shift for this picker
@@ -76,7 +96,17 @@ def shift_check_in():
                     flash(location_check['message'], 'danger')
                     return redirect(url_for('shift_check_in'))
             
-            shift = check_in_picker(current_user.username, coordinates)
+            if activity_schema_available():
+                try:
+                    shift = get_activity_service().check_in(
+                        current_user.username, coordinates
+                    )
+                except Exception as exc:
+                    logging.exception("Activity timeline check-in failed: %s", exc)
+                    flash('An error occurred during check-in. Please try again.', 'danger')
+                    return redirect(url_for('shift_check_in'))
+            else:
+                shift = check_in_picker(current_user.username, coordinates)
             
             if shift:
                 flash('You have been checked in successfully.', 'success')
@@ -95,8 +125,8 @@ def shift_check_in():
 @login_required
 def shift_check_out():
     """Shift check-out page for pickers"""
-    if current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
+    if not _can_use_shift_tracking():
+        flash('Activity tracking is not enabled for your account.', 'danger')
         return redirect(url_for('index'))
     
     # Get the active shift for this picker
@@ -123,7 +153,25 @@ def shift_check_out():
                     flash(location_check['message'], 'danger')
                     return redirect(url_for('shift_check_out'))
             
-            shift = check_out_picker(current_user.username, coordinates)
+            if activity_schema_available():
+                try:
+                    result = get_activity_service().check_out(
+                        active_shift.id, current_user.username, coordinates
+                    )
+                    db.session.expire_all()
+                    shift = Shift.query.get(result['shift_id'])
+                    if result['unresolved']:
+                        flash(
+                            'You have been checked out. Some unassigned time '
+                            'has been sent for review.',
+                            'warning',
+                        )
+                except Exception as exc:
+                    logging.exception("Activity timeline check-out failed: %s", exc)
+                    flash('An error occurred during check-out. Please try again.', 'danger')
+                    return redirect(url_for('shift_check_out'))
+            else:
+                shift = check_out_picker(current_user.username, coordinates)
             
             if shift:
                 flash('You have been checked out successfully. Shift duration: {:.1f} hours'.format(
@@ -153,9 +201,12 @@ def shift_check_out():
 @login_required
 def manage_break():
     """Break management page for pickers"""
-    if current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
+    if not _can_use_shift_tracking():
+        flash('Activity tracking is not enabled for your account.', 'danger')
         return redirect(url_for('index'))
+    if activity_schema_available():
+        flash('Choose your current activity from the picker dashboard.', 'info')
+        return redirect(url_for('picker_dashboard'))
     
     # Get the active shift for this picker
     active_shift = get_active_shift(current_user.username)
@@ -214,9 +265,24 @@ def manage_break():
 @login_required
 def start_break_route():
     """Handle start break request"""
-    if current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
+    if not _can_use_shift_tracking():
+        flash('Activity tracking is not enabled for your account.', 'danger')
         return redirect(url_for('index'))
+    if activity_schema_available():
+        shift = get_active_shift(current_user.username)
+        if not shift:
+            flash('You are not currently checked in for a shift.', 'warning')
+        else:
+            try:
+                import uuid
+                get_activity_service().declare(
+                    shift.id, current_user.username, 'break', str(uuid.uuid4())
+                )
+                flash('Break started successfully.', 'success')
+            except Exception as exc:
+                logging.exception("Activity timeline break start failed: %s", exc)
+                flash('An error occurred starting your break. Please try again.', 'danger')
+        return redirect(url_for('picker_dashboard'))
     
     # Check if the picker is already on break
     active_break = get_picker_on_break(current_user.username)
@@ -241,9 +307,24 @@ def start_break_route():
 @login_required
 def end_break_route():
     """Handle end break request"""
-    if current_user.role != 'picker':
-        flash('Access denied. Picker privileges required.', 'danger')
+    if not _can_use_shift_tracking():
+        flash('Activity tracking is not enabled for your account.', 'danger')
         return redirect(url_for('index'))
+    if activity_schema_available():
+        shift = get_active_shift(current_user.username)
+        if not shift:
+            flash('You are not currently checked in for a shift.', 'warning')
+        else:
+            try:
+                import uuid
+                get_activity_service().declare(
+                    shift.id, current_user.username, 'picking', str(uuid.uuid4())
+                )
+                flash('Break ended. You are now marked as picking.', 'success')
+            except Exception as exc:
+                logging.exception("Activity timeline break end failed: %s", exc)
+                flash('An error occurred ending your break. Please try again.', 'danger')
+        return redirect(url_for('picker_dashboard'))
     
     # Check if the picker is on break
     active_break = get_picker_on_break(current_user.username)
