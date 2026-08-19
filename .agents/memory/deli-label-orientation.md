@@ -3,8 +3,8 @@ name: Deli label orientation
 description: Physical page geometry required for box labels printed on the Deli DL-750W.
 ---
 
-Generate Deli DL-750W box labels as a plain 105×70 mm landscape PDF page with NO canvas translate/rotate — any rotation the media needs is handled entirely by the printer driver / print agent settings on the office PC. Keep every element inside a 5 mm safe margin because the thermal head cannot print the outer ~4–5 mm.
+Deli DL-750W box labels: the office pipeline prints pages turned 90° counter-clockwise (Sumatra does not rotate; the Deli driver maps pages onto 70 mm-wide portrait media internally). Compensate in code: 70×105 mm portrait PDF page with the 105×70 landscape design pre-rotated clockwise via `c.translate(70*mm, 0); c.rotate(90)`. Keep every element inside a 5 mm safe margin — the thermal head cannot print the outer ~4–5 mm.
 
-**Why:** After several rounds of physical tests (unflipped landscape, 180° flip, and 70×105 portrait with -90° rotation), the user settled on a clean landscape PDF with orientation owned by the driver side. Content at the edge gets shaved off regardless of orientation, so the margin stays.
+**Why:** A published plain 105×70 landscape PDF printed needing a clockwise turn to read (confirmed by the user on paper), so the driver rotates CCW; the pre-rotated clockwise design cancels it. Earlier `translate(0,105*mm); rotate(-90)` produced the same wrong direction.
 
-**How to apply:** When changing the label PDF, keep pagesize=(105*mm, 70*mm), zero transforms, and the 5 mm margin. Orientation problems on paper are fixed in the Deli driver or print_agent.ps1, not in the PDF code.
+**How to apply:** Preserve the portrait pagesize, the +90° transform, and the 5 mm margin. If a physical print comes out 180° upside-down, swap only the transform to `c.translate(0, 105*mm); c.rotate(-90)`. Driver: gap sensing 70 mm feed, Rotate 180 OFF, 100% scale; agent keeps `-print-settings "noscale"`.

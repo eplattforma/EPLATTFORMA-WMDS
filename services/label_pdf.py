@@ -16,13 +16,20 @@ def build_box_label_pdf(invoice, stop_number=None, route_name=None,
                         driver_name=None, delivery_date=None,
                         stop_index=None, stop_total=None,
                         has_cooler=False) -> bytes:
-    # 105×70 mm landscape page, drawn normally — no translate/rotate; any
-    # rotation needed for the media is handled by the printer driver/agent.
+    # The office pipeline prints this label turned 90° counter-clockwise (a
+    # plain 105×70 landscape page came out needing a clockwise turn to read).
+    # Sumatra doesn't rotate, so the Deli driver maps pages onto 70 mm-wide
+    # portrait media internally. Compensate here: a 70×105 portrait page with
+    # the landscape design pre-rotated clockwise so the print reads upright.
+    # If a future print is upside-down (180°), swap the transform to
+    # c.translate(0, 105*mm); c.rotate(-90).
     # Thermal printers cannot print the outer ~4-5 mm: keep a 5 mm margin.
-    W, H = 105 * mm, 70 * mm
+    W, H = 105 * mm, 70 * mm   # design space (landscape)
     M = 5 * mm
     buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=(W, H))
+    c = canvas.Canvas(buf, pagesize=(70 * mm, 105 * mm))  # page = 70 mm head width
+    c.translate(70 * mm, 0)
+    c.rotate(90)
 
     # STOP number — hero element
     c.setFont("Helvetica-Bold", 9)
