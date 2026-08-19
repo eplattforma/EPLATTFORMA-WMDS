@@ -16,15 +16,19 @@ def build_box_label_pdf(invoice, stop_number=None, route_name=None,
                         driver_name=None, delivery_date=None,
                         stop_index=None, stop_total=None,
                         has_cooler=False) -> bytes:
-    # The Deli label stock is a 105×70 mm landscape page, but the printer
-    # feeds it inverted, so flip the whole design 180° once. Thermal printers
-    # cannot print the outer ~4-5 mm, so keep everything inside a 5 mm margin.
-    W, H = 105 * mm, 70 * mm
+    # The Deli media is 70 mm wide (across the head) × 105 mm long (feed), so
+    # the PDF page is 70×105 portrait to match — otherwise SumatraPDF rotates
+    # it to fit. The design is drawn in 105×70 landscape coordinates and
+    # rotated 90° onto the page so the label reads landscape when turned.
+    # Thermal printers cannot print the outer ~4-5 mm: keep a 5 mm margin.
+    # If a physical print comes out upside-down, swap the transform to
+    # c.translate(70*mm, 0); c.rotate(90) instead.
+    W, H = 105 * mm, 70 * mm   # design space (landscape)
     M = 5 * mm
     buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=(W, H))
-    c.translate(W, H)
-    c.rotate(180)
+    c = canvas.Canvas(buf, pagesize=(70 * mm, 105 * mm))  # page = physical media
+    c.translate(0, 105 * mm)
+    c.rotate(-90)
 
     # STOP number — hero element
     c.setFont("Helvetica-Bold", 9)
