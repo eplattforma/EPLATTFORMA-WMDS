@@ -3224,33 +3224,30 @@ def admin_update_invoice_items(invoice_no):
     # Recalculate invoice totals
     recalculate_invoice_totals(db.session, invoice_no)
     
-    # Update invoice status intelligently based on the new status system
-    # Only update status if the order is in early stages (not_started, picking, ready_for_dispatch)
-    # Don't touch orders that are shipped, out_for_delivery, delivered, etc.
-    # Phase 5: route readiness through services.order_readiness so cooler
-    # queue + cooler-box closure are honoured when summer_cooler_mode is on.
-    # When the invoice never went through the new pipeline this falls
-    # back to the legacy is_picked check, preserving prior behaviour.
-    from services.order_readiness import is_order_ready
-    all_picked = is_order_ready(invoice_no)
+    # Recompute workflow status through the same batch-aware path used by
+    # picking. Terminal delivery statuses must remain untouched when an admin
+    # is only correcting item details.
+    non_terminal_statuses = (
+        'not_started',
+        'picking',
+        'awaiting_batch_items',
+        'awaiting_packing',
+        'ready_for_dispatch',
+    )
+    if invoice.status in non_terminal_statuses:
+        from services.order_readiness import is_order_ready
 
-    if invoice.status in ['not_started', 'picking']:
-        # Early stage orders - update to ready_for_dispatch if all picked
-        if all_picked:
-            invoice.status = 'ready_for_dispatch'
-        elif invoice.status == 'not_started':
-            # If some items are picked, move to picking state
-            if any(item.is_picked for item in invoice.items):
-                invoice.status = 'picking'
-    elif invoice.status == 'ready_for_dispatch':
-        # If ready_for_dispatch but items are un-picked, move back to picking
-        if not all_picked:
-            invoice.status = 'picking'
-        # Otherwise preserve ready_for_dispatch status (don't downgrade it)
-    # For shipped, out_for_delivery, delivered, etc. - preserve the status
-    # Admins correcting quantities shouldn't change delivery status
-    
-    db.session.commit()
+        if not any(item.is_picked for item in invoice.items):
+            invoice.picking_complete_time = None
+        if not is_order_ready(invoice_no):
+            invoice.packing_complete_time = None
+        db.session.commit()
+
+        from batch_aware_order_status import update_order_status_batch_aware
+        update_order_status_batch_aware(invoice_no)
+    else:
+        db.session.commit()
+
     flash('Invoice items updated successfully', 'success')
     return redirect(url_for('admin_view_invoice', invoice_no=invoice_no))
 
@@ -3275,12 +3272,17 @@ def admin_reset_invoice_progress(invoice_no):
     
     # Reset invoice progress
     invoice.current_item_index = 0
-    invoice.status = 'In Progress'
+    invoice.picking_complete_time = None
+    invoice.packing_complete_time = None
     
     # Recalculate invoice totals
     recalculate_invoice_totals(db.session, invoice_no)
     
     db.session.commit()
+
+    from batch_aware_order_status import update_order_status_batch_aware
+    update_order_status_batch_aware(invoice_no)
+
     flash('Invoice progress has been reset. All items are now marked as Not Picked.', 'success')
     return redirect(url_for('admin_view_invoice', invoice_no=invoice_no))
 
@@ -3317,35 +3319,12 @@ def admin_reset_item(invoice_no, item_code):
     if reset_note:
         item.reset_note = reset_note
     
-    # Adjust invoice progress if needed
-    # For in-progress invoices, we need to ensure they can pick this item again
-    if invoice.status == 'In Progress':
-        # Find the item's position in the list using custom sorting configuration
-        items = sort_items_by_config(invoice.items)
-        item_index = items.index(item)
-        
-        # If the current index is past this item, move it back
-        if invoice.current_item_index > item_index:
-            invoice.current_item_index = item_index
-    
-    # If the invoice was complete and we're un-picking an item, update status
-    if invoice.status == 'Completed':
-        invoice.status = 'In Progress'
-    
-    # Check if we need to update status based on picked items
-    picked_items_count = sum(1 for item in invoice.items if item.is_picked)
-    
-    # Update status based on picked items count
-    if picked_items_count == 0:
-        # No items picked - set to "not_started"
-        invoice.status = 'not_started'
-        invoice.current_item_index = 0
-    elif picked_items_count < len(invoice.items):
-        # Some items picked but not all - set to "picking"
-        invoice.status = 'picking'
-    
     # Recalculate invoice totals
     recalculate_invoice_totals(db.session, invoice_no)
+
+    from services.order_readiness import is_order_ready
+    if not is_order_ready(invoice_no):
+        invoice.packing_complete_time = None
     
     # Add a note in the request form if provided
     note = request.args.get('reset_note')
@@ -3354,6 +3333,10 @@ def admin_reset_item(invoice_no, item_code):
         pass
     
     db.session.commit()
+
+    from batch_aware_order_status import update_order_status_batch_aware
+    update_order_status_batch_aware(invoice_no)
+
     flash(f'Item {item_code} has been reset and is now available for picking again.', 'success')
     return redirect(url_for('admin_view_invoice', invoice_no=invoice_no))
 
