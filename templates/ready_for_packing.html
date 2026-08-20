@@ -27,8 +27,8 @@
   </div>
   {% endif %}
 
-  <button type="button" class="btn-print" data-printed="{{ '1' if already_printed else '' }}"
-          onclick="printSlip({{ invoice.invoice_no|tojson }}, this)">
+  <button type="button" id="printDeliverySlip" class="btn-print"
+          data-printed="{{ '1' if already_printed else '' }}">
     <i class="fas fa-print"></i> Print delivery slip</button>
   <div id="printMsg" class="banner" aria-live="polite"></div>
 
@@ -52,7 +52,7 @@ function waitForPrint(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
 
-async function printSlip(invoiceNo, btn) {
+async function printSlip(btn) {
   if (btn.dataset.busy) return;
   if (btn.dataset.printed === '1' &&
       !confirm('This delivery slip has already been printed.\nDo you want to print it again?')) {
@@ -103,6 +103,10 @@ async function printSlip(invoiceNo, btn) {
     delete btn.dataset.busy;
   }
 }
+
+document.getElementById('printDeliverySlip').addEventListener('click', function() {
+  printSlip(this);
+});
 </script>
 
 <style>
