@@ -36,7 +36,6 @@
     <button type="submit" class="btn-packed"><i class="fas fa-box"></i> Mark as packed</button>
   </form>
   <div class="secondary">
-    <a class="lnk" href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}">Back to picking</a>
     <a class="lnk" href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no, from_packing='true') }}" target="_blank">View slip on screen</a>
   </div>
 </div>
