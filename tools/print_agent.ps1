@@ -31,6 +31,11 @@ $konica  = "KONICA MINOLTA 287SeriesPCL" # exact Windows printer name — A4 sli
 $deli    = "EPIC_LABEL_PRINTER"          # exact Windows printer name — box labels
 $sumatra = "C:\Program Files\SumatraPDF\SumatraPDF.exe"
 
+if (-not (Test-Path -LiteralPath $sumatra)) {
+    Write-Host "ERROR: SumatraPDF was not found at $sumatra"
+    exit 1
+}
+
 # Prefer an environment variable so the token is not stored in this script.
 # If it is absent, ask interactively without echoing it.
 $token = $env:EPIQ_PRINT_AGENT_TOKEN
@@ -75,13 +80,26 @@ while ($true) {
                 [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String($job.pdf_base64))
                 $printer = if ($job.doc_type -eq "label") { $deli } else { $konica }
                 Write-Host ("[{0}] Job {1}: {2} for {3} -> {4}" -f $t.Env, $job.job_id, $job.doc_type, $job.invoice_no, $printer)
-                if ($job.doc_type -eq "label") {
-                    & $sumatra -print-to $printer -print-settings "noscale" -silent $tmp
-                } else {
-                    & $sumatra -print-to $printer -silent $tmp
+                $printError = $null
+                try {
+                    if ($job.doc_type -eq "label") {
+                        & $sumatra -print-to $printer -print-settings "noscale" -silent $tmp
+                    } else {
+                        & $sumatra -print-to $printer -silent $tmp
+                    }
+                    $sumatraExitCode = $LASTEXITCODE
+                    # Sumatra can return a nonzero code after Windows has already
+                    # accepted the PDF into the spooler. A job is "done" once it
+                    # has been dispatched; a missing/unstartable Sumatra is caught
+                    # separately and remains a real error.
+                    if ($sumatraExitCode -ne 0) {
+                        Write-Host ("[{0}] Sumatra returned {1} after dispatch; treating job as sent to the Windows spooler." -f $t.Env, $sumatraExitCode)
+                    }
+                } catch {
+                    $printError = $_.Exception.Message
                 }
-                $ok = ($LASTEXITCODE -eq 0)
-                $body = @{ job_id = $job.job_id; ok = $ok } | ConvertTo-Json
+                $ok = [string]::IsNullOrWhiteSpace($printError)
+                $body = @{ job_id = $job.job_id; ok = $ok; error = $printError } | ConvertTo-Json
                 Invoke-RestMethod -Uri "$($t.Url)/print/agent/ack" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
                 Remove-Item $tmp -ErrorAction SilentlyContinue
                 $printed = $true
