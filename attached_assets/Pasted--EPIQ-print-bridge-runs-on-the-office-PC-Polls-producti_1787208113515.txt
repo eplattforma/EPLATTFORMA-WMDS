@@ -1,0 +1,64 @@
+# EPIQ print bridge — runs on the office PC.
+# Polls production and/or development for queued print jobs and routes them:
+#   delivery slips -> Konica (A4), box labels -> Deli (label printer).
+#
+# Run (production + development):
+#   powershell -ExecutionPolicy Bypass -File print_agent.ps1 -DevUrl "https://<your-dev>.replit.dev"
+# Run (production only):
+#   powershell -ExecutionPolicy Bypass -File print_agent.ps1
+# Run (development only, no production jobs):
+#   powershell -ExecutionPolicy Bypass -File print_agent.ps1 -DevUrl "https://<your-dev>.replit.dev" -DevOnly
+
+param(
+    [string]$DevUrl = "",
+    [switch]$DevOnly
+)
+
+$prodUrl = "https://ep-picking-bro.replit.app"
+$token   = "ohsHWtAtUGnbu7AVvbV0g-jf-6A0GCFl9S692CuCYsF0Xvvc"   # must match PRINT_AGENT_TOKEN in Replit
+$konica  = "KONICA MINOLTA 287SeriesPCL"     # exact Windows printer name — A4 slips
+$deli    = "EPIC_LABEL_PRINTER"              # exact Windows printer name — box labels
+$sumatra = "C:\Program Files\SumatraPDF\SumatraPDF.exe"
+
+$headers = @{ "X-Print-Agent-Token" = $token }
+
+# --- build the list of environments to poll ---
+$targets = @()
+if (-not $DevOnly) { $targets += @{ name = "PROD"; url = $prodUrl } }
+if ($DevUrl)       { $targets += @{ name = "DEV";  url = $DevUrl } }
+if ($targets.Count -eq 0) {
+    Write-Host "Nothing to poll. Provide -DevUrl, or omit -DevOnly for production."; exit 1
+}
+
+Write-Host ("EPIQ print agent started. Polling: " + ($targets.name -join ", "))
+
+while ($true) {
+    foreach ($t in $targets) {
+        try {
+            $r = Invoke-RestMethod -Uri "$($t.url)/print/agent/poll" -Headers $headers -Method Get -TimeoutSec 30
+            if ($r.job) {
+                $job = $r.job
+                $tmp = Join-Path $env:TEMP ("epiq_{0}_{1}_{2}.pdf" -f $t.name, $job.doc_type, $job.job_id)
+                [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String($job.pdf_base64))
+                $printer = if ($job.doc_type -eq "label") { $deli } else { $konica }
+                Write-Host ("[{0}] Job {1}: {2} for {3} -> {4}" -f $t.name, $job.job_id, $job.doc_type, $job.invoice_no, $printer)
+
+                if ($job.doc_type -eq "label") {
+                    & $sumatra -print-to $printer -print-settings "noscale" -silent $tmp
+                } else {
+                    & $sumatra -print-to $printer -silent $tmp
+                    # For double-sided slips, use instead:
+                    # & $sumatra -print-to $printer -print-settings "duplexlong" -silent $tmp
+                }
+
+                $ok   = ($LASTEXITCODE -eq 0)
+                $body = @{ job_id = $job.job_id; ok = $ok } | ConvertTo-Json
+                Invoke-RestMethod -Uri "$($t.url)/print/agent/ack" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
+                Remove-Item $tmp -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-Host ("[{0}] Poll error: {1}" -f $t.name, $_)
+        }
+    }
+    Start-Sleep -Seconds 3
+}
