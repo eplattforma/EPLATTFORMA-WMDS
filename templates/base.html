@@ -243,7 +243,6 @@
                                     <i class="fas fa-brain me-2"></i>AI Insights
                                 </a>
                             </li>
-                            {% if current_user.role == 'admin' %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'shift_reports' %}active{% endif %}" 
                                    href="{{ url_for('shift_reports') }}">
@@ -256,13 +255,6 @@
                                     <i class="fas fa-person-walking me-2"></i>Picker Performance
                                 </a>
                             </li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint == 'picker_performance_report' %}active{% endif %}"
-                                   href="{{ url_for('picker_performance_report') }}">
-                                    <i class="fas fa-chart-line me-2"></i>Shift Performance Report
-                                </a>
-                            </li>
-                            {% endif %}
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'reports.idle_dedicated' %}active{% endif %}" 
                                    href="{{ url_for('reports.idle_dedicated') }}">
@@ -399,9 +391,8 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'picker_dashboard' %}active{% endif %}" href="{{ url_for('picker_dashboard') }}">Dashboard</a>
                     </li>
-                    {% if current_user.role == 'picker' %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['shift_check_in', 'shift_check_out', 'manage_break'] %}active{% endif %}"
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['shift_check_in', 'shift_check_out', 'manage_break'] %}active{% endif %}" 
                            href="#" id="shiftDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-user-clock me-1"></i>My Shift
                         </a>
@@ -433,13 +424,6 @@
                             </li>
                         </ul>
                     </li>
-                    {% else %}
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'change_password' %}active{% endif %}" href="{{ url_for('change_password') }}">
-                            <i class="fas fa-key me-1"></i>Change Password
-                        </a>
-                    </li>
-                    {% endif %}
                     {% endif %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint and request.endpoint.startswith('help.') %}active{% endif %}" href="{{ url_for('help.help_dashboard') }}">

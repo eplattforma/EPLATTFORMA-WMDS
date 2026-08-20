@@ -16,11 +16,6 @@ from utils.shift_tracking import (
     record_activity, admin_adjust_shift, get_active_shift, get_picker_on_break,
     get_shift_report, get_picker_shifts
 )
-from services.activity_tracking import (
-    activity_schema_available,
-    get_activity_service,
-    tracking_enabled,
-)
 from location_utils import validate_location
 from sqlalchemy import func
 
@@ -57,27 +52,12 @@ def check_for_idle_users():
         logging.error(f"Error in idle detection: {str(e)}")
 
 # Shift management routes
-def _can_use_shift_tracking():
-    """Use the per-user timeline gate after its schema is installed.
-
-    The fallback keeps existing picker shifts working until an administrator has
-    explicitly applied the PostgreSQL-only migration.
-    """
-    if activity_schema_available():
-        if tracking_enabled(current_user.username):
-            return True
-        # A master-switch rollback should never trap someone in an already
-        # active shift.  They may check out, but cannot start a new one.
-        return get_active_shift(current_user.username) is not None
-    return current_user.role == 'picker'
-
-
 @app.route('/shift/check-in', methods=['GET', 'POST'])
 @login_required
 def shift_check_in():
     """Shift check-in page for pickers"""
-    if not _can_use_shift_tracking():
-        flash('Activity tracking is not enabled for your account.', 'danger')
+    if current_user.role not in ('picker', 'warehouse_manager'):
+        flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
     # Get the active shift for this picker
@@ -96,17 +76,7 @@ def shift_check_in():
                     flash(location_check['message'], 'danger')
                     return redirect(url_for('shift_check_in'))
             
-            if activity_schema_available():
-                try:
-                    shift = get_activity_service().check_in(
-                        current_user.username, coordinates
-                    )
-                except Exception as exc:
-                    logging.exception("Activity timeline check-in failed: %s", exc)
-                    flash('An error occurred during check-in. Please try again.', 'danger')
-                    return redirect(url_for('shift_check_in'))
-            else:
-                shift = check_in_picker(current_user.username, coordinates)
+            shift = check_in_picker(current_user.username, coordinates)
             
             if shift:
                 flash('You have been checked in successfully.', 'success')
@@ -125,8 +95,8 @@ def shift_check_in():
 @login_required
 def shift_check_out():
     """Shift check-out page for pickers"""
-    if not _can_use_shift_tracking():
-        flash('Activity tracking is not enabled for your account.', 'danger')
+    if current_user.role not in ('picker', 'warehouse_manager'):
+        flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
     
     # Get the active shift for this picker
@@ -153,25 +123,7 @@ def shift_check_out():
                     flash(location_check['message'], 'danger')
                     return redirect(url_for('shift_check_out'))
             
-            if activity_schema_available():
-                try:
-                    result = get_activity_service().check_out(
-                        active_shift.id, current_user.username, coordinates
-                    )
-                    db.session.expire_all()
-                    shift = Shift.query.get(result['shift_id'])
-                    if result['unresolved']:
-                        flash(
-                            'You have been checked out. Some unassigned time '
-                            'has been sent for review.',
-                            'warning',
-                        )
-                except Exception as exc:
-                    logging.exception("Activity timeline check-out failed: %s", exc)
-                    flash('An error occurred during check-out. Please try again.', 'danger')
-                    return redirect(url_for('shift_check_out'))
-            else:
-                shift = check_out_picker(current_user.username, coordinates)
+            shift = check_out_picker(current_user.username, coordinates)
             
             if shift:
                 flash('You have been checked out successfully. Shift duration: {:.1f} hours'.format(
@@ -201,12 +153,9 @@ def shift_check_out():
 @login_required
 def manage_break():
     """Break management page for pickers"""
-    if not _can_use_shift_tracking():
-        flash('Activity tracking is not enabled for your account.', 'danger')
+    if current_user.role not in ('picker', 'warehouse_manager'):
+        flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
-    if activity_schema_available():
-        flash('Choose your current activity from the picker dashboard.', 'info')
-        return redirect(url_for('picker_dashboard'))
     
     # Get the active shift for this picker
     active_shift = get_active_shift(current_user.username)
@@ -265,24 +214,9 @@ def manage_break():
 @login_required
 def start_break_route():
     """Handle start break request"""
-    if not _can_use_shift_tracking():
-        flash('Activity tracking is not enabled for your account.', 'danger')
+    if current_user.role not in ('picker', 'warehouse_manager'):
+        flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
-    if activity_schema_available():
-        shift = get_active_shift(current_user.username)
-        if not shift:
-            flash('You are not currently checked in for a shift.', 'warning')
-        else:
-            try:
-                import uuid
-                get_activity_service().declare(
-                    shift.id, current_user.username, 'break', str(uuid.uuid4())
-                )
-                flash('Break started successfully.', 'success')
-            except Exception as exc:
-                logging.exception("Activity timeline break start failed: %s", exc)
-                flash('An error occurred starting your break. Please try again.', 'danger')
-        return redirect(url_for('picker_dashboard'))
     
     # Check if the picker is already on break
     active_break = get_picker_on_break(current_user.username)
@@ -307,24 +241,9 @@ def start_break_route():
 @login_required
 def end_break_route():
     """Handle end break request"""
-    if not _can_use_shift_tracking():
-        flash('Activity tracking is not enabled for your account.', 'danger')
+    if current_user.role not in ('picker', 'warehouse_manager'):
+        flash('Access denied. Picker privileges required.', 'danger')
         return redirect(url_for('index'))
-    if activity_schema_available():
-        shift = get_active_shift(current_user.username)
-        if not shift:
-            flash('You are not currently checked in for a shift.', 'warning')
-        else:
-            try:
-                import uuid
-                get_activity_service().declare(
-                    shift.id, current_user.username, 'picking', str(uuid.uuid4())
-                )
-                flash('Break ended. You are now marked as picking.', 'success')
-            except Exception as exc:
-                logging.exception("Activity timeline break end failed: %s", exc)
-                flash('An error occurred ending your break. Please try again.', 'danger')
-        return redirect(url_for('picker_dashboard'))
     
     # Check if the picker is on break
     active_break = get_picker_on_break(current_user.username)
@@ -349,7 +268,7 @@ def end_break_route():
 @login_required
 def shift_reports():
     """Detailed time and productivity reports"""
-    if current_user.role != 'admin':
+    if current_user.role not in ['admin', 'warehouse_manager']:
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('index'))
     
@@ -358,24 +277,22 @@ def shift_reports():
     end_date_str = request.args.get('end_date', '')
     picker_filter = request.args.get('picker', '')
     
-    # Parse dates - default to last 7 days (use local date so the window
-    # matches the local-day bucketing used in the reporting views)
-    local_today = get_local_now().date()
+    # Parse dates - default to last 7 days
     if not start_date_str:
-        start_date = local_today - timedelta(days=7)
+        start_date = date.today() - timedelta(days=7)
     else:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         except ValueError:
-            start_date = local_today - timedelta(days=7)
-
+            start_date = date.today() - timedelta(days=7)
+    
     if not end_date_str:
-        end_date = local_today
+        end_date = date.today()
     else:
         try:
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
         except ValueError:
-            end_date = local_today
+            end_date = date.today()
     
     # Build date range for queries
     start_datetime = datetime.combine(start_date, datetime.min.time())
@@ -559,10 +476,9 @@ def admin_shift_management():
         except ValueError:
             flash('Invalid end date format. Please use YYYY-MM-DD.', 'warning')
     
-    # Default to the last 7 days if no dates specified (use local date so the
-    # window matches the local-day bucketing used in the reporting views)
+    # Default to the last 7 days if no dates specified
     if not start_date and not end_date:
-        end_date = get_local_now().date()
+        end_date = date.today()
         start_date = end_date - timedelta(days=7)
     
     # Build the query
@@ -862,46 +778,3 @@ def admin_export_shifts():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment;filename=shift_report_{date_str}.csv'}
     )
-
-# ---------------------------------------------------------------------------
-# Unified end-of-shift performance report
-# ---------------------------------------------------------------------------
-from services.picker_shift_report import build_shift_report, pickers_with_data
-
-
-def _parse_report_date(raw):
-    if raw:
-        try:
-            return datetime.strptime(raw, '%Y-%m-%d').date()
-        except ValueError:
-            pass
-    return get_local_now().date()
-
-
-@app.route('/shift/my-report', methods=['GET'])
-@login_required
-def my_shift_report():
-    """Legacy personal-report URL; shift reports are administrator-only."""
-    if current_user.role != 'admin':
-        flash('Shift reports are available to administrators only.', 'danger')
-        return redirect(url_for('index'))
-    return redirect(url_for('picker_performance_report',
-                            picker=request.args.get('picker', ''),
-                            date=request.args.get('date', '')))
-
-
-@app.route('/shift/performance-report', methods=['GET'])
-@login_required
-def picker_performance_report():
-    """Manager view: end-of-shift report for any picker and date."""
-    if current_user.role != 'admin':
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('index'))
-    pickers = pickers_with_data()
-    selected_picker = request.args.get('picker') or (pickers[0] if pickers else None)
-    work_date = _parse_report_date(request.args.get('date'))
-    report = (build_shift_report(selected_picker, work_date)
-              if selected_picker else None)
-    return render_template('end_of_shift_report.html',
-                           report=report, is_manager_view=True,
-                           pickers=pickers, selected_picker=selected_picker)

@@ -25,14 +25,14 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-VW_PICK_DETAIL_SQL = """
+VW_PICK_DETAIL_SQL = r"""
 CREATE OR REPLACE VIEW vw_pick_detail AS
 SELECT
-  (item_started AT TIME ZONE 'UTC' AT TIME ZONE '{tz}')::date AS pick_date,
+  item_started::date                                  AS pick_date,
   picker_username                                     AS picker,
   invoice_no,
   corridor,
-  substring(location from '\d{{2}}-\d{{2}}-([A-Z])')   AS level,
+  substring(location from '\d{2}-\d{2}-([A-Z])')      AS level,
   unit_type,
   quantity_picked                                     AS units,
   round(walking_time::numeric, 1)                     AS walking_seconds,
@@ -67,10 +67,10 @@ GROUP BY pick_date, picker
 ORDER BY pick_date DESC, items_picked DESC
 """
 
-VW_IDLE_DEDICATED_SQL = """
+VW_IDLE_DEDICATED_SQL = r"""
 CREATE OR REPLACE VIEW vw_idle_dedicated AS
 SELECT
-  (i.start_time AT TIME ZONE 'UTC' AT TIME ZONE '{tz}')::date                AS idle_date,
+  i.start_time::date                                                          AS idle_date,
   sh.picker_username                                                          AS picker,
   round(sum(CASE WHEN i.duration_minutes <= 60 THEN i.duration_minutes ELSE 0 END)::numeric, 0) AS working_idle_min,
   sum(CASE WHEN i.duration_minutes <= 60 THEN 1 ELSE 0 END)                   AS working_idle_gaps,
@@ -89,20 +89,16 @@ ORDER BY idle_date DESC
 # packing_complete_time; overlapping (batch-picked) orders are merged into
 # islands, and idle = gaps between islands. Bounded by the last packing of
 # the day, so auto-close padding never enters it.
-_ORDER_ISLANDS_CTE = """
+_ORDER_ISLANDS_CTE = r"""
 WITH iv AS (
-  SELECT t.picker_username,
-         (t.item_started AT TIME ZONE 'UTC' AT TIME ZONE '{tz}')::date AS d,
-         t.invoice_no,
+  SELECT t.picker_username, t.item_started::date AS d, t.invoice_no,
          min(t.item_started)                                      AS s,
          coalesce(i.packing_complete_time, max(t.item_completed)) AS e
   FROM item_time_tracking t
   JOIN invoices i ON i.invoice_no = t.invoice_no
   WHERE t.picker_username <> 'administrator' AND t.was_skipped = false
     AND t.item_started IS NOT NULL
-  GROUP BY t.picker_username,
-           (t.item_started AT TIME ZONE 'UTC' AT TIME ZONE '{tz}')::date,
-           t.invoice_no,
+  GROUP BY t.picker_username, t.item_started::date, t.invoice_no,
            i.packing_complete_time
   HAVING coalesce(i.packing_complete_time, max(t.item_completed)) IS NOT NULL),
 o AS (SELECT picker_username, d, s, e,
@@ -168,12 +164,12 @@ WHERE gap_start IS NOT NULL AND gap_end > gap_start
 # Per-order performance: hands-on work vs estimate, with interruptions
 # (long walking gaps) stripped out so the pace judgement is fair, plus
 # packing time vs its estimate and a "closed too fast" adoption flag.
-VW_ORDER_PERFORMANCE_SQL = """
+VW_ORDER_PERFORMANCE_SQL = r"""
 CREATE OR REPLACE VIEW vw_order_performance AS
 SELECT
   t.invoice_no,
   t.picker_username                                          AS picker,
-  (min(t.item_started) AT TIME ZONE 'UTC' AT TIME ZONE '{tz}')::date AS pick_date,
+  min(t.item_started)::date                                  AS pick_date,
   count(*)                                                   AS lines,
   sum(t.quantity_picked)                                     AS units,
   round((sum(t.expected_time)/60.0)::numeric,1)              AS estimated_min,
@@ -225,36 +221,28 @@ def ensure_picking_report_views():
     skips the full-table scan on subsequent boots (new writes set
     ``level`` themselves via ``parse_location_components``).
     PostgreSQL only (uses percentile_cont and regex operators).
-
-    All date bucketing uses the configured system timezone so that daily
-    numbers agree with the shift performance report around local midnight.
     """
     from app import db
-    from timezone_utils import get_system_timezone
 
     with db.engine.connect() as conn:
         if conn.dialect.name != "postgresql":
             logger.info("Picking report views skipped (dialect=%s)", conn.dialect.name)
             return
-
-        tz_name = str(get_system_timezone())
-        logger.info("Picking report views using timezone: %s", tz_name)
-
-        conn.execute(text(VW_PICK_DETAIL_SQL.format(tz=tz_name)))
+        conn.execute(text(VW_PICK_DETAIL_SQL))
         # DROP first: active_pick_hours was inserted mid-column-list, which
         # CREATE OR REPLACE VIEW cannot do on an existing view.
         conn.execute(text("DROP VIEW IF EXISTS vw_picker_daily"))
         conn.execute(text(VW_PICKER_DAILY_SQL))
-        conn.execute(text(VW_IDLE_DEDICATED_SQL.format(tz=tz_name)))
-        conn.execute(text(VW_PICKER_IDLE_DAILY_SQL.format(tz=tz_name)))
+        conn.execute(text(VW_IDLE_DEDICATED_SQL))
+        conn.execute(text(VW_PICKER_IDLE_DAILY_SQL))
         # DROP first: these evolved column types (time -> timestamp) which
         # CREATE OR REPLACE VIEW cannot do on an existing view.
         conn.execute(text("DROP VIEW IF EXISTS vw_picker_occupancy_daily"))
-        conn.execute(text(VW_PICKER_OCCUPANCY_DAILY_SQL.format(tz=tz_name)))
+        conn.execute(text(VW_PICKER_OCCUPANCY_DAILY_SQL))
         conn.execute(text("DROP VIEW IF EXISTS vw_idle_gaps"))
-        conn.execute(text(VW_IDLE_GAPS_SQL.format(tz=tz_name)))
+        conn.execute(text(VW_IDLE_GAPS_SQL))
         conn.execute(text("DROP VIEW IF EXISTS vw_order_performance"))
-        conn.execute(text(VW_ORDER_PERFORMANCE_SQL.format(tz=tz_name)))
+        conn.execute(text(VW_ORDER_PERFORMANCE_SQL))
 
         already_done = conn.execute(
             text("SELECT 1 FROM settings WHERE key = :k AND value = 'true'"),

@@ -3,8 +3,7 @@
 {% block title %}Picker Dashboard - EPIQ{% endblock %}
 
 {% block content %}
-<!-- Shift Status Card (per-user activity tracking) -->
-{% if activity_tracking_enabled %}
+<!-- Shift Status Card -->
 {% if active_shift %}
 <div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #2d3436 0%, #000000 100%); color: #ffffff;">
     <div class="card-body">
@@ -12,23 +11,13 @@
             <div>
                 <h5 class="mb-1 text-white"><i class="fas fa-user-clock me-2"></i>Shift Active</h5>
                 <div class="fs-5">Check-in time: <strong class="text-white">{{ check_in_time_formatted }}</strong> ({{ shift_duration_minutes }} minutes)</div>
-                {% if activity_session %}
-                <div class="mt-1">
-                    <span class="badge bg-info text-dark">
-                        Current activity: {{ activity_session.open_state|replace('_', ' ')|title }}
-                    </span>
-                </div>
-                {% elif on_break %}
+                {% if on_break %}
                 <div class="mt-1"><span class="badge bg-info text-dark">On Break</span> since {{ on_break_start_time_formatted }}</div>
                 {% endif %}
             </div>
         <div>
             <div class="btn-group">
-                {% if activity_session %}
-                <button type="button" class="btn btn-info" data-bs-toggle="modal" data-bs-target="#activityModal">
-                    <i class="fas fa-list-check me-1"></i>Set Activity
-                </button>
-                {% elif on_break %}
+                {% if on_break %}
                 <form action="{{ url_for('end_break_route') }}" method="post">
                     <button type="submit" class="btn btn-success">
                         <i class="fas fa-check me-1"></i>End Break
@@ -49,7 +38,6 @@
 {% else %}
 <!-- Shift warning disabled -->
 {% endif %}
-{% endif %}
 
 <div class="row mb-4">
     <div class="col-md-8">
@@ -58,19 +46,6 @@
         </h1>
     </div>
     <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end">
-        {% if activity_tracking_enabled %}
-        <div class="d-flex flex-wrap justify-content-md-end gap-2 me-3">
-            {% if active_shift %}
-            <a href="{{ url_for('shift_check_out') }}" class="btn btn-outline-danger">
-                <i class="fas fa-sign-out-alt me-1"></i>Check Out
-            </a>
-            {% else %}
-            <a href="{{ url_for('shift_check_in') }}" class="btn btn-primary">
-                <i class="fas fa-sign-in-alt me-1"></i>Check In
-            </a>
-            {% endif %}
-        </div>
-        {% endif %}
         {% if picker_unvalidated_issues_count > 0 %}
         <a href="{{ url_for('delivery_issues.picker_review_issues') }}" 
            class="btn btn-warning d-flex flex-column align-items-center justify-content-center position-relative" 
@@ -406,96 +381,5 @@
         </div>
     </div>
 </div>
-{% endif %}
-
-{% if activity_session %}
-<div class="modal fade" id="activityModal" tabindex="-1" aria-labelledby="activityModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="activityModalLabel">What are you doing now?</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                {% if activity_session.open_state == 'unassigned' %}
-                <p class="text-warning mb-3">Choose an activity so your time is recorded correctly.</p>
-                {% else %}
-                <p class="text-muted mb-3">Change this only when your activity changes.</p>
-                {% endif %}
-                <div class="d-grid gap-2">
-                    {% for state, label, color, icon in [
-                        ('picking', 'Picking', 'primary', 'box'),
-                        ('break', 'Break', 'info', 'mug-hot'),
-                        ('restock', 'Restocking', 'secondary', 'boxes-stacked'),
-                        ('assist', 'Assisting', 'warning', 'handshake'),
-                        ('repacking', 'Repacking', 'success', 'box-open')
-                    ] %}
-                    <button type="button" class="btn btn-{{ color }} activity-state" data-state="{{ state }}">
-                        <i class="fas fa-{{ icon }} me-2"></i>{{ label }}
-                    </button>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
-{% if activity_session %}
-<script>
-(() => {
-    const state = {{ activity_session|tojson }};
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-    const endpoint = '/api/activity';
-    const actionId = () => crypto.randomUUID();
-
-    async function post(path, body) {
-        const response = await fetch(endpoint + path, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify(body)
-        });
-        if (response.status === 409) {
-            window.location.reload();
-            return;
-        }
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data.error || 'Could not update activity');
-        }
-        return response.json();
-    }
-
-    document.querySelectorAll('.activity-state').forEach((button) => {
-        button.addEventListener('click', async () => {
-            button.disabled = true;
-            try {
-                await post('/transition', {
-                    shift_id: state.shift_id,
-                    state: button.dataset.state,
-                    action_id: actionId(),
-                    expected_open_segment_id: state.open_segment_id
-                });
-                window.location.reload();
-            } catch (error) {
-                button.disabled = false;
-                alert(error.message);
-            }
-        });
-    });
-
-    window.setInterval(() => {
-        post('/heartbeat', {shift_id: state.shift_id}).catch(() => {});
-    }, 30000);
-
-    if (state.open_state === 'unassigned') {
-        const modalElement = document.getElementById('activityModal');
-        bootstrap.Modal.getOrCreateInstance(modalElement).show();
-    }
-})();
-</script>
 {% endif %}
 {% endblock %}
