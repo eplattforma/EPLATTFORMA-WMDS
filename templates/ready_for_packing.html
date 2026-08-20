@@ -65,7 +65,9 @@ async function printSlip(invoiceNo, btn) {
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sending…';
 
   try {
-    var response = await fetch('/print/delivery-slip/' + encodeURIComponent(invoiceNo), {
+    // Keep pack-screen printing explicitly on the A4 delivery-slip route.
+    // The Picking Dashboard has a separate box-label action.
+    var response = await fetch({{ url_for('printing.enqueue_print', kind='delivery-slip', invoice_no=invoice.invoice_no)|tojson }}, {
       method: 'POST',
       headers: {'X-CSRFToken': '{{ csrf_token() }}'}
     });
