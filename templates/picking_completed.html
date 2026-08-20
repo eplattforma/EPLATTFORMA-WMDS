@@ -26,10 +26,6 @@
                     You have successfully completed all picking tasks for Invoice #{{ invoice.invoice_no }}.
                 </p>
                 <div class="mt-4">
-                    <a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" 
-                       class="btn btn-success btn-lg me-3" target="_blank">
-                        <i class="fas fa-print me-2"></i> Print Picking Report
-                    </a>
                     <a href="{{ url_for('picker_dashboard') }}" class="btn btn-primary btn-lg">
                         <i class="fas fa-home me-2"></i> Return to Dashboard
                     </a>
